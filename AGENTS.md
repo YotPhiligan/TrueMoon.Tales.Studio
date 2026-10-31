@@ -1,8 +1,8 @@
 # Работа над TrueMoon Tales Studio
 
 Назначение: приложение видеопродакшена, локальный API/CLI, UI, тесты и общая
-интеграция ComfyUI. [README](README.md), [общие инструкции](../AGENTS.md),
-[план переноса](../MIGRATION.md).
+интеграция ComfyUI. [README](README.md), [общие инструкции](../TrueMoon.Workspace/Guidelines.md),
+[план переноса](../TrueMoon.Workspace/MIGRATION.md).
 
 В этом репозитории находится активный код Studio 0.15 после M2. Перед технической
 задачей читать [README](README.md), [Workspace](Workspace.md),

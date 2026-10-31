@@ -1,6 +1,6 @@
 # Omni v2: Draft и Full Transfer
 
-29.10.2026. Отдельная кандидатная ветка R-08. Два профиля собраны из выполненных PV01/PV03; их новые UI/API-графы прошли штатную CPU-валидацию. В [PT01](../../Research/Results/R-05.PT01.PromptOrder.v1/Report.md) выполнены три API Draft с реальным GPU и collect, сохранены Raw/последний PNG, логи и сравнение. Full Transfer этого ядра и импорт/экспорт нового UI в браузере ещё не проверены. [Подготовительный отчёт](../../Research/Results/R-08.DraftTransfer.v2/Report.md).
+29.10.2026. Отдельная кандидатная ветка R-08. Два профиля собраны из выполненных PV01/PV03; их новые UI/API-графы прошли штатную CPU-валидацию. В [PT01](../../../TrueMoon.Tales.Videos/Research/Results/R-05.PT01.PromptOrder.v1/Report.md) выполнены три API Draft с реальным GPU и collect, сохранены Raw/последний PNG, логи и сравнение. Full Transfer этого ядра и импорт/экспорт нового UI в браузере ещё не проверены. [Подготовительный отчёт](../../../TrueMoon.Tales.Videos/Research/Results/R-08.DraftTransfer.v2/Report.md).
 
 | Профиль | Выход | Входы движения |
 |---|---|---|
