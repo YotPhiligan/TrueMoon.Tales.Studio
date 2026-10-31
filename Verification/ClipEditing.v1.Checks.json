@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-31",
+  "release": "0.8.0",
+  "tests": {
+    "python": {
+      "passed": 196,
+      "seconds": 20.714,
+      "exit_code": 0
+    },
+    "node": {
+      "passed": 99,
+      "exit_code": 0
+    },
+    "new_python": 17,
+    "new_node": 14,
+    "original_js_logic": "PASS"
+  },
+  "qa": {
+    "port": 8795,
+    "project_id": "clip-qa",
+    "revision": 29,
+    "clips": [
+      {
+        "id": "edit-a",
+        "start_frame": 216,
+        "duration_frames": 24,
+        "source_in_frame": 12,
+        "source_out_frame": 60,
+        "speed": 2,
+        "anchor_frame": null,
+        "gap_protected": null
+      },
+      {
+        "id": "edit-b",
+        "start_frame": 264,
+        "duration_frames": 48,
+        "source_in_frame": 36,
+        "source_out_frame": 60,
+        "speed": 0.5,
+        "anchor_frame": null,
+        "gap_protected": true
+      },
+      {
+        "id": "clip-39693bf263a24cb2",
+        "start_frame": 312,
+        "duration_frames": 24,
+        "source_in_frame": 60,
+        "source_out_frame": null,
+        "speed": null,
+        "anchor_frame": null,
+        "gap_protected": null
+      },
+      {
+        "id": "edit-c",
+        "start_frame": 336,
+        "duration_frames": 48,
+        "source_in_frame": 72,
+        "source_out_frame": null,
+        "speed": null,
+        "anchor_frame": 336,
+        "gap_protected": null
+      }
+    ],
+    "issues": [],
+    "compact_initial_starts": [
+      9,
+      11,
+      13
+    ],
+    "compact_first_gap_and_tail_preserved": true,
+    "compact_undo_redo": true,
+    "source_trim_and_undo": true,
+    "source_slip_delta_seconds": 0.5,
+    "split_at_seconds": 12,
+    "protected_gap_seconds": 1,
+    "anchor_seconds": 14,
+    "anchor_conflict_and_undo": true,
+    "rate2_preview": {
+      "timeline_seconds": 9.51,
+      "source_seconds": 1.52,
+      "native_rate": 2,
+      "native_paused": false,
+      "buffer_ticks": 0,
+      "resyncs": 0,
+      "max_native_drift_seconds": 0.075
+    },
+    "rate_half_preview": {
+      "timeline_seconds": 12.01,
+      "source_seconds": 2.005,
+      "native_rate": 0.5,
+      "native_paused": false,
+      "buffer_ticks": 0,
+      "resyncs": 0
+    },
+    "restart_restores_state": true,
+    "console_warning_errors_after_reload": 0,
+    "gpu_jobs": 0,
+    "source_blocks_assets_unchanged": true,
+    "music_markers_windows_unchanged": true,
+    "next_clip_unchanged": true
+  },
+  "production_sources": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "initial_sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "final_sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "agent_wrote_source": false,
+      "unchanged": true
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "initial_sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "final_sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "agent_wrote_source": false,
+      "unchanged": true
+    }
+  },
+  "syntax_python_ast": "PASS",
+  "syntax_javascript": "PASS",
+  "git_diff_check": "PASS",
+  "docs_links": "PASS",
+  "owned_preview_server_stopped": true,
+  "owned_preview_tab_closed": true
+}

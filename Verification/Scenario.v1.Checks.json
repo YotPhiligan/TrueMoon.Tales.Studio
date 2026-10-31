@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-31",
+  "release": "0.5.0",
+  "tests": {
+    "python": {
+      "passed": 165,
+      "seconds": 15.536,
+      "exit_code": 0
+    },
+    "node": {
+      "passed": 50,
+      "exit_code": 0
+    },
+    "original_js_logic": "PASS"
+  },
+  "qa": {
+    "port": 8792,
+    "project_id": "scenario-qa",
+    "revision": 19,
+    "segments": 2,
+    "items": 4,
+    "library_blocks": 6,
+    "remaining_frames": 24,
+    "issues": [],
+    "ui_created_text_blocks": true,
+    "ui_overflow_draft_and_last_valid_timeline": true,
+    "timeline_form_duration_ripple": true,
+    "undo": true,
+    "unknown_times_not_zero": true,
+    "remove_keeps_source": true,
+    "library_and_block_editor_access": true,
+    "existing_take_assignment": true,
+    "neighbor_window_unchanged": true,
+    "restart_restores_state": true,
+    "browser_console_warnings_errors_after_reload": 0,
+    "gpu_jobs": 0,
+    "playback_check": {
+      "from_seconds": 20,
+      "end_seconds": 24,
+      "visits": [
+        "video",
+        "gap"
+      ],
+      "buffer_ticks": 2,
+      "max_native_video_drift_seconds": 0.1284
+    }
+  },
+  "production_sources": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "unchanged": true,
+      "agent_wrote_source": false
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "unchanged": true,
+      "agent_wrote_source": false
+    }
+  },
+  "syntax_python_ast": "PASS",
+  "owned_preview_server_stopped": true,
+  "syntax_javascript": "PASS",
+  "git_diff_check": "PASS"
+}

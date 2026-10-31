@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "id": "R08.B.API",
+  "profile": "omni-context",
+  "size": [
+    1280,
+    736
+  ],
+  "seconds": 5.0,
+  "seed": 148096032077132,
+  "prompt": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Workflows\\Omni.v1\\Examples\\Action.Continue.Prompt.txt",
+  "references": [
+    {
+      "role": "location",
+      "path": "E:\\ComfyUI_windows_portable\\ComfyUI\\input\\TMT.CL-RP01.Location.H3.v1.png"
+    },
+    {
+      "role": "adult character / sealed operational outfit",
+      "path": "E:\\ComfyUI_windows_portable\\ComfyUI\\input\\TMT.Claire.Operational.FullBody.Reference.v7.png"
+    },
+    {
+      "role": "pose and headgear",
+      "path": "E:\\ComfyUI_windows_portable\\ComfyUI\\input\\TMT.CL-RP01.Claire.Pose.v1.png"
+    },
+    {
+      "role": "carbine",
+      "path": "E:\\ComfyUI_windows_portable\\ComfyUI\\input\\TMT.CL-RP01.Carbine.v1.png"
+    },
+    {
+      "role": "lossless previous boundary / same Picture role",
+      "path": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-08.Pipeline.v1\\Jobs\\A.UI.v3\\output\\frames\\R08.A.UI.Last_00001_.png"
+    }
+  ],
+  "guides": [
+    {
+      "picture": 5,
+      "frame": 0
+    }
+  ],
+  "clip_index": 2,
+  "previous_latent": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-08.Pipeline.v1\\Jobs\\A.UI.v3\\output\\latents\\R08.A.UI_00001.safetensors"
+}

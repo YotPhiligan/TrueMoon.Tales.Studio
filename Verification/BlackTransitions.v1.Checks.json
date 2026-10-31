@@ -1,0 +1,174 @@
+{
+  "date": "2026-10-31",
+  "studio": "0.13",
+  "tests": {
+    "new_python": 11,
+    "new_node": 8,
+    "python": 236,
+    "python_seconds": 28.388,
+    "node_named_cases": 139,
+    "baseline_js_script": 1,
+    "node_runner_entries": 140,
+    "all_exit_codes": 0
+  },
+  "syntax": {
+    "python_ast_files": 42,
+    "static_js_files": 21,
+    "passed": true
+  },
+  "parity": {
+    "result": {
+      "state": "completed",
+      "output": "Draft.mp4",
+      "sha256": "8dd11c210295de92189ec68fd35f7b1cea101b5c8e2ffa447c4568e8ef03c128",
+      "video_info": {
+        "frames": 168,
+        "fps": 24,
+        "seconds": 7.0,
+        "width": 896,
+        "height": 516,
+        "audio": true
+      },
+      "elapsed_seconds": 2.281
+    },
+    "fps_grid_pts": true,
+    "frames_compared": 168,
+    "all_frame_thumbnail_mae_mean": 0.7713963948190212,
+    "all_frame_thumbnail_mae_max": 1.6645551919937134,
+    "black_frames": 42,
+    "black_mae_max": 0.0,
+    "attenuated_frames": 36,
+    "browser_samples_match": true,
+    "browser_samples": [
+      {
+        "clip": "fade-left",
+        "kind": "video",
+        "level": 0.458333,
+        "opacity": 0.541667,
+        "time": 1.25
+      },
+      {
+        "clip": "fade-left",
+        "kind": "video",
+        "level": 0,
+        "opacity": 1,
+        "time": 1.75
+      },
+      {
+        "clip": "fade-right",
+        "kind": "video",
+        "level": 0.291667,
+        "opacity": 0.708333,
+        "time": 2.125
+      },
+      {
+        "clip": "fade-right",
+        "kind": "video",
+        "level": 0.416667,
+        "opacity": 0.583333,
+        "time": 3.625
+      },
+      {
+        "clip": "",
+        "kind": "gap",
+        "level": 0,
+        "opacity": 1,
+        "time": 4.5
+      },
+      {
+        "clip": "fade-next",
+        "kind": "video",
+        "level": 0.583333,
+        "opacity": 0.416667,
+        "time": 5.125
+      }
+    ],
+    "audio": [
+      {
+        "window": "fade_and_sound",
+        "seconds": [
+          1.15,
+          1.4
+        ],
+        "correlation": 0.9981522240192451,
+        "rms_ratio": 1.0007506608963013
+      },
+      {
+        "window": "black_and_sound",
+        "seconds": [
+          1.6,
+          1.9
+        ],
+        "correlation": 0.9993944198971644,
+        "rms_ratio": 0.994895875453949
+      },
+      {
+        "window": "black_gap_and_music",
+        "seconds": [
+          4.3,
+          4.8
+        ],
+        "correlation": 0.9979140621162234,
+        "rms_ratio": 0.988889753818512
+      },
+      {
+        "window": "incoming_and_sound",
+        "seconds": [
+          5.1,
+          5.2
+        ],
+        "correlation": 0.9984785582744394,
+        "rms_ratio": 0.9910460114479065
+      }
+    ],
+    "timing_music_markers_anchors_and_sound_preserved": true,
+    "library_preserved": true,
+    "author_project_sha_unchanged": {
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": true,
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": true
+    },
+    "sample_revision": 48
+  },
+  "ui": {
+    "project": "transitions-qa",
+    "port": 8800,
+    "viewport": [
+      1280,
+      720
+    ],
+    "block_join_right_click": true,
+    "segment_join_shift_f10": true,
+    "durations_saved": [
+      [
+        0.5,
+        0.5,
+        0.5
+      ],
+      [
+        0.25,
+        1.25,
+        0.25
+      ]
+    ],
+    "undo_redo_remove_undo": true,
+    "invalid_short_pause_save_disabled": true,
+    "playback_end": 7,
+    "restart_preserved_transition_count": 2,
+    "exports_after_restart": 1,
+    "auto_repeat": false,
+    "console_errors": 0
+  },
+  "mp4": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\UI\\.local\\transitions-qa-20261031-r1\\project\\Production\\Exports\\export-72236eff9de74a9e\\Draft.mp4",
+  "cleanup": {
+    "qa_tab_closed": true,
+    "qa_server_8800_stopped": true,
+    "production_8787_untouched": true
+  },
+  "remaining": [
+    "cross dissolve",
+    "titles",
+    "audio fades",
+    "other UI plans"
+  ],
+  "local_links_checked": 104
+}

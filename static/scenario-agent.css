@@ -1,0 +1,7 @@
+.scenario-agent-form input:not([type=checkbox]),.scenario-agent-form select,.scenario-agent-form textarea{width:100%;padding:9px;border:1px solid #3d5058;border-radius:5px;background:#111b21;color:var(--text)}
+.scenario-agent-form textarea{resize:vertical;min-height:60px}
+.agent-components{display:flex;flex-wrap:wrap;gap:12px;border:1px solid var(--line);border-radius:5px;padding:12px;font-size:11px}
+.agent-components legend{font-size:11px;color:var(--muted);padding:0 5px}.agent-components label{display:flex;align-items:center;gap:5px}.agent-components input{accent-color:var(--mint)}
+.scenario-agent-actions{display:flex;gap:10px;flex-wrap:wrap}#scenarioAgentError{font-size:12px;color:#e8b57f;line-height:1.6}
+.story-agent-tasks{border-top:1px solid var(--line);margin-top:24px;padding-top:15px}.scenario-agent-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.scenario-agent-list .agent-task{margin:0}.scenario-agent-list .agent-task p{white-space:pre-wrap;overflow-wrap:anywhere}
+.story-card-buttons [data-agent-improve]{color:var(--mint)}

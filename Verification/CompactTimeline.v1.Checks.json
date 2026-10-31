@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-31",
+  "studio": "0.12",
+  "tests": {
+    "new_layout_cases": 7,
+    "python": 225,
+    "python_seconds": 29.595,
+    "node_named_cases": 131,
+    "baseline_js_script": 1,
+    "node_runner_entries": 132,
+    "all_exit_codes": 0
+  },
+  "ui": {
+    "compact": {
+      "canvas": {
+        "height": 152,
+        "width": 640,
+        "x": 322,
+        "y": 556
+      },
+      "card": {
+        "height": 434.3333435058594,
+        "width": 1042,
+        "x": 238,
+        "y": 65
+      },
+      "density": "compact",
+      "lanes": [
+        {
+          "height": 20,
+          "width": 640,
+          "x": 322,
+          "y": 556
+        },
+        {
+          "height": 14,
+          "width": 640,
+          "x": 322,
+          "y": 576
+        },
+        {
+          "height": 24,
+          "width": 640,
+          "x": 322,
+          "y": 590
+        },
+        {
+          "height": 34,
+          "width": 640,
+          "x": 322,
+          "y": 614
+        },
+        {
+          "height": 28,
+          "width": 640,
+          "x": 322,
+          "y": 648
+        }
+      ],
+      "scroll": {
+        "height": 164,
+        "width": 1042,
+        "x": 238,
+        "y": 556
+      },
+      "soundLanes": [
+        {
+          "height": 16,
+          "y": 676
+        },
+        {
+          "height": 16,
+          "y": 692
+        }
+      ],
+      "timeline": {
+        "height": 220.6666717529297,
+        "width": 1042,
+        "x": 238,
+        "y": 499.3333435058594
+      },
+      "viewport": [
+        1280,
+        720
+      ]
+    },
+    "full": {
+      "card": {
+        "height": 202.33334350585935,
+        "y": 65
+      },
+      "density": "full",
+      "timeline": {
+        "height": 452.6666870117187,
+        "y": 267.3333435058594
+      }
+    },
+    "persistence": {
+      "storyFullOnReturn": true,
+      "storyFullReloadButton": true,
+      "storyCompactReload": true,
+      "editingCompactOnReturn": true,
+      "compactIgnoresInheritedCollapse": true,
+      "propertiesOpenClose": true,
+      "contextMenus": true
+    },
+    "afterReload": {
+      "density": "compact",
+      "context": "story",
+      "lanesVisible": true
+    }
+  },
+  "syntax": {
+    "python_ast_files": 40,
+    "static_js_files": 19,
+    "passed": true
+  },
+  "preservation": {
+    "qa_project_sha256_unchanged": true,
+    "qa_revision": 42,
+    "qa_undo_entries": 0,
+    "author_project_sha256_unchanged": {
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": true,
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": true
+    },
+    "gpu_jobs_created": 0
+  },
+  "cleanup": {
+    "qa_tab_closed": true,
+    "qa_server_8799_stopped": true,
+    "production_8787_untouched": true
+  },
+  "remaining": [
+    "draggable divider",
+    "additional size presets",
+    "segment types",
+    "transitions",
+    "titles"
+  ],
+  "local_links_checked": 79
+}

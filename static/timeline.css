@@ -1,0 +1,91 @@
+/* The montage remains visible across block editing and project overview. */
+.workspace{display:flex;flex-direction:column;min-height:0}
+.editor-view{flex:1;min-height:0;height:auto;overflow:hidden}
+.overview-view{flex:1;min-height:0;overflow:auto}
+.viewer-column{padding-bottom:0;min-height:0}
+.viewer-heading>div{flex:1;min-width:0}
+.viewer-heading #addBlock{flex-shrink:0}
+.viewer-heading #sourceButton{flex-shrink:0}
+.timeline{flex:0 0 auto;min-width:0;border-top:1px solid #3a424b;background:#11151a;z-index:4}
+.tl-toolbar{height:51px;display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid #262d35;white-space:nowrap;overflow-x:auto}
+.tl-title{margin-right:7px;min-width:115px;display:flex;flex-direction:column;gap:4px}
+.tl-title .eyebrow{font-size:7px;letter-spacing:1.4px}
+.tl-title strong{font-size:11px;font-weight:500;color:#d4dce5}
+.tl-timecode{font:12px "Consolas",monospace;color:var(--mint);font-variant-numeric:tabular-nums}
+.tl-fps{font:9px "Consolas",monospace;color:var(--dim);margin-right:5px}
+.tl-toolbar .button{font-size:10px;padding:6px 9px}
+.tl-snap{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);margin:0 4px}
+.tl-snap input{accent-color:var(--mint);width:12px;height:12px}
+.tl-zoom{display:flex;align-items:center;gap:5px;color:var(--muted);margin-left:auto}
+.tl-zoom input{width:76px;padding:0;accent-color:var(--mint);border:0;background:none;height:20px}
+.tl-body{display:block}
+.timeline.collapsed .tl-body{display:none}
+.tl-scroll{height:184px;display:flex;overflow:auto;position:relative;scrollbar-width:thin;scrollbar-color:#424c59 #11151a;outline:none}
+.tl-scroll:focus-visible{outline:1px solid var(--mint);outline-offset:-1px}
+.tl-scroll.drop-active{box-shadow:inset 0 0 0 2px var(--mint)}
+.tl-library-ghost{position:fixed;z-index:1000;pointer-events:none;background:#203a34ee;border:1px solid #92d3b8;border-radius:5px;padding:10px 15px;color:#ddf7eb;font:11px "Consolas",monospace;box-shadow:0 8px 24px #0008}
+.tl-gutter{position:sticky;left:0;z-index:7;width:84px;min-width:84px;background:#151a20;border-right:1px solid #333d48;display:flex;flex-direction:column;pointer-events:none}
+.tl-gutter span{padding-left:13px;display:flex;align-items:center;color:#8a96a6;font:9px "Consolas",monospace;border-bottom:1px solid #283039}
+.tl-gutter span:nth-child(1){height:29px}
+.tl-gutter span:nth-child(2){height:23px;font-size:8px}
+.tl-gutter span:nth-child(3){height:35px}
+.tl-gutter span:nth-child(4){height:84px}
+.tl-canvas{position:relative;flex:none;min-width:600px;height:171px;background:#11161c;user-select:none;touch-action:none}
+.tl-ruler{position:relative;height:29px;border-bottom:1px solid #333d48;background:#171d25;cursor:crosshair}
+.tl-tick{position:absolute;width:1px;bottom:0;height:5px;background:#3e4958;pointer-events:none}
+.tl-tick.major{height:9px;background:#657184}
+.tl-tick b{position:absolute;left:5px;bottom:9px;font:9px "Consolas",monospace;color:#9aa7b9;white-space:nowrap}
+.tl-marker-lane{position:relative;height:23px;background:#151a22;border-bottom:1px solid #29313b;overflow:hidden}
+.tl-marker{position:absolute;top:1px;height:20px;display:flex;align-items:center;gap:3px;transform:translateX(-4px);font:12px "Consolas",monospace;color:#dbb974;background:none;border:0;padding:1px 3px;max-width:160px;z-index:3;cursor:ew-resize;touch-action:none;white-space:nowrap}
+.tl-marker span{font-size:8px;overflow:hidden;text-overflow:ellipsis}
+.tl-marker.selected{background:#8c6a3538;color:#ffe4af;outline:1px solid #af8c51;border-radius:3px}
+.tl-segment-lane{position:relative;height:35px;background:#11171d;border-bottom:1px solid #303a45}
+.tl-clip-lane{position:relative;height:84px;background:repeating-linear-gradient(90deg,#121920,#121920 31px,#17202a 31px,#17202a 32px)}
+.tl-segment,.tl-clip{--tone:#91d0b9;--fill:#1b3732;position:absolute;border:1px solid var(--tone);border-radius:4px;overflow:hidden;cursor:grab;touch-action:none;outline:none}
+.timeline .mint{--tone:#92d3b8;--fill:#203a34}
+.timeline .blue{--tone:#7eaccb;--fill:#243746}
+.timeline .violet{--tone:#b19acf;--fill:#3a2e48}
+.timeline .amber{--tone:#c2a46f;--fill:#413726}
+.timeline .rose{--tone:#c58a9e;--fill:#412c35}
+.timeline .teal{--tone:#69b6b6;--fill:#203b3f}
+.tl-segment{top:5px;height:25px;background:var(--fill);display:flex;align-items:center;gap:8px;padding:3px 9px;border-color:color-mix(in srgb,var(--tone) 50%,transparent);color:var(--tone);min-width:2px;z-index:2}
+.tl-segment>span{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-segment>small{font:8px "Consolas",monospace;opacity:.65;white-space:nowrap;margin-left:auto}
+.tl-clip{top:7px;height:68px;min-width:2px;background:var(--fill);border-color:color-mix(in srgb,var(--tone) 65%,transparent);color:#e0e9ed;z-index:2}
+.tl-clip>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.4;pointer-events:none}
+.tl-clip:after{content:'';position:absolute;inset:20px 0 0;background:linear-gradient(transparent,#10151bd9);pointer-events:none}
+.tl-clip-label{position:absolute;left:8px;right:5px;bottom:23px;font:9px "Consolas",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:1;text-shadow:0 1px 4px #000}
+.tl-clip>small{position:absolute;left:8px;right:4px;bottom:8px;font:8px "Consolas",monospace;color:#d2dadd;white-space:nowrap;z-index:1;overflow:hidden;text-overflow:ellipsis}
+.tl-clip.placeholder{background:repeating-linear-gradient(135deg,var(--fill),var(--fill) 1px,#17202a 1px,#17202a 7px);border-style:dashed}
+.tl-clip.placeholder img{opacity:.16}
+.tl-handle{position:absolute;top:0;bottom:0;width:7px;z-index:6;cursor:ew-resize;background:#10161a20}
+.tl-handle.left{left:0;border-left:2px solid #e6fff344}
+.tl-handle.right{right:0;border-right:2px solid #e6fff344}
+.tl-handle:hover{background:#e6fff34a}
+.tl-segment.selected,.tl-clip.selected,.tl-segment:focus-visible,.tl-clip:focus-visible{border-color:#ffe2a7;box-shadow:0 0 0 1px #ffe2a7;z-index:5}
+.tl-segment:active,.tl-clip:active{cursor:grabbing}
+.tl-segment.invalid,.tl-clip.invalid{border-color:#ef7777;box-shadow:0 0 0 1px #ef7777;filter:saturate(.5)}
+.tl-boundary{position:absolute;top:52px;height:119px;width:1px;background:#a5c9d033;pointer-events:none;z-index:1}
+.tl-playhead{position:absolute;top:0;height:171px;width:1px;background:#dfb66d;z-index:6;pointer-events:none}
+.tl-playhead>i{position:absolute;top:0;left:-4px;width:9px;height:8px;background:#dfb66d;clip-path:polygon(0 0,100% 0,100% 60%,50% 100%,0 60%)}
+.tl-context-note{position:absolute;right:5px;top:4px;background:#151a20c9;color:#edc17a;font:11px "Consolas",monospace;border-radius:2px;z-index:2;padding:0 2px}
+.tl-empty{position:absolute;top:106px;left:30px;font-size:11px;color:#6e7d8f;pointer-events:none}
+.tl-properties{min-height:47px;padding:6px 14px;border-top:1px solid #303946;display:flex;align-items:center;gap:18px;background:#161c24;overflow-x:auto}
+.tl-properties .muted{font-size:9px;white-space:nowrap}
+.tl-selection-hint{font:10px "Consolas",monospace;white-space:nowrap;color:#bdc8d4}
+.tl-properties form{display:flex;align-items:end;gap:8px;white-space:nowrap;width:100%;margin:0}
+.tl-properties label{display:flex;flex-direction:column;gap:3px;min-width:72px}
+.tl-properties label>span{font-size:8px;color:#8e9daf}
+.tl-properties input,.tl-properties select{font:10px "Consolas",monospace;width:85px;padding:5px 6px;height:26px;border-radius:4px;background:#0e141b;border:1px solid #34404d;color:#e1e7ee}
+.tl-properties .tl-name-field{flex:1;max-width:220px;min-width:130px}
+.tl-properties .tl-name-field input{width:100%}
+.tl-properties .tl-take-field select{width:165px}
+.tl-item-kind{font:9px "Consolas",monospace;color:#c2cfdd;align-self:center;max-width:100px;overflow:hidden;text-overflow:ellipsis}
+.tl-properties .button{height:26px;font-size:9px;padding:4px 9px;flex-shrink:0}
+.tl-status{height:25px;padding:6px 14px;font-size:9px;color:#7f8fa2;border-top:1px solid #222b35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.timeline.pending .tl-body,.timeline.pending .tl-toolbar{pointer-events:none;opacity:.65}
+.timeline-dialog{display:flex;flex-direction:column;gap:15px}
+.timeline-dialog>.button{align-self:flex-end}
+@media(max-width:1100px){.tl-toolbar{gap:5px;padding:8px 10px}.tl-title{min-width:100px}.tl-toolbar .button{padding:6px;font-size:9px}.tl-fps{display:none}.tl-snap{font-size:9px;margin:0}.tl-zoom input{width:50px}.viewer-heading #sourceButton{display:none}.viewer-heading h1{max-width:100%}.tl-gutter{width:66px;min-width:66px}.tl-gutter span{padding-left:8px;font-size:8px}}
+@media(max-height:820px) and (min-width:721px){.viewer-column{padding-top:12px}.viewer-heading{margin-bottom:9px}.viewer-heading h1{font-size:18px}.viewer-toolbar{margin-bottom:8px}.preview-stage{min-height:130px}.job-panel{padding:10px 12px;margin-bottom:8px}.tl-toolbar{height:43px}.tl-properties{min-height:43px}.tl-status{height:21px;padding-top:4px}.transport{min-height:42px;padding:6px 0}.inspector-heading{padding-top:12px}}
+@media(max-width:720px){.workspace{overflow:visible}.editor-view{overflow:visible;min-height:600px;flex:none}.timeline{overflow:hidden}.tl-toolbar{height:auto;min-height:55px}.tl-properties{min-height:64px}.tl-status{height:auto;min-height:25px;white-space:normal;line-height:1.5}.viewer-column{min-height:450px}}

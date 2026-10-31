@@ -1,0 +1,2691 @@
+{
+  "id": "1f2d7106-d00b-4b85-8956-04dd92fc1a76",
+  "revision": 0,
+  "last_node_id": 207,
+  "last_link_id": 411,
+  "nodes": [
+    {
+      "id": 92,
+      "type": "SaveVideo",
+      "pos": [
+        1920,
+        4220
+      ],
+      "size": [
+        1030,
+        126
+      ],
+      "flags": {},
+      "order": 40,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "link": 260
+        },
+        {
+          "localized_name": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format",
+          "name": "format",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "format.codec",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format.codec"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "codec",
+          "shape": 7,
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "codec"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "video/CL-MC01.B.Context.Omni.v1.Raw",
+        "auto",
+        "auto",
+        "auto"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "video/CL-MC01.B.Context.Omni.v1.Raw",
+        "format": "auto",
+        "format.codec": "auto",
+        "codec": "auto"
+      }
+    },
+    {
+      "id": 116,
+      "type": "MarkdownNote",
+      "pos": [
+        -2020,
+        4210
+      ],
+      "size": [
+        450,
+        730
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Note: MiniMax H3",
+      "properties": {},
+      "widgets_values": [
+        "# R-01 MC01 / B.Context\n\nA: common source, exact AV save + lossless last PNG.\nB.Still: one last-frame Guide; remove duplicate first frame.\nB.Context: same images/prompt/seed; load A latent; pin 22 frames, trim 22.\n\nBoth B source lengths 124. Compare only first 102 new frames from each.\nNo Chain auto-run, no Refine Blend/Join Match/Sigmas Tail.\nSilent delivery; internal AV context still carries both streams."
+      ],
+      "widgets_values_named": {
+        "text": "## MiniMax H3\n\n[MiniMax H3](https://www.minimax.io/blog/minimax-h3) is MiniMax's general-purpose, omni-modal generation model. It jointly understands text, image, video, and audio, and generates video with **native stereo audio**: voice, sound effects, and music are modeled jointly in a single forward pass, not layered on afterward. Output is up to 2K resolution, 24fps, and up to about 15 seconds.\n\n## ComfyUI links\n- [ComfyUI#15224](https://github.com/Comfy-Org/ComfyUI/pull/15224)\n- [Add Guide for MiniMax H3](https://github.com/Comfy-Org/ComfyUI/pull/15439)\n- [🤗 Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3)\n\n## About this workflow\n\nThis template runs the **reference-to-video (ref2va)** task using the **MiniMax H3 Reference to Video** node. It takes any mix of reference images, videos, and standalone audio, and weaves them into the generation to lock in a character's identity, a style, a motion, a camera move, or a voice.\n\nOn top of that, chained **Add Guide for MiniMax H3** nodes pin extra stills (or short clips, and optional audio) onto specific frames of the *output* timeline. The model can address guides anywhere on a continuous time axis, not only the first and last frame. That is the multi-frame / keyframe path in this graph.\n\n**Key inputs**\n\n- **ref_images / ref_videos / ref_video_audios / ref_audios** on **MiniMax H3 Reference to Video**: up to 9 reference images, 3 reference videos (each may carry its own paired soundtrack), and 3 standalone reference audio clips. These are semantic references. Name them in connection order as `<Picture 1>`, `<Video 1>`, `<Audio 1>`. They do not sit on a timeline by themselves.\n- **prompt** (**Input Text (Prompt)**): reference the inputs by tag, in the exact order they were connected, then describe the target scene, motion, and audio. In this template, also name each later picture as a shot's first frame or keyframe, and cut to it at the matching timestamp in `detailed_description`.\n- **ref_image_size**: `match` scales references down to the generation's resolution (faster); `max` keeps up to a 2048px short edge for stronger identity fidelity, at the cost of speed since reference tokens ride along every sampling step\n- **width / height**: set via **Resolution Selector (Size)**\n- **duration (seconds)** (**Float (Duration)**): converted to a valid frame `length` by the **Math Expression** node\n\n**Multi-frame guides (Add Guide for MiniMax H3)**\n\nEach **Add Guide for MiniMax H3** anchors a guide at `frame_idx` (negative values count from the end of the video):\n\n- a still image\n- a clip (image batches snap down to the model's valid clip lengths: 5, 22, 39... frames; batches shorter than 5 frames use only the first image)\n- audio, starting at the same position\n- any combination. Chain several nodes (`positive` in to `positive` out) for several guides\n\n`frame_idx` is in frames at 24fps. This template sets it from **Frame Index (Second)** through **Math Expression** `round(a * 24)` (1.5s → frame 36). The index plus the guide length must stay inside the generated `length`.\n\nThis graph wires four pictures as follows:\n\n- **Load Image** `h3_frame_ref_1.png` → first `ref_images` input on **MiniMax H3 Reference to Video**. This is `<Picture 1>`, the identity lock and the first frame of Shot 1. There is no Add Guide at 0s; the prompt tells the model the video starts from `<Picture 1>`.\n- **Load Image** `h3_frame_ref_2.png` → first **Add Guide for MiniMax H3** at **1.5s** (Shot 2 keyframe)\n- **Load Image** `h3_frame_ref_3.png` → second Add Guide at **3.0s** (Shot 3 keyframe)\n- **Load Image** `h3_frame_ref_4.png` → third Add Guide at **5.0s** (Shot 4 first frame)\n\nTo add more keyframes, copy the same block: **Load Image** + **Frame Index (Second)** + **Math Expression** + **Add Guide for MiniMax H3**. Keep `positive` in series (last guide → **Basic Guider**). Reuse the same video VAE, audio VAE, and `LATENT` from **MiniMax H3 Reference to Video**. Leave `audio` empty unless you also want a soundtrack anchored at that time.\n\n`<Picture N>` tags only bind to images actually connected on `ref_images`, in that order. Pictures 2-4 here are timeline anchors only. Also plug them into extra `ref_images` slots if you want the text encoder to see them as `<Picture 2>` / `<Picture 3>` / `<Picture 4>`.\n\nOther useful patterns from the same node: feed the first 22 frames of an existing video plus its audio into one Add Guide at `frame_idx` 0 to continue both streams, or drop a still at a mid-clip frame (for example frame 60 of 124) to force the shot to hit that frame.\n"
+      },
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 117,
+      "type": "MarkdownNote",
+      "pos": [
+        -2490,
+        4210
+      ],
+      "size": [
+        440,
+        650
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Note: Model Links",
+      "properties": {},
+      "widgets_values": [
+        "# Single-scene continuity test\n\nLow lateral guarded advance, steady rightward tracking camera.\nNo new firing or mask transformation.\nSame five images, 1280x736, 24fps, 8 Omni steps.\nA seed 148096032077131; both B seed 148096032077132.\n\nMotion Context requires the pinned installed pack. Other custom nodes remain disabled."
+      ],
+      "widgets_values_named": {
+        "text": "## Input Assets\n- [h3_frame_ref_1.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/h3_frame_ref_1.png)\n- [h3_frame_ref_2.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/h3_frame_ref_2.png)\n- [h3_frame_ref_3.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/h3_frame_ref_3.png)\n- [h3_frame_ref_4.png](https://raw.githubusercontent.com/Comfy-Org/workflow_templates/refs/heads/main/input/h3_frame_ref_4.png)\n\n\n## Model Links\n[🤗 Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3)\n\n**vae**\n\n- [minimax_h3_video_vae_int8_convrot.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors) (2.62 GB)\n- [minimax_h3_audio_vae_fp32.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors) (577.2 MB)\n\n**diffusion_models**\n\n- [minimax_h3_ref2va_pruned_int8_convrot.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors) (19.53 GB)\n\n**text_encoders**\n\n- [qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors) (14.61 GB)\n\n**loras**\n\n- 4 steps: [minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors) (1.82 GB)\n\n**embeddings**\n\n- [10 style embeddings](https://huggingface.co/Comfy-Org/MiniMax-H3/tree/main/embeddings) (`minimaxh3_*.safetensors`), for example `minimaxh3_art_is_explosion`\n\n## Model Storage Location\n\n```\n📂 ComfyUI/\n├── 📂 models/\n│   ├── 📂 vae/\n│   │   ├── minimax_h3_video_vae_int8_convrot.safetensors\n│   │   └── minimax_h3_audio_vae_fp32.safetensors\n│   ├── 📂 diffusion_models/\n│   │   └── minimax_h3_ref2va_pruned_int8_convrot.safetensors\n│   ├── 📂 text_encoders/\n│   │   └── qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors\n│   ├── 📂 loras/\n│   │   └── minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors\n│   └── 📂 embeddings/\n│       └── minimaxh3_art_is_explosion.safetensors\n```\n\n## Using Prompt Embeddings\n\nPrompt embeddings (supported since [ComfyUI#15697](https://github.com/Comfy-Org/ComfyUI/pull/15697)) add reusable style tokens to your prompt. Download one or more embeddings from the folder above into `ComfyUI/models/embeddings/`, then reference one in the prompt text with the `embedding:` prefix and the filename without its extension, for example:\n\n`embedding:minimaxh3_art_is_explosion`\n\nUsing an embedding is optional and the template runs fine without one.\n\n## Report Issue\n\nNote: Please update ComfyUI first ([guide](https://docs.comfy.org/installation/update_comfyui)) and prepare required models. Desktop/Cloud updates follow stable releases, so some nightly-supported models may not be available yet.\n\n- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)\n- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)\n- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)\n"
+      },
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 119,
+      "type": "VAELoader",
+      "pos": [
+        -1490,
+        5490
+      ],
+      "size": [
+        640,
+        70
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            251,
+            273,
+            354,
+            408
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "minimax_h3_video_vae_fp16.safetensors",
+            "directory": "vae",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors"
+          }
+        ]
+      },
+      "widgets_values": [
+        "minimax_h3_video_vae_fp16.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+      },
+      "title": "Installed H3 video VAE FP16"
+    },
+    {
+      "id": 120,
+      "type": "VAELoader",
+      "pos": [
+        -1490,
+        5630
+      ],
+      "size": [
+        650,
+        70
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            274,
+            355
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "minimax_h3_audio_vae_fp32.safetensors",
+            "directory": "vae",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors"
+          }
+        ]
+      },
+      "widgets_values": [
+        "minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "title": "Installed H3 audio VAE - internal graph only"
+    },
+    {
+      "id": 122,
+      "type": "VAEDecode",
+      "pos": [
+        1220,
+        5650
+      ],
+      "size": [
+        230,
+        60
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 37,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "samples",
+          "name": "samples",
+          "type": "LATENT",
+          "link": 280
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 251
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            258,
+            403
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "VAEDecode"
+      },
+      "widgets_values_named": {}
+    },
+    {
+      "id": 123,
+      "type": "KSamplerSelect",
+      "pos": [
+        1200,
+        5200
+      ],
+      "size": [
+        370,
+        70
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "sampler_name",
+          "name": "sampler_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "sampler_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "SAMPLER",
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            255
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "res_multistep"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "res_multistep"
+      }
+    },
+    {
+      "id": 124,
+      "type": "BasicScheduler",
+      "pos": [
+        1200,
+        5320
+      ],
+      "size": [
+        370,
+        130
+      ],
+      "flags": {},
+      "order": 31,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 338
+        },
+        {
+          "localized_name": "scheduler",
+          "name": "scheduler",
+          "type": "COMBO",
+          "widget": {
+            "name": "scheduler"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "steps",
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": 340
+        },
+        {
+          "localized_name": "denoise",
+          "name": "denoise",
+          "type": "FLOAT",
+          "widget": {
+            "name": "denoise"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "SIGMAS",
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            256
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "BasicScheduler"
+      },
+      "widgets_values": [
+        "simple",
+        8,
+        1.0
+      ],
+      "widgets_values_named": {
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1.0
+      }
+    },
+    {
+      "id": 125,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        1610,
+        5120
+      ],
+      "size": [
+        230,
+        140
+      ],
+      "flags": {},
+      "order": 36,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "noise",
+          "name": "noise",
+          "type": "NOISE",
+          "link": 253
+        },
+        {
+          "localized_name": "guider",
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 254
+        },
+        {
+          "localized_name": "sampler",
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 255
+        },
+        {
+          "localized_name": "sigmas",
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 256
+        },
+        {
+          "localized_name": "latent_image",
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 271
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "output",
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            280,
+            400
+          ]
+        },
+        {
+          "localized_name": "denoised_output",
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SamplerCustomAdvanced"
+      },
+      "widgets_values_named": {}
+    },
+    {
+      "id": 126,
+      "type": "BasicGuider",
+      "pos": [
+        1200,
+        5090
+      ],
+      "size": [
+        360,
+        60
+      ],
+      "flags": {},
+      "order": 35,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 339
+        },
+        {
+          "localized_name": "conditioning",
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 410
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "GUIDER",
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "links": [
+            254
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "BasicGuider"
+      },
+      "widgets_values_named": {}
+    },
+    {
+      "id": 127,
+      "type": "UNETLoader",
+      "pos": [
+        -1490,
+        4980
+      ],
+      "size": [
+        640,
+        90
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "unet_name",
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "weight_dtype",
+          "name": "weight_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "weight_dtype"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            337
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "UNETLoader",
+        "models": [
+          {
+            "name": "fasth3_omniref_qad_nvfp4_comfy.safetensors",
+            "url": "https://huggingface.co/FastVideo/FastH3-Omni-NVFP4-QAD-Comfy/resolve/36dbf15cd11113471114b1040c4f38646c031549/fasth3_omniref_qad_nvfp4_comfy.safetensors",
+            "directory": "diffusion_models"
+          }
+        ]
+      },
+      "widgets_values": [
+        "fasth3_omniref_qad_nvfp4_comfy.safetensors",
+        "default"
+      ],
+      "widgets_values_named": {
+        "unet_name": "fasth3_omniref_qad_nvfp4_comfy.safetensors",
+        "weight_dtype": "default"
+      },
+      "title": "Omni NVFP4 QAD - installed checkpoint"
+    },
+    {
+      "id": 128,
+      "type": "CLIPLoader",
+      "pos": [
+        -1490,
+        5300
+      ],
+      "size": [
+        640,
+        120
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "clip_name",
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "type",
+          "name": "type",
+          "type": "COMBO",
+          "widget": {
+            "name": "type"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "device",
+          "name": "device",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "device"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            272
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "CLIPLoader",
+        "models": [
+          {
+            "name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+            "directory": "text_encoders"
+          }
+        ]
+      },
+      "widgets_values": [
+        "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "minimax",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "type": "minimax",
+        "device": "default"
+      },
+      "title": "Installed H3 NVFP4 AWQ encoder"
+    },
+    {
+      "id": 129,
+      "type": "RandomNoise",
+      "pos": [
+        1200,
+        4950
+      ],
+      "size": [
+        360,
+        90
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "noise_seed",
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "NOISE",
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            253
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [
+        148096032077132,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "noise_seed": 148096032077132,
+        "control_after_generate": "randomize"
+      }
+    },
+    {
+      "id": 130,
+      "type": "CreateVideo",
+      "pos": [
+        1530,
+        5650
+      ],
+      "size": [
+        270,
+        150
+      ],
+      "flags": {},
+      "order": 39,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 258
+        },
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "fps",
+          "name": "fps",
+          "type": "FLOAT",
+          "widget": {
+            "name": "fps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "bit_depth",
+          "name": "bit_depth",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "bit_depth"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "color_space",
+          "name": "color_space",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "color_space"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "codec",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "codec"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VIDEO",
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            260
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "CreateVideo"
+      },
+      "widgets_values": [
+        24,
+        "auto",
+        "sRGB",
+        "none"
+      ],
+      "widgets_values_named": {
+        "fps": 24,
+        "bit_depth": "auto",
+        "color_space": "sRGB",
+        "codec": "none"
+      }
+    },
+    {
+      "id": 131,
+      "type": "ComfyMathExpression",
+      "pos": [
+        -1440,
+        4770
+      ],
+      "size": [
+        225,
+        74
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "a",
+          "localized_name": "a",
+          "name": "values.a",
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": 261
+        },
+        {
+          "localized_name": "b",
+          "name": "values.b",
+          "shape": 7,
+          "type": "FLOAT,INT,BOOLEAN",
+          "link": null
+        },
+        {
+          "localized_name": "expression",
+          "name": "expression",
+          "type": "STRING",
+          "widget": {
+            "name": "expression"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "FLOAT",
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": []
+        },
+        {
+          "localized_name": "INT",
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            275
+          ]
+        },
+        {
+          "localized_name": "BOOL",
+          "name": "BOOL",
+          "type": "BOOLEAN",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "ComfyMathExpression"
+      },
+      "widgets_values": [
+        "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17"
+      ],
+      "widgets_values_named": {
+        "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17"
+      }
+    },
+    {
+      "id": 132,
+      "type": "PrimitiveFloat",
+      "pos": [
+        -1480,
+        4650
+      ],
+      "size": [
+        270,
+        70
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "FLOAT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "FLOAT",
+          "name": "FLOAT",
+          "type": "FLOAT",
+          "links": [
+            261
+          ]
+        }
+      ],
+      "title": "Float (Duration)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveFloat"
+      },
+      "widgets_values": [
+        5.0
+      ],
+      "widgets_values_named": {
+        "value": 5.0
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 136,
+      "type": "MiniMaxH3ReferenceToVideo",
+      "pos": [
+        -600,
+        4940
+      ],
+      "size": [
+        400,
+        456
+      ],
+      "flags": {},
+      "order": 30,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 272
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 273
+        },
+        {
+          "localized_name": "audio_vae",
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 274
+        },
+        {
+          "label": "ref_image_0",
+          "localized_name": "ref_image_0",
+          "name": "ref_images.ref_image_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 314
+        },
+        {
+          "localized_name": "ref_image_1",
+          "name": "ref_images.ref_image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 335
+        },
+        {
+          "name": "ref_images.ref_image_2",
+          "localized_name": "ref_image_2",
+          "type": "IMAGE",
+          "shape": 7,
+          "link": 341
+        },
+        {
+          "name": "ref_images.ref_image_3",
+          "localized_name": "ref_image_3",
+          "type": "IMAGE",
+          "shape": 7,
+          "link": 348
+        },
+        {
+          "name": "ref_images.ref_image_4",
+          "localized_name": "ref_image_4",
+          "type": "IMAGE",
+          "shape": 7,
+          "link": 350
+        },
+        {
+          "label": "ref_video_0",
+          "localized_name": "ref_video_0",
+          "name": "ref_videos.ref_video_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "label": "ref_video_audio_0",
+          "localized_name": "ref_video_audio_0",
+          "name": "ref_video_audios.ref_video_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "label": "ref_audio_0",
+          "localized_name": "ref_audio_0",
+          "name": "ref_audios.ref_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "ref_audio_1",
+          "name": "ref_audios.ref_audio_1",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "ref_audio_2",
+          "name": "ref_audios.ref_audio_2",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 333
+        },
+        {
+          "localized_name": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "length",
+          "name": "length",
+          "type": "INT",
+          "widget": {
+            "name": "length"
+          },
+          "link": 275
+        },
+        {
+          "localized_name": "ref_image_size",
+          "name": "ref_image_size",
+          "type": "COMBO",
+          "widget": {
+            "name": "ref_image_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "positive",
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            352
+          ]
+        },
+        {
+          "localized_name": "LATENT",
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            271,
+            353,
+            409
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "MiniMaxH3ReferenceToVideo"
+      },
+      "widgets_values": [
+        "",
+        1280,
+        736,
+        124,
+        "match"
+      ],
+      "widgets_values_named": {
+        "prompt": "",
+        "width": 1280,
+        "height": 736,
+        "length": 124,
+        "ref_image_size": "match"
+      },
+      "color": "#322",
+      "bgcolor": "#533",
+      "title": "Ref2VA - four assets + Picture 5 assembled first"
+    },
+    {
+      "id": 138,
+      "type": "PrimitiveStringMultiline",
+      "pos": [
+        -720,
+        4270
+      ],
+      "size": [
+        480,
+        530
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "STRING",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "STRING",
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            333
+          ]
+        }
+      ],
+      "title": "R-05 RP02 - 5.17s / same early phases / extended moving tail",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveStringMultiline"
+      },
+      "widgets_values": [
+        "subject_definitions:\n<Subject 1> is one adult Claire. <Picture 2> defines her proportions and below-collar costume: fitted gray underlayer, segmented gray armor, tactical belt, long central front fabric panel, dark cloak and armored heeled boots. <Picture 3> defines her loaded aiming crouch, grip, raised black hood, concealed ponytail, chestnut fringe and exact rigid sealed graphite mask with a smoked visor and one steady thin cyan arc. These pictures depict the same woman; the gray studio backgrounds and the different visor in <Picture 2> are outside their reference roles.\n<Subject 2> is Claire's single rune carbine. <Picture 4> defines its black skeletal stock, pistol grip, circular side mechanism, segmented silver-and-black barrel housing, engraved gold inlays and cylindrical muzzle. <Picture 3> supplies its supported scale and orientation in her hands.\n<Subject 3> is the empty rainy upper monastery gallery in <Picture 1>, including the foreground stone parapet, close left pillar, rear columns, broken pointed arches and cold night light.\n<Picture 5> is the handoff frame at the join into the new continuation, defining Claire's current scale, position, low posture, supported carbine and closed headgear. The forward motion continues through this boundary.\n\nsummary:\n[reference generation + keyframe completion] Generate the next 5.17-second source, carrying the current handoff state and momentum of <Picture 5> into the same low advance. Keep <Subject 1>, <Subject 2> and <Subject 3> in one continuous guarded lateral movement, using the images for their assigned appearance, prop and scene roles.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - one adult Claire retains her image-defined identity, costume and rigid closed headgear while her pose develops into sustained movement.\n<Subject 2> (appears in [Shot 1]): fully_preserved - one rigid carbine keeps its construction and two-handed support through the same movement.\n<Subject 3> (appears in [Shot 1]): fully_preserved - the same wet gallery, stone parapet, pillars and cold illumination remain spatially continuous.\n<Picture 5> ([Shot 1] boundary composition): fully_preserved - its visible character state and equipment define the entry into the new action.\n\ndetailed_description:\nUse detailed painterly dark-fantasy anime rendering, fine linework, cold blue-gray night colors and restrained wet-metal highlights. A single near-frontal medium shot follows one continuous low movement.\n\n[Shot 1] The new action continues through the handoff state of <Picture 5>. Claire and the camera keep their established rightward travel; the next weight transfer carries that momentum forward immediately. <Subject 1> occupies the inner side of the foreground parapet in <Subject 3>. Her hood, closed graphite mask, steady cyan arc, shoulders, attached hands and the complete muzzle remain readable above the stone. Her feet work on the gallery floor behind the barrier. The fitted armor and heavy cloak follow <Picture 2>, while <Picture 3> defines the exact sealed headgear and supported weapon handling.\n\nHer anatomical right hand holds the grip of <Subject 2>, and her left supports its fore-end. The stock rests at her right shoulder. The supported muzzle covers the off-screen courtyard slightly beside the camera. Her elbows remain close enough that the hands, rifle and shoulder travel as a connected assembly. The carbine stays in a guarded carrying aim throughout the movement.\n\nImmediately from the entry, she advances toward screen right in compact low lateral footwork, parallel to the parapet. A supporting foot presses against the floor as the other clears it and plants farther along the same path. The hips lead the transfer; bent knees absorb each plant, keeping the head and shoulders close to their current low height. The next transfer follows before the previous motion settles. Her weight passes over each newly planted foot rather than sliding the whole body as a rigid cutout.\n\nThe camera trucks smoothly toward screen right alongside her at a steady restrained speed, keeping Claire in the middle portion of the medium composition. Nearby wet stone shifts left faster than the more distant pillars. This continuous parallax makes the camera motion legible while the spacing and perspective of the existing architecture remain coherent. The camera height and viewing angle remain steady.\n\nAcross the full 5.17 seconds, this same guarded low advance continues. Her torso stays loaded over flexed legs, the supported gun covers the same courtyard, and her gaze follows that guarded direction behind the sealed visor. Her head and upper body retain a compact silhouette through the weight changes. The heavy cloak trails to the left, then follows each transfer with a small delay; rain runs off the same fabric folds and droplets leave its edge.\n\nThe final instant catches the next low step already in progress, with the body and camera still travelling at the established pace. Her hands retain their grip, the mask remains rigid and closed, and its single cyan arc stays steady. The action remains one uninterrupted guarded movement. Output is silent.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A\n"
+      ],
+      "widgets_values_named": {
+        "value": "subject_definitions:\n<Subject 1> is one adult Claire. <Picture 2> defines her proportions and below-collar costume: fitted gray underlayer, segmented gray armor, tactical belt, long central front fabric panel, dark cloak and armored heeled boots. <Picture 3> defines her loaded aiming crouch, grip, raised black hood, concealed ponytail, chestnut fringe and exact rigid sealed graphite mask with a smoked visor and one steady thin cyan arc. These pictures depict the same woman; the gray studio backgrounds and the different visor in <Picture 2> are outside their reference roles.\n<Subject 2> is Claire's single rune carbine. <Picture 4> defines its black skeletal stock, pistol grip, circular side mechanism, segmented silver-and-black barrel housing, engraved gold inlays and cylindrical muzzle. <Picture 3> supplies its supported scale and orientation in her hands.\n<Subject 3> is the empty rainy upper monastery gallery in <Picture 1>, including the foreground stone parapet, close left pillar, rear columns, broken pointed arches and cold night light.\n<Picture 5> is the handoff frame at the join into the new continuation, defining Claire's current scale, position, low posture, supported carbine and closed headgear. The forward motion continues through this boundary.\n\nsummary:\n[reference generation + keyframe completion] Generate the next 5.17-second source, carrying the current handoff state and momentum of <Picture 5> into the same low advance. Keep <Subject 1>, <Subject 2> and <Subject 3> in one continuous guarded lateral movement, using the images for their assigned appearance, prop and scene roles.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - one adult Claire retains her image-defined identity, costume and rigid closed headgear while her pose develops into sustained movement.\n<Subject 2> (appears in [Shot 1]): fully_preserved - one rigid carbine keeps its construction and two-handed support through the same movement.\n<Subject 3> (appears in [Shot 1]): fully_preserved - the same wet gallery, stone parapet, pillars and cold illumination remain spatially continuous.\n<Picture 5> ([Shot 1] boundary composition): fully_preserved - its visible character state and equipment define the entry into the new action.\n\ndetailed_description:\nUse detailed painterly dark-fantasy anime rendering, fine linework, cold blue-gray night colors and restrained wet-metal highlights. A single near-frontal medium shot follows one continuous low movement.\n\n[Shot 1] The new action continues through the handoff state of <Picture 5>. Claire and the camera keep their established rightward travel; the next weight transfer carries that momentum forward immediately. <Subject 1> occupies the inner side of the foreground parapet in <Subject 3>. Her hood, closed graphite mask, steady cyan arc, shoulders, attached hands and the complete muzzle remain readable above the stone. Her feet work on the gallery floor behind the barrier. The fitted armor and heavy cloak follow <Picture 2>, while <Picture 3> defines the exact sealed headgear and supported weapon handling.\n\nHer anatomical right hand holds the grip of <Subject 2>, and her left supports its fore-end. The stock rests at her right shoulder. The supported muzzle covers the off-screen courtyard slightly beside the camera. Her elbows remain close enough that the hands, rifle and shoulder travel as a connected assembly. The carbine stays in a guarded carrying aim throughout the movement.\n\nImmediately from the entry, she advances toward screen right in compact low lateral footwork, parallel to the parapet. A supporting foot presses against the floor as the other clears it and plants farther along the same path. The hips lead the transfer; bent knees absorb each plant, keeping the head and shoulders close to their current low height. The next transfer follows before the previous motion settles. Her weight passes over each newly planted foot rather than sliding the whole body as a rigid cutout.\n\nThe camera trucks smoothly toward screen right alongside her at a steady restrained speed, keeping Claire in the middle portion of the medium composition. Nearby wet stone shifts left faster than the more distant pillars. This continuous parallax makes the camera motion legible while the spacing and perspective of the existing architecture remain coherent. The camera height and viewing angle remain steady.\n\nAcross the full 5.17 seconds, this same guarded low advance continues. Her torso stays loaded over flexed legs, the supported gun covers the same courtyard, and her gaze follows that guarded direction behind the sealed visor. Her head and upper body retain a compact silhouette through the weight changes. The heavy cloak trails to the left, then follows each transfer with a small delay; rain runs off the same fabric folds and droplets leave its edge.\n\nThe final instant catches the next low step already in progress, with the body and camera still travelling at the established pace. Her hands retain their grip, the mask remains rigid and closed, and its single cyan arc stays steady. The action remains one uninterrupted guarded movement. Output is silent.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A\n"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 140,
+      "type": "MarkdownNote",
+      "pos": [
+        -1150,
+        4260
+      ],
+      "size": [
+        300,
+        540
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Note: Video Settings",
+      "properties": {},
+      "widgets_values": [
+        "# Delivery lengths\n\nA:124 frames. B.Still raw124 -> new123 (trim1).\nB.Context raw124 -> new102 (trim22).\nCommon extension102 frames = 4.25s; common A+B226 = 9.4167s.\n\nKeep raw and delivered versions; no retiming."
+      ],
+      "widgets_values_named": {
+        "text": "## Resolution Selector\nDelete the **Resolution Selector** node if you want to customize video size manually\n| megapixels | Aspect | Output (multiple=32) |\n|---|---|---|\n| 0.2 | 16:9 | 608 x 352 |\n| 0.3 | 16:9 | 736 x 416 |\n| 0.4 | 16:9 | 864 x 480 |\n| 0.5 | 16:9 | 960 x 544 |\n| 0.6 | 16:9 | 1056 x 608 |\n| 0.7 | 16:9 | 1152 x 640 |\n| 0.8 | 16:9 | 1216 x 672 |\n| 0.9 | 16:9 | 1280 x 736 |\n| 0.98 | 16:9 | 1344 x 768 (official 768p) |\n\n---\n\n## Lightning LoRA\n\nFor fast video generation, but scarce video quality\n\n---\n## Duration\n\nUp to 15s"
+      },
+      "color": "#222",
+      "bgcolor": "#000"
+    },
+    {
+      "id": 143,
+      "type": "PrimitiveInt",
+      "pos": [
+        -730,
+        5630
+      ],
+      "size": [
+        270,
+        90
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "value",
+          "name": "value",
+          "type": "INT",
+          "widget": {
+            "name": "value"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "INT",
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            340
+          ]
+        }
+      ],
+      "title": "Omni - 8 sampling steps",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "PrimitiveInt"
+      },
+      "widgets_values": [
+        8,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "value": 8,
+        "fixed": "fixed"
+      }
+    },
+    {
+      "id": 157,
+      "type": "LoadImage",
+      "pos": [
+        310,
+        4430
+      ],
+      "size": [
+        290,
+        330
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            335
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "TMT.Claire.Operational.FullBody.Reference.v7.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "TMT.Claire.Operational.FullBody.Reference.v7.png",
+        "upload": "image"
+      },
+      "title": "Picture 2 - Claire v7 identity/costume below collar"
+    },
+    {
+      "id": 164,
+      "type": "LoadImage",
+      "pos": [
+        -80,
+        4430
+      ],
+      "size": [
+        290,
+        330
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            314
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "TMT.CL-RP01.Location.H3.v1.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "TMT.CL-RP01.Location.H3.v1.png",
+        "upload": "image"
+      },
+      "title": "Picture 1 - EMPTY gallery / environment"
+    },
+    {
+      "id": 165,
+      "type": "MiniMaxH3SigmaShift",
+      "pos": [
+        -730,
+        5440
+      ],
+      "size": [
+        440,
+        110
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "title": "Omni flow shifts - video 12 / audio 3",
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 337
+        },
+        {
+          "name": "shift_video",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shift_video"
+          },
+          "link": null
+        },
+        {
+          "name": "shift_audio",
+          "type": "FLOAT",
+          "widget": {
+            "name": "shift_audio"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            338,
+            339
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "MiniMaxH3SigmaShift"
+      },
+      "widgets_values": [
+        12.0,
+        3.0
+      ],
+      "widgets_values_named": {
+        "shift_video": 12.0,
+        "shift_audio": 3.0
+      }
+    },
+    {
+      "id": 166,
+      "type": "LoadImage",
+      "pos": [
+        700,
+        4430
+      ],
+      "size": [
+        290,
+        330
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            341
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "TMT.CL-RP01.Claire.Pose.v1.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "TMT.CL-RP01.Claire.Pose.v1.png",
+        "upload": "image"
+      },
+      "title": "Picture 3 - Claire loaded crouch / exact headgear"
+    },
+    {
+      "id": 168,
+      "type": "LoadImage",
+      "pos": [
+        1100,
+        4430
+      ],
+      "size": [
+        290,
+        330
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            348
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "TMT.CL-RP01.Carbine.v1.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "TMT.CL-RP01.Carbine.v1.png",
+        "upload": "image"
+      },
+      "title": "Picture 4 - single CARBINE / no blade form"
+    },
+    {
+      "id": 169,
+      "type": "LoadImage",
+      "pos": [
+        1460,
+        4430
+      ],
+      "size": [
+        290,
+        330
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            350,
+            351
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "TMT.CL-MC01.A.LastFrame.H3.v1.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "TMT.CL-MC01.A.LastFrame.H3.v1.png",
+        "upload": "image"
+      },
+      "title": "Picture 5 - actual lossless handoff A frame 123"
+    },
+    {
+      "id": 170,
+      "type": "MiniMaxH3AddGuide",
+      "pos": [
+        380,
+        5330
+      ],
+      "size": [
+        310,
+        180
+      ],
+      "flags": {},
+      "order": 32,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "positive",
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 352
+        },
+        {
+          "localized_name": "latent",
+          "name": "latent",
+          "type": "LATENT",
+          "link": 353
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 354
+        },
+        {
+          "localized_name": "audio_vae",
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 355
+        },
+        {
+          "localized_name": "image",
+          "name": "image",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 351
+        },
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "frame_idx",
+          "name": "frame_idx",
+          "type": "INT",
+          "widget": {
+            "name": "frame_idx"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "positive",
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            407
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.42.5",
+        "Node name for S&R": "MiniMaxH3AddGuide"
+      },
+      "widgets_values": [
+        0
+      ],
+      "widgets_values_named": {
+        "frame_idx": 0
+      },
+      "title": "ONLY temporal Guide - FIRST frame 0 - free ending"
+    },
+    {
+      "id": 200,
+      "type": "MiniMaxH3MotionContextSaveLatent",
+      "title": "Save exact AV latent / B.Context",
+      "pos": [
+        1600,
+        5400
+      ],
+      "size": [
+        360,
+        240
+      ],
+      "flags": {},
+      "order": 200,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 400
+        },
+        {
+          "name": "filename_prefix",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "filename_prefix"
+          }
+        },
+        {
+          "name": "clip_index",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "clip_index"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent_path",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-h3-motion-context",
+        "ver": "0.7.1",
+        "Node name for S&R": "MiniMaxH3MotionContextSaveLatent"
+      },
+      "widgets_values": [
+        "latents/B.Context",
+        2
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "latents/B.Context",
+        "clip_index": 2
+      }
+    },
+    {
+      "id": 205,
+      "type": "MiniMaxH3MotionContextTrim",
+      "title": "Remove duplicated head / B.Context",
+      "pos": [
+        1150,
+        6040
+      ],
+      "size": [
+        360,
+        240
+      ],
+      "flags": {},
+      "order": 205,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 403
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "link": 411,
+          "widget": {
+            "name": "trim_frames"
+          }
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "fps",
+          "type": "FLOAT",
+          "link": null,
+          "widget": {
+            "name": "fps"
+          }
+        },
+        {
+          "name": "match_tail",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "match_tail"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            404
+          ]
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-h3-motion-context",
+        "ver": "0.7.1",
+        "Node name for S&R": "MiniMaxH3MotionContextTrim"
+      },
+      "widgets_values": [
+        22,
+        24.0,
+        true
+      ],
+      "widgets_values_named": {
+        "fps": 24.0,
+        "match_tail": true
+      }
+    },
+    {
+      "id": 206,
+      "type": "CreateVideo",
+      "pos": [
+        1600,
+        6040
+      ],
+      "size": [
+        270,
+        150
+      ],
+      "flags": {},
+      "order": 39,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 404
+        },
+        {
+          "localized_name": "audio",
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "localized_name": "fps",
+          "name": "fps",
+          "type": "FLOAT",
+          "widget": {
+            "name": "fps"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "bit_depth",
+          "name": "bit_depth",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "bit_depth"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "color_space",
+          "name": "color_space",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "color_space"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "codec",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "codec"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VIDEO",
+          "name": "VIDEO",
+          "type": "VIDEO",
+          "links": [
+            405
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "CreateVideo"
+      },
+      "widgets_values": [
+        24,
+        "auto",
+        "sRGB",
+        "none"
+      ],
+      "widgets_values_named": {
+        "fps": 24,
+        "bit_depth": "auto",
+        "color_space": "sRGB",
+        "codec": "none"
+      },
+      "title": "Delivered new frames / 24 fps"
+    },
+    {
+      "id": 207,
+      "type": "SaveVideo",
+      "pos": [
+        2000,
+        6040
+      ],
+      "size": [
+        1030,
+        126
+      ],
+      "flags": {},
+      "order": 40,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "link": 405
+        },
+        {
+          "localized_name": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format",
+          "name": "format",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "format.codec",
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "format.codec"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "codec",
+          "name": "codec",
+          "shape": 7,
+          "type": "COMFY_DYNAMICCOMBO_V3",
+          "widget": {
+            "name": "codec"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "video",
+          "name": "video",
+          "type": "VIDEO",
+          "links": []
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.33.0",
+        "Node name for S&R": "SaveVideo"
+      },
+      "widgets_values": [
+        "video/CL-MC01.B.Context.Omni.v1.New",
+        "auto",
+        "auto",
+        "auto"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "video/CL-MC01.B.Context.Omni.v1.New",
+        "format": "auto",
+        "format.codec": "auto",
+        "codec": "auto"
+      },
+      "title": "Save new-only B / B.Context"
+    },
+    {
+      "id": 203,
+      "type": "MiniMaxH3MotionContextLoadLatent",
+      "title": "Previous run A / exact AV latent",
+      "pos": [
+        200,
+        5650
+      ],
+      "size": [
+        360,
+        240
+      ],
+      "flags": {},
+      "order": 203,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "latent_path",
+          "type": "STRING",
+          "link": null,
+          "widget": {
+            "name": "latent_path"
+          }
+        },
+        {
+          "name": "clip_index",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "clip_index"
+          }
+        },
+        {
+          "name": "stock_format",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "stock_format"
+          }
+        },
+        {
+          "name": "folder",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "folder"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            406
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-h3-motion-context",
+        "ver": "0.7.1",
+        "Node name for S&R": "MiniMaxH3MotionContextLoadLatent"
+      },
+      "widgets_values": [
+        "latents/A_00001.safetensors",
+        1,
+        false,
+        "output"
+      ],
+      "widgets_values_named": {
+        "latent_path": "latents/A_00001.safetensors",
+        "clip_index": 1,
+        "stock_format": false,
+        "folder": "output"
+      }
+    },
+    {
+      "id": 204,
+      "type": "MiniMaxH3MotionContext",
+      "title": "22 prior video frames + 18 audio frames",
+      "pos": [
+        650,
+        5650
+      ],
+      "size": [
+        360,
+        240
+      ],
+      "flags": {},
+      "order": 204,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 407
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 408
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 409
+        },
+        {
+          "name": "context_length",
+          "type": "COMBO",
+          "link": null,
+          "widget": {
+            "name": "context_length"
+          }
+        },
+        {
+          "name": "audio_context_length",
+          "type": "INT",
+          "link": null,
+          "widget": {
+            "name": "audio_context_length"
+          }
+        },
+        {
+          "name": "context_frames",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "context_latent",
+          "type": "LATENT",
+          "link": 406
+        },
+        {
+          "name": "audio_vae",
+          "type": "VAE",
+          "link": null
+        },
+        {
+          "name": "context_audio",
+          "type": "AUDIO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            410
+          ]
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "links": [
+            411
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-h3-motion-context",
+        "ver": "0.7.1",
+        "Node name for S&R": "MiniMaxH3MotionContext"
+      },
+      "widgets_values": [
+        "22",
+        18
+      ],
+      "widgets_values_named": {
+        "context_length": "22",
+        "audio_context_length": 18
+      }
+    }
+  ],
+  "links": [
+    [
+      251,
+      119,
+      0,
+      122,
+      1,
+      "VAE"
+    ],
+    [
+      253,
+      129,
+      0,
+      125,
+      0,
+      "NOISE"
+    ],
+    [
+      254,
+      126,
+      0,
+      125,
+      1,
+      "GUIDER"
+    ],
+    [
+      255,
+      123,
+      0,
+      125,
+      2,
+      "SAMPLER"
+    ],
+    [
+      256,
+      124,
+      0,
+      125,
+      3,
+      "SIGMAS"
+    ],
+    [
+      258,
+      122,
+      0,
+      130,
+      0,
+      "IMAGE"
+    ],
+    [
+      271,
+      136,
+      1,
+      125,
+      4,
+      "LATENT"
+    ],
+    [
+      280,
+      125,
+      0,
+      122,
+      0,
+      "LATENT"
+    ],
+    [
+      260,
+      130,
+      0,
+      92,
+      0,
+      "VIDEO"
+    ],
+    [
+      261,
+      132,
+      0,
+      131,
+      0,
+      "FLOAT"
+    ],
+    [
+      272,
+      128,
+      0,
+      136,
+      0,
+      "CLIP"
+    ],
+    [
+      273,
+      119,
+      0,
+      136,
+      1,
+      "VAE"
+    ],
+    [
+      274,
+      120,
+      0,
+      136,
+      2,
+      "VAE"
+    ],
+    [
+      314,
+      164,
+      0,
+      136,
+      3,
+      "IMAGE"
+    ],
+    [
+      333,
+      138,
+      0,
+      136,
+      13,
+      "STRING"
+    ],
+    [
+      275,
+      131,
+      1,
+      136,
+      16,
+      "INT"
+    ],
+    [
+      335,
+      157,
+      0,
+      136,
+      4,
+      "IMAGE"
+    ],
+    [
+      337,
+      127,
+      0,
+      165,
+      0,
+      "MODEL"
+    ],
+    [
+      338,
+      165,
+      0,
+      124,
+      0,
+      "MODEL"
+    ],
+    [
+      339,
+      165,
+      0,
+      126,
+      0,
+      "MODEL"
+    ],
+    [
+      340,
+      143,
+      0,
+      124,
+      2,
+      "INT"
+    ],
+    [
+      341,
+      166,
+      0,
+      136,
+      5,
+      "IMAGE"
+    ],
+    [
+      348,
+      168,
+      0,
+      136,
+      6,
+      "IMAGE"
+    ],
+    [
+      350,
+      169,
+      0,
+      136,
+      7,
+      "IMAGE"
+    ],
+    [
+      351,
+      169,
+      0,
+      170,
+      4,
+      "IMAGE"
+    ],
+    [
+      352,
+      136,
+      0,
+      170,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      353,
+      136,
+      1,
+      170,
+      1,
+      "LATENT"
+    ],
+    [
+      354,
+      119,
+      0,
+      170,
+      2,
+      "VAE"
+    ],
+    [
+      355,
+      120,
+      0,
+      170,
+      3,
+      "VAE"
+    ],
+    [
+      400,
+      125,
+      0,
+      200,
+      0,
+      "LATENT"
+    ],
+    [
+      403,
+      122,
+      0,
+      205,
+      0,
+      "IMAGE"
+    ],
+    [
+      404,
+      205,
+      0,
+      206,
+      0,
+      "IMAGE"
+    ],
+    [
+      405,
+      206,
+      0,
+      207,
+      0,
+      "VIDEO"
+    ],
+    [
+      406,
+      203,
+      0,
+      204,
+      6,
+      "LATENT"
+    ],
+    [
+      407,
+      170,
+      0,
+      204,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      408,
+      119,
+      0,
+      204,
+      1,
+      "VAE"
+    ],
+    [
+      409,
+      136,
+      1,
+      204,
+      2,
+      "LATENT"
+    ],
+    [
+      410,
+      204,
+      0,
+      126,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      411,
+      204,
+      1,
+      205,
+      1,
+      "INT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Models",
+      "bounding": [
+        -1520,
+        4840,
+        700,
+        990
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Sampling",
+      "bounding": [
+        1170,
+        4840,
+        690,
+        700
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Omni - fixed 8 steps and coherent shifts",
+      "bounding": [
+        -790,
+        5340,
+        730,
+        490
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "Decoding and create video",
+      "bounding": [
+        1170,
+        5570,
+        690,
+        260
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 5,
+      "title": "User Inputs",
+      "bounding": [
+        -1520,
+        4170,
+        3380,
+        650
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 6,
+      "title": "Conditioning",
+      "bounding": [
+        -790,
+        4840,
+        730,
+        480
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 7,
+      "title": "Hybrid - one opening Guide only",
+      "bounding": [
+        -30,
+        4840,
+        1170,
+        990
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    },
+    {
+      "id": 8,
+      "title": "Video Settings",
+      "bounding": [
+        -1490,
+        4230,
+        292.3251232742416,
+        548.0986135774447
+      ],
+      "color": "#3f789e",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.55,
+      "offset": [
+        2650,
+        -4050
+      ]
+    },
+    "frontendVersion": "1.55.18",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true,
+    "tmt_test": {
+      "id": "CL-MC01.B.Context.Omni.v1",
+      "job": "B.Context",
+      "scope": "Motion Context vs single-frame continuation",
+      "comparison_new_frames": 102
+    }
+  },
+  "version": 0.4
+}

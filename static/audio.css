@@ -1,0 +1,37 @@
+.tl-playback-bar{height:36px;display:flex;align-items:center;gap:9px;padding:5px 15px;background:#171e25;border-bottom:1px solid #303c45}
+.tl-playback-bar>.button{font-size:10px;padding:4px 10px;height:26px;flex-shrink:0}
+.tl-playback-bar>strong{font:8px "Consolas",monospace;letter-spacing:1.2px;color:#a1b2bd}
+#tlDuration{font:10px "Consolas",monospace;color:#a9c3c8;white-space:nowrap}
+#tlPlaybackStatus{font-size:9px;color:#8b9daa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tlBeat{margin-left:auto}
+#tlBeat kbd{font:8px "Consolas",monospace;border:1px solid #56616c;padding:1px 4px;border-radius:3px;margin-left:5px}
+.tl-clip-audio{display:flex;align-items:center;gap:5px;font-size:9px;color:#a6b5bf;white-space:nowrap}
+.tl-clip-audio input{accent-color:var(--mint);width:12px;height:12px}
+.audio-timeline .tl-scroll{height:242px}
+.audio-timeline .tl-canvas{height:229px}
+.audio-timeline .tl-gutter span:nth-child(5){height:58px;color:#89bcb6}
+.audio-timeline .tl-playhead{height:229px}
+.audio-timeline .tl-boundary{height:177px}
+.tl-music-lane{position:relative;height:58px;border-top:1px solid #35444b;background:#111e24}
+.tl-music{position:absolute;top:3px;height:52px;border:1px solid #4c958e;border-radius:4px;background:#1636309c;cursor:grab;user-select:none;touch-action:none;overflow:hidden;min-width:2px}
+.tl-music.selected,.tl-music:focus-visible{border-color:#ffe1a0;box-shadow:0 0 0 1px #ffe1a0;outline:0}
+.tl-music.invalid{border-color:#e77878;box-shadow:0 0 0 1px #e77878}
+.tl-music .tl-waveform{position:absolute;top:0;pointer-events:none;display:block}
+.tl-music-label{position:absolute;top:3px;font:8px "Consolas",monospace;color:#d1eee6;padding:2px 5px;background:#102520c9;border-radius:3px;pointer-events:none;max-width:350px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl-music-empty{display:block;padding:19px 20px;color:#648680;font-size:10px;white-space:nowrap}
+.tl-music[data-error]{border-color:#b47768}
+.tl-music-mute{align-items:center!important;min-width:55px!important}
+.tl-music-mute input{width:14px;height:23px;accent-color:var(--mint)}
+.timeline-dialog-row{display:flex;gap:12px}
+.timeline-dialog-row>.field{flex:1;min-width:0}
+.timeline-dialog select,.timeline-dialog input[type=file]{width:100%;padding:9px;border:1px solid #394552;background:#131921;border-radius:5px;color:#cad5df;font-size:11px}
+.montage-preview{position:absolute;inset:0;background:#000;overflow:hidden}
+.montage-preview>video,.montage-preview>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.montage-preview>img{opacity:.65}
+.montage-preview .montage-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;pointer-events:none;background:#0002;padding:20px;color:#a6b3bd}
+.montage-message strong{font-weight:500;font-size:15px;color:#cbd8df}
+.montage-message span{font-size:10px;line-height:1.6}
+.montage-preview .montage-badge{position:absolute;top:15px;left:15px;max-width:calc(100% - 30px);padding:5px 8px;background:#10161bd9;color:#bdd6d4;pointer-events:none;font:9px "Consolas",monospace;border:1px solid #a4c6c11a;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.audio-timeline.collapsed .tl-playback-bar{height:34px}
+@media(max-height:820px) and (min-width:721px){.tl-playback-bar{height:31px;padding:3px 12px}.audio-timeline .tl-scroll{height:218px}.audio-timeline .tl-clip-lane{height:60px}.audio-timeline .tl-clip{height:48px}.audio-timeline .tl-gutter span:nth-child(4){height:60px}.audio-timeline .tl-canvas{height:205px}.audio-timeline .tl-playhead{height:205px}.audio-timeline .tl-boundary{height:153px}.preview-stage{min-height:100px}.viewer-heading{margin-bottom:5px}.viewer-toolbar{margin-bottom:5px}.job-panel{padding:6px 9px}.job-meta{margin-top:3px}}
+@media(max-width:900px){.tl-playback-bar{padding:5px 10px;gap:6px}#tlPlaybackStatus{display:none}.tl-zoom{margin-left:4px}.timeline-dialog-row{flex-direction:column}.tl-playback-bar>strong{display:none}}

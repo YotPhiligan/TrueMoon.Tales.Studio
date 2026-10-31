@@ -1,0 +1,161 @@
+{
+  "checked_at": "2026-10-30T19:45:24.849626+00:00",
+  "checks": {
+    "production_projects_unchanged": true,
+    "three_segments_four_clips_one_marker": true,
+    "timeline_valid": true,
+    "all_frame_fields_integer": true,
+    "group_move_preserved_placeholder_offset": true,
+    "middle_segment_moved_one_second": true,
+    "clip_transferred_to_first_segment": true,
+    "trim_and_keyboard_move_saved": true,
+    "marker_independent_of_group_moves": true,
+    "same_take_reused_twice": true,
+    "legacy_metadata_probed": true,
+    "legacy_binding_is_real_video": true,
+    "undo_persisted": true,
+    "no_qa_generation_jobs": true,
+    "generation_inputs_unchanged": true,
+    "no_automatic_acceptance": true,
+    "persisted_after_restart": true
+  },
+  "qa_revision": 23,
+  "qa_state_sha256": "f9b0aaf26ebb6bc944797ea5ea424c36c65a4c904b4c56fe1752f8f86e612898",
+  "timeline": {
+    "version": 1,
+    "fps": 24,
+    "segments": [
+      {
+        "id": "tseg-19751a57d0b44d75",
+        "name": "Подготовка",
+        "start_frame": 0,
+        "duration_frames": 192,
+        "color": "mint"
+      },
+      {
+        "id": "tseg-8c06e00066bd4e26",
+        "name": "Манёвр",
+        "start_frame": 216,
+        "duration_frames": 192,
+        "color": "blue"
+      },
+      {
+        "id": "tseg-6b9ef75c57db4b08",
+        "name": "Следующий план",
+        "start_frame": 456,
+        "duration_frames": 192,
+        "color": "violet"
+      }
+    ],
+    "clips": [
+      {
+        "id": "clip-7330d8f0538649d7",
+        "segment_id": "tseg-19751a57d0b44d75",
+        "block_id": "block-8d5b6fb88bb74778",
+        "take_id": "take-0108473665b34047",
+        "start_frame": 0,
+        "duration_frames": 34,
+        "source_in_frame": 0
+      },
+      {
+        "id": "clip-06493dae843b4f72",
+        "segment_id": "tseg-19751a57d0b44d75",
+        "block_id": "block-8d5b6fb88bb74778",
+        "take_id": "take-0108473665b34047",
+        "start_frame": 165,
+        "duration_frames": 26,
+        "source_in_frame": 8
+      },
+      {
+        "id": "clip-70b0c117833a4d6b",
+        "segment_id": "tseg-6b9ef75c57db4b08",
+        "block_id": "block-f8e07d31f9e24ecf",
+        "take_id": null,
+        "start_frame": 456,
+        "duration_frames": 72,
+        "source_in_frame": 0
+      },
+      {
+        "id": "clip-e93ad739b7dc483b",
+        "segment_id": "tseg-8c06e00066bd4e26",
+        "block_id": "block-ff95bc9bc7c644e2",
+        "take_id": "take-d2a5ee4c83854a1e",
+        "start_frame": 252,
+        "duration_frames": 48,
+        "source_in_frame": 0
+      }
+    ],
+    "markers": [
+      {
+        "id": "mark-b89fe1fdcaa84a4a",
+        "name": "Акцент / склейка",
+        "frame": 192
+      }
+    ]
+  },
+  "undo_count": 15,
+  "redo_count": 1,
+  "activity": {
+    "Подготовлен отдельный проект проверки UI-04A": 1,
+    "Таймлайн: add_segment": 3,
+    "Таймлайн: add_clip": 4,
+    "Таймлайн: add_marker": 1,
+    "Таймлайн: update_clip": 6,
+    "Таймлайн: move_segment": 2,
+    "Таймлайн: undo": 3,
+    "Таймлайн: redo": 1,
+    "Таймлайн: edit_segment": 1
+  },
+  "production_baseline_sha256": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": "e81febbb0c2b1f943be4675fd30ebc8376589a1524ad538beac19b3972f317c7",
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c"
+  },
+  "tests": {
+    "python_count": 89,
+    "python_seconds": 6.78,
+    "node_timeline_count": 14,
+    "old_js_logic": "PASS",
+    "status": "PASS"
+  },
+  "browser": {
+    "segment_group_drag": true,
+    "clip_drag": true,
+    "transfer_to_other_segment": true,
+    "snap_end_to_marker": true,
+    "trim_left_and_undo_redo": true,
+    "trim_right_and_undo": true,
+    "library_pointer_drop": true,
+    "reject_overlap_before_save": true,
+    "keyboard_one_frame": true,
+    "segment_numeric_resize_undo": true,
+    "zoom_fit": true,
+    "seek": {
+      "timeline_frame": 177,
+      "source_seconds": 0.833333,
+      "error": null
+    },
+    "persisted_after_restart": {
+      "revision": 23,
+      "segments": 3,
+      "clips": 4,
+      "cursor": "00:07:09",
+      "undo_enabled": true
+    },
+    "normal_projects_opened": [
+      "claire",
+      "opening"
+    ],
+    "visible_in_overview": true
+  },
+  "source_sha256": {
+    "studio/model.py": "ddf8b2b33b5975a4867f4d091e316e60b2a52eeb32c4e23b762c366a035cd911",
+    "studio/server.py": "7bcdd938325e73e3d277d1aff5468c3ff1218a5019949da2a65926ddaefa8d7d",
+    "studio/timeline.py": "8866451420990cdd897e078d853fe82c1d069bae3e8be9946a6b52f81dedb408",
+    "static/app.js": "1713d54e5615fa7cab89bf5cc73c8328fe0c1586f9f2aaa00ec579dc67080f84",
+    "static/timeline.js": "c1e73aaa95f348e57cf87cb72ae2d4c5e05b2d3d0183d87e4991d2ea3d6cf074",
+    "static/timeline-logic.js": "bbaf7ff455c074aade1e8b448f70d4dabf604077ad1b71ec62ed74dbebaec579",
+    "static/timeline.css": "3223aa2291add7a05b612175fab495028a791070a68b33a770219428fb9cbeb2",
+    "static/index.html": "1239e6da68e8f83189c03bb745e2049e816e989792a709db582126b98406af13"
+  },
+  "screenshot_sha256": "742c4f224592bdf5201da130f4749e3ce83fd245c319c57be50f727b847bd794"
+}

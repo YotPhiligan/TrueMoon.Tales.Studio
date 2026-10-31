@@ -1,0 +1,35 @@
+subject_definitions:
+<Subject 1> is one adult Claire. <Picture 2> defines her proportions and below-collar costume: fitted gray underlayer, segmented gray armor, tactical belt, long central front fabric panel, dark cloak and armored heeled boots. <Picture 4> defines her headgear and anatomical two-handed grip: raised black hood, concealed ponytail, chestnut fringe and exact rigid sealed graphite mask with a smoked visor and one steady thin cyan arc. Her starting body pose comes from <Picture 4>. These pictures depict the same woman; the gray studio backgrounds and the different visor in <Picture 2> are outside their reference roles.
+<Subject 2> is Claire's single rune carbine. <Picture 3> defines its black skeletal stock, pistol grip, circular side mechanism, segmented silver-and-black barrel housing, engraved gold inlays and cylindrical muzzle. <Picture 4> supplies the anatomical two-handed grip; <Picture 4> supplies its supported scale and initial orientation.
+<Subject 3> is the empty rainy upper monastery gallery in <Picture 1>, including the foreground stone parapet, close left pillar, rear columns, broken pointed arches and cold night light.
+<Picture 4> is the assembled first frame of [Shot 1], defining the exact opening camera, Claire's scale and position behind the parapet, closed cyan-arc headgear, supported two-handed aim and muzzle direction slightly beside the lens.
+<Subject 4> is the visible maneuver performed by Claire in <Video 1>: one supported shot, a short aiming hold, a modest rise-and-settle of the torso and rightward travel with the carbine covering the same camera-side courtyard. It supplies the actual motion phases for <Subject 1>.
+<Video 1> is the generated PV01 draft, 56 frames at 24 fps, used as the fixed-camera, timing and screen-space path reference for [Shot 1]. The target keeps the image-defined costume, rigid mask and drawn materials while reusing this motion at the same playback pace.
+
+summary:
+[reference generation + keyframe completion] Combine <Subject 1> and <Subject 2> within <Subject 3> for one silent 2.33-second continuous shot, recreating the actual visible maneuver of <Subject 4> in <Video 1>. Begin from the exact assembled composition of <Picture 4>. <Picture 1> through <Picture 4> retain their location, identity, headgear, grip and prop roles. The video supplies the shot, aiming hold, height variation and rightward trajectory at the same real-time pace.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, visible costume construction and exact cyan-arc headgear retain their defined source roles; <Picture 4> supplies the active starting body pose that develops into the linked movement.
+<Subject 2> (appears in [Shot 1]): fully_preserved - one rigid carbine retains its design and two-handed shoulder support while moving with Claire.
+<Subject 3> (appears in [Shot 1]): fully_preserved - the gallery's architectural identity, parapet, open floor path, cold lighting and wet materials remain consistent as Claire occupies the scene.
+<Picture 4> ([Shot 1] first frame): fully_preserved - the opening uses its composition, character scale, supported aiming pose, closed mask and muzzle direction.
+<Subject 4> (performed by <Subject 1> in [Shot 1]): fully_preserved - the visible action order, supported aiming orientation, torso-height phases and rightward displacement are reused.
+<Video 1> ([Shot 1] motion and fixed-camera timing): fully_preserved - its temporal structure and screen-space path guide the whole shot; the detailed target appearance and first-frame composition retain their image-reference roles.
+
+detailed_description:
+Use the detailed painterly dark-fantasy anime rendering of <Picture 1> and <Picture 4>, with fine linework, cold blue-gray night colors and restrained wet-metal highlights. One fixed camera observes the gallery in a near-frontal, slightly low medium view.
+
+[Shot 1] The opening frame corresponds to <Picture 4>. Recreate <Subject 4> from <Video 1> at its original playback pace, transferring the visible body path and supported carbine orientation into this image-defined scene. <Subject 1> is already behind the near foreground parapet of <Subject 3>, initially left of center with open room to her screen right. Her feet are supported by the gallery floor on the inner side of the stone barrier. Its upper edge conceals her lower legs, while her hood, complete mask, shoulders, both attached hands and muzzle remain readable. Her compact loaded aiming crouch follows <Picture 4>, with the fitted armor and heavy cloak construction of <Picture 2>.
+
+She holds <Subject 2> at her anatomical right shoulder. Her right hand encloses its grip and her left supports the fore-end; bent elbows connect the same rigid weapon to her torso. The muzzle projects safely above the parapet and points slightly beside the lens toward the established off-screen lookout in the courtyard on the camera side. The long barrel is naturally foreshortened by this angle.
+
+During the opening 0.17 seconds, Claire maintains the loaded aim shown at the beginning of <Video 1>. Around 0.17 to 0.29 seconds, one brief cyan-white flash leaves the actual muzzle of <Subject 2>, lighting the adjacent wet metal. The stock and bent arms take the compact impulse together while the supported barrel continues to cover the established camera-side courtyard.
+
+Through approximately 0.90 seconds, retain the draft's short post-shot aiming hold with small settling motion in the connected shoulders and arms. The muzzle remains above the parapet, and the same hands stay attached to the same fore-end and grip. From about 0.90 to 1.30 seconds, the torso adjusts and begins its weight transfer as in <Video 1>; the cloak follows this limited movement with delayed folds.
+
+Between roughly 1.30 and 1.65 seconds, reproduce the draft's modest rise and subsequent compression, with the supported rifle moving together with her shoulder. Her body then travels toward screen right along the parapet through the final 2.33-second boundary. The stationary columns make the sideways movement visible. Her muzzle continues pointing toward the same courtyard throughout this travel, while the stance and torso height follow the reference's visible phases. The final instant catches her still moving right, with her cloak trailing left and its folds drawing after the body. The architecture stays fixed, her mask stays rigid and sealed, and the single thin cyan arc remains steady. Output is silent.
+
+overall_soundscape: N/A
+
+non_diegetic_music: N/A

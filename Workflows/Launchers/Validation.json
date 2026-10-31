@@ -1,0 +1,11 @@
+{
+  "Launcher": "E:\\ComfyUI_windows_portable\\run_nvidia_gpu_video_sage.bat",
+  "HelpExitCode": 0,
+  "Sage": true,
+  "Fast": [
+    "fp16_accumulation"
+  ],
+  "DynamicVRAM": true,
+  "ServerStarted": false,
+  "ValidatedAt": "2026-10-27T17:26:13.6982715+05:00"
+}

@@ -1,0 +1,7 @@
+# M5.2: preserve original bytes, including signed historical JSON and source SHA.
+# Disable automatic EOL conversion; text diffs still work normally.
+* -text
+
+# Small Verification images stay in normal Git; no media LFS policy here.
+*.png binary
+*.jpg binary

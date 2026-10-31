@@ -1,0 +1,13 @@
+{
+  "Target": "E:\\ComfyUI_windows_portable\\run_nvidia_gpu_video_sage.bat",
+  "SHA256": "4179244B9398A06A8802C8D6EB6BE27983534A5083C04FA88D507D4098F5D1D1",
+  "OriginalLauncherUnchanged": true,
+  "OriginalSHA256": "AC66462C72063015E5F548586141DBE38D169CFA62199628909D14CE6FCF581B",
+  "CreatedAt": "2026-10-27T17:25:27.8617949+05:00",
+  "Flags": [
+    "--windows-standalone-build",
+    "--fast",
+    "fp16_accumulation",
+    "--use-sage-attention"
+  ]
+}

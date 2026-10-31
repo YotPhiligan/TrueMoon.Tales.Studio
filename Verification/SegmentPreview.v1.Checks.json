@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-31",
+  "release": "0.6.0",
+  "tests": {
+    "python": {
+      "passed": 165,
+      "seconds": 16.263,
+      "exit_code": 0
+    },
+    "node": {
+      "passed": 73,
+      "new": 23,
+      "exit_code": 0
+    },
+    "original_js_logic": "PASS"
+  },
+  "qa": {
+    "port": 8793,
+    "project_id": "segment-qa",
+    "revision": 13,
+    "segments": 3,
+    "gpu_jobs": 0,
+    "scope": {
+      "segment_id": "tseg-452c828336f94700",
+      "from_seconds": 20,
+      "end_seconds": 24,
+      "local_end_seconds": 4,
+      "visits": [
+        "video:clip-22c3fa7eb0684569",
+        "gap"
+      ],
+      "next_segment_not_played": true,
+      "buffer_ticks": 0,
+      "max_native_video_drift_seconds": 0.1325
+    },
+    "foreign_invalid_segment_does_not_block_valid_preview": true,
+    "full_project_invalid_plan_blocked": true,
+    "stop_and_frame_seek": true,
+    "switch_project_clears_scope": true,
+    "existing_guide_add_remove": true,
+    "reference_reorder_restores_picture4_first_picture5_last": true,
+    "real_guide_upload_and_reference_removal": true,
+    "browser_console_warnings_errors_after_reload": 0,
+    "reload_restores_refs_guides": true,
+    "restart_restores_refs_guides": true
+  },
+  "tabs_readonly_hashes": {
+    "block-ff94f84f58284ab6": {
+      "label": "CL-000A",
+      "hash": "487f9646c52d4bd6895ead46030793ebcd9fcf372e8e81922fef8dd1510342b4",
+      "unchanged": true
+    },
+    "block-8d5b6fb88bb74778": {
+      "label": "CL-MC03",
+      "hash": "420489f295b2693b04d31644ed2b17f35144e5af92d16f281ff61b8e19478612",
+      "unchanged": true
+    }
+  },
+  "material_roundtrip_hashes": {
+    "block-ff94f84f58284ab6": {
+      "label": "CL-000A",
+      "before": "487f9646c52d4bd6895ead46030793ebcd9fcf372e8e81922fef8dd1510342b4",
+      "after": "487f9646c52d4bd6895ead46030793ebcd9fcf372e8e81922fef8dd1510342b4",
+      "unchanged": true,
+      "values_unchanged": true
+    },
+    "block-8d5b6fb88bb74778": {
+      "label": "CL-MC03",
+      "before": "420489f295b2693b04d31644ed2b17f35144e5af92d16f281ff61b8e19478612",
+      "after": "a470648e00567564f138789d2ea76a50e1add75a390c750cfabc166ff71f5578",
+      "unchanged": false,
+      "values_unchanged": true,
+      "serialization_only_difference": "settings.seconds: 2.0 -> 2 after explicit UI write; numeric value unchanged"
+    }
+  },
+  "production_sources": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "unchanged": true,
+      "agent_wrote_source": false,
+      "final_sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5"
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "unchanged": true,
+      "agent_wrote_source": false,
+      "final_sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c"
+    }
+  },
+  "syntax_python_ast": "PASS",
+  "syntax_javascript": "PASS",
+  "git_diff_check": "PASS",
+  "owned_preview_server_stopped": true,
+  "owned_preview_tab_closed": true
+}

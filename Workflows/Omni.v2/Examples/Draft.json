@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "id": "CL.Draft.Example01",
+  "profile": "draft",
+  "size": [896, 512],
+  "fps": 24,
+  "seconds": 2.0,
+  "seed": 148096032077131,
+  "silent": true,
+  "prompt": "Draft.Prompt.txt",
+  "references": [
+    {"role": "location / rainy gallery", "path": "../../../Clair/References/CL-RP01.Location.H3.v1.png"},
+    {"role": "Claire / proportions and costume below collar only", "path": "../../../../../Arts/Characters/Claire/Claire.Operational.FullBody.Reference.v7.png"},
+    {"role": "rune carbine / design", "path": "../../../Clair/References/CL-RP01.Carbine.v1.png"},
+    {"role": "assembled first frame / mask, grip, composition", "path": "../../../Clair/Frames/CL-AC03.FirstFrame.H3.v1.png"}
+  ],
+  "guides": [{"picture": 4, "frame": 0}]
+}

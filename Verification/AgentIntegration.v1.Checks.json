@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-31",
+  "release": "0.4.0",
+  "tests": {
+    "python": {
+      "passed": 143,
+      "seconds": 11.609,
+      "exit_code": 0
+    },
+    "node": {
+      "passed": 40,
+      "exit_code": 0
+    },
+    "original_js_logic": "PASS"
+  },
+  "syntax": {
+    "python_ast": "PASS",
+    "javascript_node_check": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "qa": {
+    "project_id": "agent-qa",
+    "port": 8791,
+    "user_port_8787_preserved": true,
+    "project_revision": 4,
+    "brief_roundtrip": true,
+    "task_clipboard_contains_context": true,
+    "cli_claim_and_finish_visible_without_reload": true,
+    "cli_notes_patch_visible_in_editor_without_reload": true,
+    "cancel_from_ui": true,
+    "brief_409_preserves_unsaved_input": true,
+    "restart_preserves_brief_and_tasks": true,
+    "console_warnings_errors_after_reload": 0,
+    "tasks": [
+      {
+        "id": "req-86a4d524c91944c5",
+        "mode": "propose",
+        "state": "cancelled",
+        "revision": 2,
+        "base_project_revision": 3,
+        "completed_project_revision": null,
+        "snapshot_valid": true
+      },
+      {
+        "id": "req-62fddfe0285f477d",
+        "mode": "apply",
+        "state": "completed",
+        "revision": 3,
+        "base_project_revision": 2,
+        "completed_project_revision": 3,
+        "snapshot_valid": true
+      },
+      {
+        "id": "req-eca132af2c8f49a4",
+        "mode": "propose",
+        "state": "completed",
+        "revision": 3,
+        "base_project_revision": 2,
+        "completed_project_revision": 2,
+        "snapshot_valid": true
+      }
+    ],
+    "gpu_jobs": 0
+  },
+  "production_sources": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "unchanged": false,
+      "agent_wrote_this_source": false,
+      "author_activity_during_qa": {
+        "from_revision": 22,
+        "to_revision": 26,
+        "changes": [
+          {
+            "at": "2026-10-30T21:29:20.994154+00:00",
+            "actor": "author",
+            "action": "Таймлайн: set_clip_audio",
+            "revision": 23
+          },
+          {
+            "at": "2026-10-30T21:29:50.516050+00:00",
+            "actor": "author",
+            "action": "Таймлайн: set_clip_audio",
+            "revision": 24
+          },
+          {
+            "at": "2026-10-30T21:31:30.760466+00:00",
+            "actor": "author",
+            "action": "Изменён блок CL-000A",
+            "revision": 25
+          },
+          {
+            "at": "2026-10-30T21:31:48.384509+00:00",
+            "actor": "author",
+            "action": "Изменён блок CL-000A",
+            "revision": 26
+          }
+        ]
+      },
+      "baseline_preserved_in_history": true
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "unchanged": true,
+      "agent_wrote_this_source": false
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Plan.md": {
+      "sha256": "7adce6f8acf484ba91ac17bd723f18d3c9547982bb37ca7e0339319bad593bf9",
+      "unchanged": true,
+      "agent_wrote_this_source": false
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Plan.md": {
+      "sha256": "49df24bce52e3e80582144a80feb87443624a975ef093e493424749034de823c",
+      "unchanged": true,
+      "agent_wrote_this_source": false
+    }
+  },
+  "owned_preview_server_stopped": true
+}

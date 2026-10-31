@@ -1,0 +1,17 @@
+.segment-preview-controls{padding:10px 0 14px;border-top:1px solid var(--line)}
+.segment-preview-controls>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#segmentClock{margin-left:auto;font:11px Consolas,monospace;color:#bdd9d2}
+#segmentScrub{display:block;width:100%;margin-top:12px;accent-color:var(--mint)}
+.editor-view.segment-preview{grid-template-columns:minmax(0,1fr)}
+.segment-preview .inspector,.segment-preview .job-panel,.segment-preview .viewer-heading .button{display:none}
+.inspector-tabs{flex-wrap:wrap}
+.inspector-tabs button{font-size:10px;padding:11px 7px;white-space:nowrap}
+.material-use{display:block;color:#92b7a9;font-size:9px;line-height:1.7;margin-top:8px}
+.guide-add-actions{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}
+.guide-card{border:1px solid #3c4a51;border-radius:6px;padding:12px;margin:14px 0;background:#172229}
+.guide-card-heading{display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:11px}
+.guide-card-heading>span{font:10px Consolas,monospace;color:var(--muted)}
+.guide-card-heading>button{margin-left:auto}
+.guide-preview{display:block;width:100%;max-height:190px;object-fit:contain;background:#090f13;border-radius:4px;cursor:zoom-in;margin-bottom:13px}
+.guide-card select,.guide-card input{width:100%;padding:8px;border:1px solid #40515b;border-radius:4px;background:#111a20;color:var(--text);font-size:11px}
+@media(max-width:720px){#segmentClock{margin-left:0;width:100%;font-size:10px}.segment-preview .viewer-column{min-height:510px}.segment-preview-controls .button{font-size:10px}}

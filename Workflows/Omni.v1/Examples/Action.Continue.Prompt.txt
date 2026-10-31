@@ -1,0 +1,33 @@
+subject_definitions:
+<Subject 1> is one adult Claire. <Picture 2> defines her proportions and below-collar costume: fitted gray underlayer, segmented gray armor, tactical belt, long central front fabric panel, dark cloak and armored heeled boots. <Picture 3> defines her loaded aiming crouch, grip, raised black hood, concealed ponytail, chestnut fringe and exact rigid sealed graphite mask with a smoked visor and one steady thin cyan arc. These pictures depict the same woman; the gray studio backgrounds and the different visor in <Picture 2> are outside their reference roles.
+<Subject 2> is Claire's single rune carbine. <Picture 4> defines its black skeletal stock, pistol grip, circular side mechanism, segmented silver-and-black barrel housing, engraved gold inlays and cylindrical muzzle. <Picture 3> supplies its supported scale and orientation in her hands.
+<Subject 3> is the empty rainy upper monastery gallery in <Picture 1>, including the foreground stone parapet, close left pillar, rear columns, broken pointed arches and cold night light.
+<Picture 5> is the handoff frame at the join into the new continuation, defining Claire's current scale, position, low posture, supported carbine and closed headgear. The forward motion continues through this boundary.
+
+summary:
+[reference generation + keyframe completion] Generate the next 5.17-second source, carrying the current handoff state and momentum of <Picture 5> into the same low advance. Keep <Subject 1>, <Subject 2> and <Subject 3> in one continuous guarded lateral movement, using the images for their assigned appearance, prop and scene roles.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - one adult Claire retains her image-defined identity, costume and rigid closed headgear while her pose develops into sustained movement.
+<Subject 2> (appears in [Shot 1]): fully_preserved - one rigid carbine keeps its construction and two-handed support through the same movement.
+<Subject 3> (appears in [Shot 1]): fully_preserved - the same wet gallery, stone parapet, pillars and cold illumination remain spatially continuous.
+<Picture 5> ([Shot 1] boundary composition): fully_preserved - its visible character state and equipment define the entry into the new action.
+
+detailed_description:
+Use detailed painterly dark-fantasy anime rendering, fine linework, cold blue-gray night colors and restrained wet-metal highlights. A single near-frontal medium shot follows one continuous low movement.
+
+[Shot 1] The new action continues through the handoff state of <Picture 5>. Claire and the camera keep their established rightward travel; the next weight transfer carries that momentum forward immediately. <Subject 1> occupies the inner side of the foreground parapet in <Subject 3>. Her hood, closed graphite mask, steady cyan arc, shoulders, attached hands and the complete muzzle remain readable above the stone. Her feet work on the gallery floor behind the barrier. The fitted armor and heavy cloak follow <Picture 2>, while <Picture 3> defines the exact sealed headgear and supported weapon handling.
+
+Her anatomical right hand holds the grip of <Subject 2>, and her left supports its fore-end. The stock rests at her right shoulder. The supported muzzle covers the off-screen courtyard slightly beside the camera. Her elbows remain close enough that the hands, rifle and shoulder travel as a connected assembly. The carbine stays in a guarded carrying aim throughout the movement.
+
+Immediately from the entry, she advances toward screen right in compact low lateral footwork, parallel to the parapet. A supporting foot presses against the floor as the other clears it and plants farther along the same path. The hips lead the transfer; bent knees absorb each plant, keeping the head and shoulders close to their current low height. The next transfer follows before the previous motion settles. Her weight passes over each newly planted foot rather than sliding the whole body as a rigid cutout.
+
+The camera trucks smoothly toward screen right alongside her at a steady restrained speed, keeping Claire in the middle portion of the medium composition. Nearby wet stone shifts left faster than the more distant pillars. This continuous parallax makes the camera motion legible while the spacing and perspective of the existing architecture remain coherent. The camera height and viewing angle remain steady.
+
+Across the full 5.17 seconds, this same guarded low advance continues. Her torso stays loaded over flexed legs, the supported gun covers the same courtyard, and her gaze follows that guarded direction behind the sealed visor. Her head and upper body retain a compact silhouette through the weight changes. The heavy cloak trails to the left, then follows each transfer with a small delay; rain runs off the same fabric folds and droplets leave its edge.
+
+The final instant catches the next low step already in progress, with the body and camera still travelling at the established pace. Her hands retain their grip, the mask remains rigid and closed, and its single cyan arc stays steady. The action remains one uninterrupted guarded movement. Output is silent.
+
+overall_soundscape: N/A
+
+non_diegetic_music: N/A

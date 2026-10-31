@@ -1,0 +1,26 @@
+.local/
+__pycache__/
+*.pyc
+Studio.config.local.json
+
+# M5.2: local OS/cache files only. Author drafts and variants stay visible.
+.DS_Store
+Thumbs.db
+Desktop.ini
+/.cache/
+
+# Development/runtime dependencies are local; project media live in Videos/Arts.
+/.venv/
+/venv/
+node_modules/
+/build/
+/dist/
+/.pytest_cache/
+/.mypy_cache/
+/coverage/
+/.studio-state/
+/.studio-cache/
+/.studio-exports/
+.env
+.env.*
+!.env.example

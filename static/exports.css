@@ -1,0 +1,4 @@
+.export-form{display:flex;align-items:flex-end;gap:16px;margin:20px 0}.export-form .field{flex:1}.export-form select{width:100%;padding:10px;border:1px solid #3c5158;border-radius:5px;background:#101a20;color:var(--text)}
+#exportError{font-size:12px;color:#e8b582;line-height:1.6}.export-card{border:1px solid #3b4a52;background:#162128;border-radius:6px;margin-top:15px;padding:16px}.export-card strong{font-size:12px}.export-card small{display:block;color:var(--muted);font:10px Consolas,monospace;margin:10px 0}.export-card p{font-size:12px;line-height:1.6;margin:10px 0}.export-actions{display:flex;gap:10px}.export-actions a{text-decoration:none}
+#exportViewer{border:1px solid #40584f;border-radius:6px;padding:12px;background:#101b20;margin:20px 0}#exportViewer p{font-size:12px;margin-bottom:10px}#exportViewer video{display:block;width:100%;max-height:45vh;background:#000}
+@media(max-width:720px){.export-form{align-items:stretch;flex-direction:column}}

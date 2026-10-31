@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {fields,splitPrompt,joinPrompt,timing,removePicture,escapeHtml,timecode} from '../static/logic.js';
+const parts=Object.fromEntries(fields.map((f,i)=>[f,`section-${i}`]));
+const prompt=joinPrompt(parts);
+assert.deepEqual(splitPrompt(prompt),parts,'six section round trip retains their exact boundaries');
+assert.deepEqual(timing(2,'context'),{frames:56,trim:22,newFrames:34,source:56/24,usable:34/24});
+assert.equal(timing(5,'guided').frames,124);
+assert.equal(timing(8,'guided').frames,192);
+assert.equal(timing(56.5/24,'guided').frames,56,'half frame tie rounds to even before applying the native grid');
+for(const value of [1.99,8.01,NaN,Infinity,'bad'])assert.equal(timing(value,'guided'),null);
+assert.equal(removePicture('<Picture 1> alpha <Picture 2> beta <Picture 3> gamma',2),'<Picture 1> alpha [удалённый референс] beta <Picture 2> gamma');
+assert.equal(escapeHtml('<img src=x onerror="alert(1)"> & \'quoted\''),'&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;quoted&#39;');
+assert.equal(timecode(61.25),'01:01.250');
+assert.equal(timecode(-1),'00:00.000');
+console.log('PASS JS: prompt sections, frame grid/context, removed-reference mapping, escaping, timecode');

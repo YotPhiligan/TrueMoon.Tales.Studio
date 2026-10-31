@@ -1,0 +1,11 @@
+{
+  "previous_job": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-08.Pipeline.v1\\Jobs\\A.UI.v3",
+  "latent": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-08.Pipeline.v1\\Jobs\\A.UI.v3\\output\\latents\\R08.A.UI_00001.safetensors",
+  "latent_sha256": "e496e9939607f7f6a680a4b2c3a712065ce739d675eb402532772614e94e3e99",
+  "last_frame": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-08.Pipeline.v1\\Jobs\\A.UI.v3\\output\\frames\\R08.A.UI.Last_00001_.png",
+  "last_frame_sha256": "be8bc19bf8d5632a1b8cc4c70e322a44c9dc792fa3d781913beb132d91b6406e",
+  "lossless_before_MP4": true,
+  "anchor_picture": 5,
+  "new_config": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Workflows\\Omni.v1\\Examples\\Action.Continue.json",
+  "generation_executed": false
+}

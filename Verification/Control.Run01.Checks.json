@@ -1,0 +1,138 @@
+{
+  "checked_at": "2026-10-30T17:00:56.080515+00:00",
+  "checks": {
+    "job_completed": true,
+    "exactly_one_submission": true,
+    "execution_success": true,
+    "owned_server_stopped": true,
+    "eight_finite_forwards": true,
+    "sage_used": true,
+    "all_output_hashes_match": true,
+    "raw_video_valid": true,
+    "new_video_valid": true,
+    "png_size": true,
+    "paired_native_av": true,
+    "continuation_source_is_new_take": true,
+    "continuation_first_guide_is_exact_png": true,
+    "continuation_is_context_draft": true,
+    "continuation_validates": true,
+    "result_unreviewed": true,
+    "no_continuation_jobs": true,
+    "prepared_and_staged_api_match": true,
+    "persisted_after_restart": true,
+    "still_one_submission_after_restart": true,
+    "source_hashes_unchanged": true,
+    "core_hashes_unchanged": true,
+    "no_gpu_in_failed_prelaunch": true
+  },
+  "project_revision": 6,
+  "job_id": "job-77f763f31f694b01",
+  "take_id": "take-46963dc53f644a94",
+  "continuation": {
+    "id": "block-e561adbfd4064fda",
+    "label": "CL-MC03-C55",
+    "status": "draft",
+    "context_take_id": "take-46963dc53f644a94",
+    "settings": {
+      "mode": "context",
+      "seconds": 2.0,
+      "size": [
+        896,
+        512
+      ],
+      "seed": "148096032077133"
+    },
+    "guides": [
+      {
+        "reference_id": "ref-d79caf325a504512",
+        "frame": 0
+      }
+    ]
+  },
+  "metrics": {
+    "server_wall_seconds": 50.551,
+    "solver_seconds": 30.731456999998045,
+    "conditioning_seconds": 11.443795899998804,
+    "device_gpu_peak_GiB": 15.1240234375,
+    "rss_peak_GiB": 16.557579040527344,
+    "sage_success": 400,
+    "sdpa_calls": 0,
+    "all_h3_finite": true
+  },
+  "ui_launch_to_collect_seconds": 76.525123,
+  "videos": {
+    "92": {
+      "frames": 56,
+      "fps": 24.0,
+      "width": 896,
+      "height": 512,
+      "audio_streams": 0
+    },
+    "207": {
+      "frames": 34,
+      "fps": 24.0,
+      "width": 896,
+      "height": 512,
+      "audio_streams": 0
+    }
+  },
+  "outputs": {
+    "200.0": {
+      "path": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Jobs\\job-77f763f31f694b01\\Run\\output\\latents\\STUDIO.CL-MC03.77f763f31f694b01_00002.safetensors",
+      "bytes": 2948568,
+      "sha256": "06aa2f4f3cd10c283d6ab6d2a1d5308674a99ac6d98acfa34686219dd575b153"
+    },
+    "92.0": {
+      "path": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Jobs\\job-77f763f31f694b01\\Run\\output\\video\\STUDIO.CL-MC03.77f763f31f694b01.Raw_00001_.mp4",
+      "bytes": 1881964,
+      "sha256": "fc8c68d0c75eaa536de51d26d8beb29e4134d5a14157e6aa473a450483ee57ec"
+    },
+    "202.0": {
+      "path": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Jobs\\job-77f763f31f694b01\\Run\\output\\frames\\STUDIO.CL-MC03.77f763f31f694b01.Last_00001_.png",
+      "bytes": 842766,
+      "sha256": "d4668cf8ba07632ac1ab4dd0333e11f4b7703bb63b72703da6961f1b9b6b06a5"
+    },
+    "207.0": {
+      "path": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Jobs\\job-77f763f31f694b01\\Run\\output\\video\\STUDIO.CL-MC03.77f763f31f694b01.New_00001_.mp4",
+      "bytes": 1014061,
+      "sha256": "168e1f9a541777bb25fc82fd46f18f5dca820c0da4e7ed3f8a7f914b54eb91eb"
+    }
+  },
+  "native_av_shapes": {
+    "audio": [
+      1,
+      32,
+      2,
+      93
+    ],
+    "video": [
+      1,
+      24,
+      17,
+      32,
+      56
+    ]
+  },
+  "submissions": [
+    "job-77f763f31f694b01"
+  ],
+  "tests": {
+    "python": 54,
+    "status": "passed",
+    "seconds": 3.351
+  },
+  "source_sha256": {
+    "studio/jobs.py": "b088d20a92f745763e616592f98a3d19dca44d670c8e8928e9ccf062f479d3b2",
+    "static/app.js": "592078b75fd683d97c569460d983672f29f33be782d50dbcdcd3e505e22dcac3",
+    "tests/test_jobs.py": "2306c48371baa1845a71669d6a8c9b8f89edcd2a95d17b83dde964f808aa5a7c"
+  },
+  "cpu_probe": {
+    "redirected_start_process_powershell_5_1_exit_code": null,
+    "redirected_start_process_powershell_7_6_9_exit_code": 0
+  },
+  "screenshots": {
+    "Control.Run01.Continuation.jpg": "bbe31d84e47cd711cc3ea11c96f64c44c4399f4e19b8b1c260c7a9b1d0569cf7",
+    "Control.Run01.Result.jpg": "b25f5dc9a62b4f23474ea70ebd1ab570908a19947c331fdcfcc49efd6a86b671"
+  },
+  "restart_verified_at": "2026-10-30T17:05:19.121193+00:00"
+}

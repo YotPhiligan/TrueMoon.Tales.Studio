@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-31",
+  "release": "0.3.0",
+  "tests": {
+    "python": {
+      "passed": 114,
+      "seconds": 8.177,
+      "exit_code": 0,
+      "environment": "portable Python, outside Windows sandbox for loopback and normal TEMP"
+    },
+    "node": {
+      "passed": 31,
+      "exit_code": 0,
+      "original_logic_script": "PASS"
+    }
+  },
+  "browser": {
+    "metrics": {
+      "bufferTicks": "0",
+      "clip": "",
+      "kind": "gap",
+      "maxDrift": "0.1334",
+      "playback": "paused",
+      "resyncs": "0",
+      "timelineTime": "14.000000",
+      "videoTicks": "833",
+      "visits": "[\"gap\",\"video:clip-1ae21da73c924701\",\"gap\",\"video:clip-375d7664968a4745\",\"gap\",\"placeholder:clip-e5d81875d0534240\",\"video:clip-859ada8b18cd4562\",\"gap\"]"
+    },
+    "pausedScrub": {
+      "source": "3.000000",
+      "timeline": "3.000000",
+      "videos": [
+        {
+          "paused": true,
+          "time": 3
+        }
+      ]
+    },
+    "errors": []
+  },
+  "project": {
+    "id": "playback-qa",
+    "revision": 22,
+    "fps": 24,
+    "duration_seconds": 14,
+    "music": {
+      "id": "music-4cbdd853438c4c1e",
+      "asset_id": "a6466538253b581ea6fe",
+      "start_frame": 48,
+      "source_in_frame": 1056,
+      "duration_frames": 240,
+      "gain": 0.65,
+      "muted": false
+    },
+    "audio_upload_retained": true,
+    "trim_mouse_and_undo": {
+      "trimmed_frames": 216,
+      "restored_frames": 240
+    },
+    "restart_restored_waveform": true,
+    "marker_during_playback": true,
+    "gain_during_playback": true,
+    "clip_audio_during_playback": true
+  },
+  "waveform": {
+    "seconds": 243.9314375,
+    "peaks": 24394,
+    "peaks_per_second": 100,
+    "analysis_seconds": 0.422,
+    "source_sha256": "7257ec5c36991b601bd6687a2068abb2e61e523e5a8045c78e7dcd66465399fe",
+    "source_matches_cached_hash": true
+  },
+  "production_projects": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "sha256": "e81febbb0c2b1f943be4675fd30ebc8376589a1524ad538beac19b3972f317c7",
+      "unchanged": true
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "unchanged": true
+    }
+  },
+  "gpu_jobs": 0,
+  "syntax": "Python AST passed",
+  "owned_preview_server_stopped": true,
+  "javascript_syntax": "PASS",
+  "git_diff_check": "PASS"
+}

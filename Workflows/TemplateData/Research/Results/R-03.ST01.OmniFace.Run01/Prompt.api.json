@@ -1,0 +1,281 @@
+{
+  "92": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/CL-ST01.OmniFace.v1",
+      "format": "auto",
+      "format.codec": "auto",
+      "video": [
+        "130",
+        0
+      ]
+    }
+  },
+  "119": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    }
+  },
+  "120": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    }
+  },
+  "122": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    }
+  },
+  "123": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    }
+  },
+  "124": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "simple",
+      "steps": [
+        "143",
+        0
+      ],
+      "denoise": 1.0,
+      "model": [
+        "165",
+        0
+      ]
+    }
+  },
+  "125": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "129",
+        0
+      ],
+      "guider": [
+        "126",
+        0
+      ],
+      "sampler": [
+        "123",
+        0
+      ],
+      "sigmas": [
+        "124",
+        0
+      ],
+      "latent_image": [
+        "136",
+        1
+      ]
+    }
+  },
+  "126": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "165",
+        0
+      ],
+      "conditioning": [
+        "162",
+        0
+      ]
+    }
+  },
+  "127": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "fasth3_omniref_qad_nvfp4_comfy.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "128": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "129": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 148096032077131
+    }
+  },
+  "130": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "bit_depth": "auto",
+      "color_space": "sRGB",
+      "codec": "none",
+      "images": [
+        "122",
+        0
+      ]
+    }
+  },
+  "131": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "132",
+        0
+      ]
+    }
+  },
+  "132": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 4.0
+    }
+  },
+  "136": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "prompt": [
+        "138",
+        0
+      ],
+      "width": 1280,
+      "height": 736,
+      "length": [
+        "131",
+        1
+      ],
+      "ref_image_size": "match",
+      "clip": [
+        "128",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ],
+      "ref_images.ref_image_0": [
+        "166",
+        0
+      ],
+      "ref_images.ref_image_1": [
+        "164",
+        0
+      ],
+      "ref_images.ref_image_2": [
+        "157",
+        0
+      ]
+    }
+  },
+  "138": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "subject_definitions:\n<Subject 1> is one adult Claire, nineteen to twenty, whose young-adult identity and service uniform come from <Picture 1>. Her face has pale-turquoise anime eyes, defined chestnut eyebrows, a small straight nose, a tapered chin and closed lips. Her chestnut hair forms a high ponytail with loose framing strands. She wears a closed graphite service coat with a short standing collar, small round fastening, tonal shoulder panels, fitted seams and a plain dark belt with a rectangular buckle. <Picture 2> and <Picture 3> define the exact scene-lit face, three-quarter view and hand positions. These images show the same adult woman; the gray studio background of <Picture 1> is outside its reference role.\n<Subject 2> is the warm training hall in <Picture 2> and <Picture 3>, with stone walls, dark timber supports, a tall sunlit window on screen right and a wooden floor.\n<Subject 3> is the detailed painterly anime rendering shared by the images: fine drawn contours, shaped anime eyes, restrained skin shading, grouped painted hair strands, soft textured cloth and a softly detailed background.\n<Picture 2> is the first frame of [Shot 1], with Claire's left fist raised near her chest and the separate right fist lower beside her ribs.\n<Picture 3> is the last frame of [Shot 1], with the raised left hand softly partly open and the right hand still in guard.\n\nsummary:\n[reference generation + keyframe completion] Generate one silent 4.46-second shot of <Subject 1> in <Subject 2>, beginning from <Picture 2> and ending on <Picture 3>. She gradually releases the tension in her raised left hand while maintaining an attentive gaze toward her off-screen mentor on screen right. Preserve <Subject 3> throughout the moving face, hair, hands and fabric.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the same adult face, natural turquoise eyes, chestnut ponytail and graphite service uniform remain consistent as the left hand relaxes.\n<Subject 2> (appears in [Shot 1]): fully_preserved - the stone-and-timber hall, fixed window, warm illumination and camera position remain consistent.\n<Subject 3> (appears in [Shot 1]): fully_preserved - fine drawn contours, anime eye construction and painterly shading continue through intermediate frames.\n<Picture 2> ([Shot 1] first frame): fully_preserved - its framing, face angle and separated guards define the opening.\n<Picture 3> ([Shot 1] last frame): fully_preserved - its partly open left hand, lowered shoulder tension and attentive face define the ending.\n\ndetailed_description:\nThe shot uses detailed painterly anime illustration with fine controlled outlines, soft textured cloth, grouped chestnut hair strands and a warm golden rim light. Skin retains drawn planes and restrained gradients, and the eyes retain the distinct shaped irises and clean lids visible in the scene images.\n\n[Shot 1] Begin from <Picture 2>. Adult Claire, <Subject 1>, occupies center-left in a stable waist-up three-quarter composition, facing screen right toward her mentor outside the frame. The unmasked face and both separate hands are readable. Her pale-turquoise eyes stay directed toward that same off-screen person, her mouth remains closed, and her brow carries controlled concentration. The high ponytail extends behind her toward screen left, with a few loose strands following the cheek. Her graphite standing collar, round fastening, shoulder yoke, front seams and rectangular belt buckle retain their image-defined construction. Behind her, <Subject 2> remains fixed: dark beams cross the stone wall, the bright right window casts soft geometric light, and the wood floor stays in the lower background.\n\nDuring the first 0.30 seconds, she holds the stopped training posture. Her anatomical left fist remains raised near the upper chest, and the anatomical right fist stays separately bent lower beside the ribs. A small remaining tension is visible in the left fingers, while the wrist keeps its original position. Her head stays at the established three-quarter angle, with only the slight natural motion of a controlled breath. The shoulders and face remain composed.\n\nFrom 0.30 to 1.90 seconds, the four curled left fingers and the thumb gradually loosen toward the softly curved hand in <Picture 3>. The release begins in the fingers and travels through the knuckles; the palm keeps its orientation, and the thumb stays attached on its original side. Her right guard remains ready. One small natural blink around 1.0 seconds briefly closes and reopens the same shaped eyelids, after which the turquoise gaze returns immediately to the mentor. Her lips remain still and closed. The shoulder line eases a fraction with one quiet controlled breath rather than a large torso shift.\n\nFrom 1.90 to 2.35 seconds, the left hand reaches its partly open resting curve. The ponytail and sleeve tips follow the small body adjustment with delayed, diminishing motion. From 2.35 seconds through the final 4.46-second boundary, retain attentive breathing and a small remaining curve in the left fingers, converging to <Picture 3>. The fixed eye-level camera, facial proportions and warm window light stay consistent. This remains one continuous training moment with an uncovered face, natural unlit eyes and a restrained closed-mouth expression. The finished source is silent.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A"
+    }
+  },
+  "143": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 8
+    }
+  },
+  "147": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "frame_idx": 0,
+      "positive": [
+        "136",
+        0
+      ],
+      "latent": [
+        "136",
+        1
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ],
+      "image": [
+        "164",
+        0
+      ]
+    }
+  },
+  "157": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "TMT.CL-ST01.LastFrame.v2.png"
+    }
+  },
+  "162": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "frame_idx": -1,
+      "positive": [
+        "147",
+        0
+      ],
+      "latent": [
+        "136",
+        1
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ],
+      "image": [
+        "157",
+        0
+      ]
+    }
+  },
+  "164": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "TMT.CL-ST01.FirstFrame.v2.png"
+    }
+  },
+  "165": {
+    "class_type": "MiniMaxH3SigmaShift",
+    "inputs": {
+      "shift_video": 12.0,
+      "shift_audio": 3.0,
+      "model": [
+        "127",
+        0
+      ]
+    }
+  },
+  "166": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "TMT.CL-ST01.Adult.Operative.v1.png"
+    }
+  }
+}

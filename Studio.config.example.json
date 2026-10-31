@@ -1,0 +1,688 @@
+{
+  "version": 1,
+  "legacy_root": "../../TOSAB/Book",
+  "amv_root": "../TrueMoon.Tales.Videos",
+  "projects_root": "../TrueMoon.Tales.Videos/Projects",
+  "state_root": "../.studio-state",
+  "cache_root": "../.studio-cache",
+  "exports_root": "../.studio-exports",
+  "profiles_root": "./Workflows/Omni.v1.1",
+  "python_executable": "E:/ComfyUI_windows_portable/python_embeded/python.exe",
+  "comfy_root": "E:/ComfyUI_windows_portable/ComfyUI",
+  "mounts": {
+    "videos": "../TrueMoon.Tales.Videos",
+    "arts": "../TrueMoon.Tales.Arts",
+    "lore": "../TrueMoon.Tales.Lore",
+    "texts": "../TrueMoon.Tales.Texts"
+  },
+  "project_write_roots": [
+    "../TrueMoon.Tales.Videos/Clair/Production",
+    "../TrueMoon.Tales.Videos/Opening/Production"
+  ],
+  "protected_roots": [
+    "../TrueMoon"
+  ],
+  "path_aliases": [
+    {
+      "from": "Arts",
+      "to": "@arts/Arts"
+    },
+    {
+      "from": "Handbooks",
+      "to": "@lore/Handbooks"
+    },
+    {
+      "from": "AGENTS.md",
+      "to": "@texts/AGENTS.md"
+    },
+    {
+      "from": "README.md",
+      "to": "@texts/Docs/Legacy.Book.README.md"
+    },
+    {
+      "from": "TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/TrueMoonTales.UnreliableStoryteller.md",
+      "to": "@texts/TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/TrueMoonTales.UnreliableStoryteller.md"
+    },
+    {
+      "from": "TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStoryteller.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStoryteller.pdn"
+    },
+    {
+      "from": "TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStoryteller.png",
+      "to": "@texts/TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStorytellerCover.png"
+    },
+    {
+      "from": "TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStoryteller_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/UnreliableStoryteller_low.png"
+    },
+    {
+      "from": "TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/tmp.md",
+      "to": "@texts/TrueMoonTales.MiniStories/TrueMoonTales.UnreliableStoryteller/tmp.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter1/TrueMoonTales.SilverHeart.Chapter1.Metadata.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter1/TrueMoonTales.SilverHeart.Chapter1.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter1/TrueMoonTales.SilverHeart.Chapter1.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter1/TrueMoonTales.SilverHeart.Chapter1.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.Metadata.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.Old.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.Old.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter2/TrueMoonTales.SilverHeart.Chapter2.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter3/TrueMoonTales.SilverHeart.Chapter3.Metadata.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter3/TrueMoonTales.SilverHeart.Chapter3.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter3/TrueMoonTales.SilverHeart.Chapter3.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter3/TrueMoonTales.SilverHeart.Chapter3.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter4/TrueMoonTales.SilverHeart.Chapter4.Metadata.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter4/TrueMoonTales.SilverHeart.Chapter4.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Chapters/Chapter4/TrueMoonTales.SilverHeart.Chapter4.md",
+      "to": "@texts/TrueMoonTales.SilverHeart/Chapters/Chapter4/TrueMoonTales.SilverHeart.Chapter4.md"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2.pdn"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2_text.png",
+      "to": "@texts/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter2.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3.pdn"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3_text.png",
+      "to": "@texts/TrueMoonTales.SilverHeart/ChaptersPreviewArts/TrueMoonTales.SilverHeart.Chapter3.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.GuardFramed.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.GuardFramed.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.MikaForeground.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.MikaForeground.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.NoText.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter2.Cover.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.Clean.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.Clean.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.v2.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.v2.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.v3.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.FadingCharm.v3.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v2.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v2.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v3.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v3.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v4.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v4.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v5.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v5.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v6.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v6.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v7.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/ChaptersPreviewArts/WIP/TrueMoonTales.SilverHeart.Chapter3.Cover.NoText.v7.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/CropInpaint_00001_.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/CropInpaint_00001_.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/SilverHeartCover.Threshold.Disguise.NoText.v1.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/SilverHeartCover.Threshold.Disguise.NoText.v1.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/SilverHeartCover.Threshold.NoText.v1.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/SilverHeartCover.Threshold.NoText.v1.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/SilverHeartCover.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/SilverHeartCover.pdn"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/SilverHeartCover.png",
+      "to": "@texts/TrueMoonTales.SilverHeart/Cover/SilverHeartCover.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/SilverHeartCover_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/SilverHeartCover_low.png"
+    },
+    {
+      "from": "TrueMoonTales.SilverHeart/Cover/promt.txt",
+      "to": "@arts/SourceArchives/TrueMoonTales.SilverHeart/Cover/promt.txt"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter1/TrueMoonTales.Chapter1.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter1/TrueMoonTales.Chapter1.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter1/TrueMoonTales.Chapter1.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter1/TrueMoonTales.Chapter1.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter10/TrueMoonTales.Chapter10.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter10/TrueMoonTales.Chapter10.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter10/TrueMoonTales.Chapter10.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter10/TrueMoonTales.Chapter10.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter11/TrueMoonTales.Chapter11.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter11/TrueMoonTales.Chapter11.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter11/TrueMoonTales.Chapter11.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter11/TrueMoonTales.Chapter11.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter12/TrueMoonTales.Chapter12.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter12/TrueMoonTales.Chapter12.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter12/TrueMoonTales.Chapter12.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter12/TrueMoonTales.Chapter12.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter13/TrueMoonTales.Chapter13.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter13/TrueMoonTales.Chapter13.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter13/TrueMoonTales.Chapter13.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter13/TrueMoonTales.Chapter13.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter14/TrueMoonTales.Chapter14.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter14/TrueMoonTales.Chapter14.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter14/TrueMoonTales.Chapter14.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter14/TrueMoonTales.Chapter14.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter15/TrueMoonTales.Chapter15.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter15/TrueMoonTales.Chapter15.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter15/TrueMoonTales.Chapter15.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter15/TrueMoonTales.Chapter15.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter16/TrueMoonTales.Chapter16.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter16/TrueMoonTales.Chapter16.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter16/TrueMoonTales.Chapter16.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter16/TrueMoonTales.Chapter16.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter17/TrueMoonTales.Chapter17.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter17/TrueMoonTales.Chapter17.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter17/TrueMoonTales.Chapter17.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter17/TrueMoonTales.Chapter17.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter2/TrueMoonTales.Chapter2.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter2/TrueMoonTales.Chapter2.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter2/TrueMoonTales.Chapter2.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter2/TrueMoonTales.Chapter2.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.Metadata.json",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.Metadata.json"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter3/TrueMoonTales.Chapter3.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.old.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter4/TrueMoonTales.Chapter4.old.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter5/TrueMoonTales.Chapter5.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter5/TrueMoonTales.Chapter5.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter5/TrueMoonTales.Chapter5.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter5/TrueMoonTales.Chapter5.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.old.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter6/TrueMoonTales.Chapter6.old.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter7/TrueMoonTales.Chapter7.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter7/TrueMoonTales.Chapter7.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter7/TrueMoonTales.Chapter7.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter7/TrueMoonTales.Chapter7.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter8/TrueMoonTales.Chapter8.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter8/TrueMoonTales.Chapter8.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter8/TrueMoonTales.Chapter8.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter8/TrueMoonTales.Chapter8.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter9/TrueMoonTales.Chapter9.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter9/TrueMoonTales.Chapter9.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter9/TrueMoonTales.Chapter9.md",
+      "to": "@texts/TrueMoonTales/Chapters/Chapter9/TrueMoonTales.Chapter9.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Chapter16.AugustaDraft.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Chapter16.AugustaDraft.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Cici.Rebuild.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Cici.Rebuild.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Cici.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Cici.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/DarkEpiskopeArrival.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/DarkEpiskopeArrival.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Interlude.StormPact.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Interlude.StormPact.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Postman.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Postman.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/RayNightmare.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/RayNightmare.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Scene.CopperFoxRescue.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Scene.CopperFoxRescue.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Ideas/Клэр1.md",
+      "to": "@texts/TrueMoonTales/Chapters/Ideas/Клэр1.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Interlude1/TrueMoonTales.Interlude1.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Interlude1/TrueMoonTales.Interlude1.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Interlude1/TrueMoonTales.Interlude1.md",
+      "to": "@texts/TrueMoonTales/Chapters/Interlude1/TrueMoonTales.Interlude1.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.Metadata.md",
+      "to": "@texts/TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.Metadata.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.Metadata.old.md",
+      "to": "@texts/TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.Metadata.old.md"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.md",
+      "to": "@texts/TrueMoonTales/Chapters/Prologue/TrueMoonTales.Prologue.md"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter1.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter1.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter10.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter10.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter10.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter10.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter11.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter11.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter11.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter11.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter11_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter11_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter12.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter12.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter12.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter12.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter13.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter13.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13_v2.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter13_v2.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13_v3.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter13_v3.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13_v4.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter13_v4.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter13_v4_no_text.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter13_v4_no_text.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter14.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter14.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter14.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter14.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter14_wt.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter14_wt.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter2.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter2.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter2.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter2.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter2_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter2_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter3.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter3.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter3.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter3.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter3_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter3_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter4.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter4.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter4.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter4.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter4_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter4_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter5.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter5.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter5.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter5.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter5_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter5_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter6.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter6.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter6.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter6.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter6_1.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter6_1.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter6_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter6_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter7.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter7.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter7.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter7.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter8.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter8.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter8.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter8.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter8_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter8_low.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter9.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Chapter9.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Chapter9.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Chapter9.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Interlude1.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Interlude1.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Interlude1.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Interlude1.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Interlude1_wt.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Interlude1_wt.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Prologue.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Prologue.pdn"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Prologue.png",
+      "to": "@texts/TrueMoonTales/ChaptersPreviewArts/Prologue.png"
+    },
+    {
+      "from": "TrueMoonTales/ChaptersPreviewArts/Prologue_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/ChaptersPreviewArts/Prologue_low.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2.pdn"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2_low.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2_prompt.md",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2_prompt.md"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2_with_text.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2_with_text.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2_with_text_low.jpg",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2_with_text_low.jpg"
+    },
+    {
+      "from": "TrueMoonTales/Cover/BookCoverV2_with_text_low.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/BookCoverV2_with_text_low.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover.jpg",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover.jpg"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover_.jpg",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover_.jpg"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover_alternative.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover_alternative.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover_low.jpg",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover_low.jpg"
+    },
+    {
+      "from": "TrueMoonTales/Cover/Cover_low2.jpg",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/Cover_low2.jpg"
+    },
+    {
+      "from": "TrueMoonTales/Cover/book.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/book.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/poster.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/poster.pdn"
+    },
+    {
+      "from": "TrueMoonTales/Cover/poster.png",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/poster.png"
+    },
+    {
+      "from": "TrueMoonTales/Cover/poster2.pdn",
+      "to": "@arts/SourceArchives/TrueMoonTales/Cover/poster2.pdn"
+    },
+    {
+      "from": "TrueMoonTales/AMV",
+      "to": "@videos"
+    },
+    {
+      "from": "TrueMoonTales/AMV/UI",
+      "to": "@studio"
+    },
+    {
+      "from": "TrueMoonTales/AMV/UI/.local",
+      "to": "@videos/Archives/Studio0.14.Local"
+    },
+    {
+      "from": "TrueMoonTales/AMV/Workflows",
+      "to": "@studio/Workflows"
+    },
+    {
+      "from": "TrueMoonTales/Chapters/Chapter14/Video",
+      "to": "@videos/ChapterAdaptations/TrueMoonTales/Chapter14"
+    }
+  ],
+  "legacy_read_enabled": false
+}

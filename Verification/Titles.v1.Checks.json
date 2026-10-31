@@ -1,0 +1,334 @@
+{
+  "result": {
+    "state": "completed",
+    "output": "Draft.mp4",
+    "sha256": "b600e5e93b21f0b343f7f1089acd91076c32b4280327e1f8d09244df9a1a960c",
+    "video_info": {
+      "frames": 192,
+      "fps": 24,
+      "seconds": 8.0,
+      "width": 896,
+      "height": 516,
+      "audio": true
+    },
+    "elapsed_seconds": 2.844
+  },
+  "frames_compared": 192,
+  "title_frame_instances": 96,
+  "all_frame_thumbnail_mae_mean": 0.8650331239442567,
+  "all_frame_thumbnail_mae_max": 1.6205658783783783,
+  "all_frame_full_resolution_mae_mean": 1.9526297493117077,
+  "all_frame_full_resolution_mae_max": 3.526302660114433,
+  "browser_samples": [
+    {
+      "level": 1,
+      "nodes": [
+        {
+          "hidden": false,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0.083333,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": true,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0.08333333333333333,
+        "title-30d2fdae23d44ccb": 0,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 0.5
+    },
+    {
+      "level": 1,
+      "nodes": [
+        {
+          "hidden": false,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0.583333,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": true,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0.5833333333333334,
+        "title-30d2fdae23d44ccb": 0,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 0.625
+    },
+    {
+      "level": 0.958333,
+      "nodes": [
+        {
+          "hidden": false,
+          "id": "title-04f016871c8346b2",
+          "opacity": 1,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": true,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 1,
+        "title-30d2fdae23d44ccb": 0,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 1
+    },
+    {
+      "level": 0.791667,
+      "nodes": [
+        {
+          "hidden": false,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0.416667,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": true,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0.4166666666666667,
+        "title-30d2fdae23d44ccb": 0,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 2.375
+    },
+    {
+      "level": 0,
+      "nodes": [
+        {
+          "hidden": true,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": false,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0.083333,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0,
+        "title-30d2fdae23d44ccb": 0.08333333333333333,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 4
+    },
+    {
+      "level": 0,
+      "nodes": [
+        {
+          "hidden": true,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": false,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0.583333,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0,
+        "title-30d2fdae23d44ccb": 0.5833333333333334,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 4.125
+    },
+    {
+      "level": 0,
+      "nodes": [
+        {
+          "hidden": true,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": false,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 1,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0,
+        "title-30d2fdae23d44ccb": 1,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 4.5
+    },
+    {
+      "level": 0,
+      "nodes": [
+        {
+          "hidden": true,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": false,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0.416667,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": true,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0,
+        "title-30d2fdae23d44ccb": 0.4166666666666667,
+        "title-b48a944a45f0430a": 0
+      },
+      "time": 4.875
+    },
+    {
+      "level": 1,
+      "nodes": [
+        {
+          "hidden": true,
+          "id": "title-04f016871c8346b2",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/e0f81a4dd049d597ac91b76f53003d6faf2fefedc7811573a943956dd590f1cb"
+        },
+        {
+          "hidden": true,
+          "id": "title-30d2fdae23d44ccb",
+          "opacity": 0,
+          "url": "/api/projects/titles-qa/title-images/31023ab42182ed37563b30fbf6ec1654d44f8517fe4a009d0f6efd2086912f52"
+        },
+        {
+          "hidden": false,
+          "id": "title-b48a944a45f0430a",
+          "opacity": 1,
+          "url": "/api/projects/titles-qa/title-images/24d329bede387450599f08302207f7950a8cdf1f7da0cbacef96f36325796498"
+        }
+      ],
+      "opacities": {
+        "title-04f016871c8346b2": 0,
+        "title-30d2fdae23d44ccb": 0,
+        "title-b48a944a45f0430a": 1
+      },
+      "time": 7.5
+    }
+  ],
+  "shared_PNG_SHA_verified": true,
+  "browser_phase_values_match": true,
+  "audio": [
+    {
+      "window": "overlay_and_sound",
+      "correlation": 0.9981522240192451,
+      "rms_ratio": 1.0007506608963013
+    },
+    {
+      "window": "black_title_and_music",
+      "correlation": 0.9978640924304205,
+      "rms_ratio": 0.988885760307312
+    },
+    {
+      "window": "after_title",
+      "correlation": 0.9984785582744394,
+      "rms_ratio": 0.9910460114479065
+    },
+    {
+      "window": "tail_title_and_sound",
+      "expected_silence": true,
+      "peak": 0.0
+    }
+  ],
+  "timing_music_markers_anchors_sounds_and_transitions_preserved": true,
+  "library_preserved": true,
+  "author_project_sha_unchanged": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": true
+  },
+  "studio_version": "0.14",
+  "python_tests": 249,
+  "node_runner_entries": 149,
+  "python_seconds": 29.75,
+  "node_ms": 220.1989,
+  "restart": {
+    "titles": 3,
+    "revision": 53,
+    "completed_exports": 1,
+    "auto_render": false
+  },
+  "ui": {
+    "invalid_fade_save_disabled": true,
+    "delete_undo_restored": true,
+    "title_lane_edit": true,
+    "black_gap_message_hidden": true,
+    "playback_reached_seconds": 8,
+    "errors": false
+  },
+  "syntax_and_document_links_pass": true
+}

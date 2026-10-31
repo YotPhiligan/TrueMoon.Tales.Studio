@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "id": "CL.Transfer.Example01",
+  "profile": "full-transfer",
+  "size": [1280, 736],
+  "fps": 24,
+  "seconds": 2.0,
+  "seed": 148096032077131,
+  "silent": true,
+  "prompt": "FullTransfer.Prompt.txt",
+  "references": [
+    {"role": "location / rainy gallery", "path": "../../../Clair/References/CL-RP01.Location.H3.v1.png"},
+    {"role": "Claire / proportions and costume below collar only", "path": "../../../../../Arts/Characters/Claire/Claire.Operational.FullBody.Reference.v7.png"},
+    {"role": "rune carbine / design", "path": "../../../Clair/References/CL-RP01.Carbine.v1.png"},
+    {"role": "assembled first frame / mask, grip, composition", "path": "../../../Clair/Frames/CL-AC03.FirstFrame.H3.v1.png"}
+  ],
+  "guides": [{"picture": 4, "frame": 0}],
+  "motion_video": {
+    "path": "../../../Clair/video/CL-PV01.OmniPreview.v1.Run01.mp4",
+    "role": "Video 1 / fixed-camera timing and screen-space path",
+    "review_notes": "Technical PV03 example, not a production-approved take. Shot at frames 4-7, hold to about 0.9s, modest torso rise and compression around 1.3-1.65s, late travel right, original muzzle direction retained. Pauses are intentionally described in the matching prompt."
+  }
+}

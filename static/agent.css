@@ -1,0 +1,21 @@
+.agent-task-heading{display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-bottom:10px;border-bottom:1px solid var(--line);font-size:11px}
+.agent-task{padding:13px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.agent-task>small{display:block;font-size:9px;color:var(--muted)}
+.agent-task>p{font-size:11px;line-height:1.65;margin-top:7px;white-space:pre-wrap}
+.agent-task.running>small{color:var(--mint)}
+.agent-task.failed>small{color:#e5a18d}
+.agent-task.completed>small{color:#89c6b4}
+.agent-owner{display:block;font:9px Consolas,monospace;margin-top:7px;color:#9bb3c6}
+.agent-result{padding:8px 10px;background:#122b252e;border-left:2px solid #6a9d8c;color:#b8cdc5}
+.agent-task-actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:9px}
+#agentScope,#agentMode{width:100%;padding:9px;border:1px solid #394552;background:#131921;border-radius:5px;color:#cad5df;font-size:11px}
+#agentBrief,#copyContext,#showContext{margin-bottom:8px}
+#createAgentTask{margin-bottom:10px}
+#projectBriefForm{margin-top:16px;grid-template-columns:repeat(2,minmax(0,1fr))}
+#projectBriefForm>.field{min-width:0}
+#projectBriefForm>#briefStatus,#projectBriefForm>button{grid-column:1/-1}
+#projectBriefForm textarea{width:100%;min-height:80px;font-size:12px;line-height:1.65;padding:10px;background:#11191e;color:var(--text);border:1px solid #384650;border-radius:5px;resize:vertical}
+#briefStatus{color:#efc18a;font-size:11px;line-height:1.6}
+#projectBriefButton{font-size:10px;white-space:nowrap}
+@media(max-width:960px){#projectBriefButton{padding:7px;font-size:9px}}
+@media(max-width:600px){#projectBriefForm{grid-template-columns:1fr}}

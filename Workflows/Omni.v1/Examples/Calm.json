@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "id": "R08.Calm.Prepared",
+  "profile": "omni-guided",
+  "size": [
+    1280,
+    736
+  ],
+  "seconds": 4.0,
+  "seed": 148096032077131,
+  "prompt": "Calm.Prompt.txt",
+  "references": [
+    {
+      "role": "adult character and uniform",
+      "path": "E:/ComfyUI_windows_portable/ComfyUI/input/TMT.CL-ST01.Adult.Operative.v1.png"
+    },
+    {
+      "role": "scene first frame",
+      "path": "E:/ComfyUI_windows_portable/ComfyUI/input/TMT.CL-ST01.FirstFrame.v2.png"
+    },
+    {
+      "role": "scene last frame",
+      "path": "E:/ComfyUI_windows_portable/ComfyUI/input/TMT.CL-ST01.LastFrame.v2.png"
+    }
+  ],
+  "guides": [
+    {
+      "picture": 2,
+      "frame": 0
+    },
+    {
+      "picture": 3,
+      "frame": -1
+    }
+  ],
+  "clip_index": 1
+}

@@ -1,0 +1,31 @@
+subject_definitions:
+<Subject 1> is one adult Claire, nineteen to twenty, whose young-adult identity and service uniform come from <Picture 1>. Her face has pale-turquoise anime eyes, defined chestnut eyebrows, a small straight nose, a tapered chin and closed lips. Her chestnut hair forms a high ponytail with loose framing strands. She wears a closed graphite service coat with a short standing collar, small round fastening, tonal shoulder panels, fitted seams and a plain dark belt with a rectangular buckle. <Picture 2> and <Picture 3> define the exact scene-lit face, three-quarter view and hand positions. These images show the same adult woman; the gray studio background of <Picture 1> is outside its reference role.
+<Subject 2> is the warm training hall in <Picture 2> and <Picture 3>, with stone walls, dark timber supports, a tall sunlit window on screen right and a wooden floor.
+<Subject 3> is the detailed painterly anime rendering shared by the images: fine drawn contours, shaped anime eyes, restrained skin shading, grouped painted hair strands, soft textured cloth and a softly detailed background.
+<Picture 2> is the first frame of [Shot 1], with Claire's left fist raised near her chest and the separate right fist lower beside her ribs.
+<Picture 3> is the last frame of [Shot 1], with the raised left hand softly partly open and the right hand still in guard.
+
+summary:
+[reference generation + keyframe completion] Generate one silent 4.46-second shot of <Subject 1> in <Subject 2>, beginning from <Picture 2> and ending on <Picture 3>. She gradually releases the tension in her raised left hand while maintaining an attentive gaze toward her off-screen mentor on screen right. Preserve <Subject 3> throughout the moving face, hair, hands and fabric.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - the same adult face, natural turquoise eyes, chestnut ponytail and graphite service uniform remain consistent as the left hand relaxes.
+<Subject 2> (appears in [Shot 1]): fully_preserved - the stone-and-timber hall, fixed window, warm illumination and camera position remain consistent.
+<Subject 3> (appears in [Shot 1]): fully_preserved - fine drawn contours, anime eye construction and painterly shading continue through intermediate frames.
+<Picture 2> ([Shot 1] first frame): fully_preserved - its framing, face angle and separated guards define the opening.
+<Picture 3> ([Shot 1] last frame): fully_preserved - its partly open left hand, lowered shoulder tension and attentive face define the ending.
+
+detailed_description:
+The shot uses detailed painterly anime illustration with fine controlled outlines, soft textured cloth, grouped chestnut hair strands and a warm golden rim light. Skin retains drawn planes and restrained gradients, and the eyes retain the distinct shaped irises and clean lids visible in the scene images.
+
+[Shot 1] Begin from <Picture 2>. Adult Claire, <Subject 1>, occupies center-left in a stable waist-up three-quarter composition, facing screen right toward her mentor outside the frame. The unmasked face and both separate hands are readable. Her pale-turquoise eyes stay directed toward that same off-screen person, her mouth remains closed, and her brow carries controlled concentration. The high ponytail extends behind her toward screen left, with a few loose strands following the cheek. Her graphite standing collar, round fastening, shoulder yoke, front seams and rectangular belt buckle retain their image-defined construction. Behind her, <Subject 2> remains fixed: dark beams cross the stone wall, the bright right window casts soft geometric light, and the wood floor stays in the lower background.
+
+During the first 0.30 seconds, she holds the stopped training posture. Her anatomical left fist remains raised near the upper chest, and the anatomical right fist stays separately bent lower beside the ribs. A small remaining tension is visible in the left fingers, while the wrist keeps its original position. Her head stays at the established three-quarter angle, with only the slight natural motion of a controlled breath. The shoulders and face remain composed.
+
+From 0.30 to 1.90 seconds, the four curled left fingers and the thumb gradually loosen toward the softly curved hand in <Picture 3>. The release begins in the fingers and travels through the knuckles; the palm keeps its orientation, and the thumb stays attached on its original side. Her right guard remains ready. One small natural blink around 1.0 seconds briefly closes and reopens the same shaped eyelids, after which the turquoise gaze returns immediately to the mentor. Her lips remain still and closed. The shoulder line eases a fraction with one quiet controlled breath rather than a large torso shift.
+
+From 1.90 to 2.35 seconds, the left hand reaches its partly open resting curve. The ponytail and sleeve tips follow the small body adjustment with delayed, diminishing motion. From 2.35 seconds through the final 4.46-second boundary, retain attentive breathing and a small remaining curve in the left fingers, converging to <Picture 3>. The fixed eye-level camera, facial proportions and warm window light stay consistent. This remains one continuous training moment with an uncovered face, natural unlit eyes and a restrained closed-mouth expression. The finished source is silent.
+
+overall_soundscape: N/A
+
+non_diegetic_music: N/A

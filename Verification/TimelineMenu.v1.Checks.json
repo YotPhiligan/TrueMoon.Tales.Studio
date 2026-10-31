@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-31",
+  "studio": "0.11",
+  "tests": {
+    "new_menu_cases": 9,
+    "python": 225,
+    "python_seconds": 23.614,
+    "node_cases": 124,
+    "baseline_js_script": 1,
+    "node_runner_entries": 125,
+    "all_exit_codes": 0
+  },
+  "syntax": {
+    "python_ast_files": 40,
+    "static_js_files": 18,
+    "passed": true
+  },
+  "ui": {
+    "qa_project": "menu-qa",
+    "qa_port": 8798,
+    "viewport": [
+      1280,
+      720
+    ],
+    "right_click_clip_and_segment": true,
+    "keyboard_shift_f10": true,
+    "escape_returns_focus": true,
+    "cursor_preserved_on_open": true,
+    "split_at_boundary_disabled": true,
+    "anchor_toggle_and_undo": true,
+    "split_at_2_seconds": [
+      2,
+      2
+    ],
+    "split_undo": true,
+    "source_time_sound_forms_opened": true,
+    "clip_remove_undo": true,
+    "segment_remove_undo_restores_sound_events": true,
+    "console_errors": 0,
+    "revision_before": 34,
+    "revision_after": 42
+  },
+  "preservation": {
+    "canonical_timeline_restored": true,
+    "library_blocks_assets_preserved": true,
+    "author_project_hashes": {
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": true,
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": true
+    },
+    "gpu_jobs_created": 0
+  },
+  "cleanup": {
+    "qa_tab_closed": true,
+    "qa_server_8798_stopped": true,
+    "production_8787_untouched": true
+  },
+  "local_documentation_links_checked": 74
+}

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "purpose": "Bundled immutable preparation templates; project source copies retained",
+  "files": [
+    {
+      "source": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Research\\Results\\R-03.ST01.OmniFace.Run01\\Prompt.api.json",
+      "target": "Workflows\\TemplateData\\Research\\Results\\R-03.ST01.OmniFace.Run01\\Prompt.api.json",
+      "sha256": "ad6df93f01f44aa188a7a7b4d72e0a24ac01e0a1b14bd8d99335446c93f0ba7b"
+    },
+    {
+      "source": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Workflows\\CL-ST01.OmniFace.v1.json",
+      "target": "Workflows\\TemplateData\\Clair\\Workflows\\CL-ST01.OmniFace.v1.json",
+      "sha256": "d15a9d3786021c54d71547b0eb14211edcec577aab90367129303e69208dde7d"
+    },
+    {
+      "source": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Workflows\\CL-MC01.B.Context.Omni.v1.json",
+      "target": "Workflows\\TemplateData\\Clair\\Workflows\\CL-MC01.B.Context.Omni.v1.json",
+      "sha256": "de20399d0f7b561cc5cdaf13b842d5b46322b2e4447cf11431a72b137e680940"
+    },
+    {
+      "source": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Workflows\\CL-MC01.A.Omni.v1.json",
+      "target": "Workflows\\TemplateData\\Clair\\Workflows\\CL-MC01.A.Omni.v1.json",
+      "sha256": "d88c1c4b437d20127e7422a45cc4dab19d6a667626a2394903609470144a313c"
+    }
+  ]
+}

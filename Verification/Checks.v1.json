@@ -1,0 +1,62 @@
+{
+  "checked_at": "2026-10-30T16:17:26.304604+00:00",
+  "checks": {
+    "prepared": true,
+    "not_launched": true,
+    "not_staged": true,
+    "no_launch_intent": true,
+    "no_run_directory": true,
+    "no_submission": true,
+    "source_hashes_match": true,
+    "input_hashes_match": true,
+    "core_hashes_match": true,
+    "prepared_api_matches": true,
+    "python_ast": true
+  },
+  "projects": [
+    {
+      "id": "claire",
+      "revision": 4,
+      "blocks": 54,
+      "takes": 61,
+      "selected_takes": 0
+    },
+    {
+      "id": "opening",
+      "revision": 1,
+      "blocks": 37,
+      "takes": 34,
+      "selected_takes": 0
+    }
+  ],
+  "prepared_job": "job-8f79f70c84104d99",
+  "frames": 56,
+  "duration_seconds": 2.3333333333333335,
+  "tests": {
+    "unittest": {
+      "count": 52,
+      "status": "passed",
+      "elapsed_seconds": 3.235
+    },
+    "node_logic": "passed",
+    "evidence": "Captured console output in this implementation session; tests use temporary fixtures and mocked GPU boundary."
+  },
+  "source_sha256": {
+    "app.py": "f8d3771311aa078396426ad5314fb1c14a47fee696686d68eda0b18459799bf8",
+    "Start-Studio.cmd": "a6c33102aaf99c17b2d4474b6258e39ff0f6cc44f1bdb7d79145a985c9746d08",
+    "static/app.js": "e4a97e41fc717a3ac52f2e98c6fba195d17f21ce48dd0cb32a8eb01cc753ecde",
+    "static/index.html": "4da3ea88969d2723c4caf77bc2c916d4e4291b4dcb45e5eca704d10ef6d1033a",
+    "static/logic.js": "659ae50593631976315d46a2e717d5593a06103f5a0dbd3d400e0f1e74f35381",
+    "static/moon.svg": "b2deb14731de1f62d4178901a9cb7388a48647f7e721f96b6ed54c13f2aa27a0",
+    "static/style.css": "f27140490532159025b3c1ee5ca45009acee4c18d8a428079b8b7971f6711319",
+    "studio/jobs.py": "cdc17caea16e1dd157ef434cb57ad35974e7a3c2c70f84dab7facb1484af0487",
+    "studio/model.py": "5d371b1904bf195603089e8a6b9a690e9cad1db6fe717b3980ce0fb326150a36",
+    "studio/server.py": "785d5eb57a43bd0ecb1fe13621fe053dd2556de2d567f10e0f580e0682ab1225",
+    "studio/__init__.py": "203ac9bb244765cbfdd49808768529ac3cabbd35c74bd87591ea3157a34d5256",
+    "tests/fixtures.py": "c08f5cba4500b90a112994d7bd52ed6812023bc5b567963da8f0d231792184a0",
+    "tests/test_jobs.py": "21f765b0cbbc66699ba371422d20c70d0082f8aed6a1616f9d318296723fc8ce",
+    "tests/test_model.py": "207e5cd695b35dbe53fe22ff52bbe8ee9a44c95a736abcc26d54ac96a8fee145",
+    "tests/test_server.py": "973b0c0f06607f741687d2f48f891f042373c2de890fb96c419e2dd080269b79"
+  },
+  "screenshot_sha256": "b4e42a84744563841d6058f8cd986b019c7bf77eaf2fc7ae2faff538db919e1c"
+}

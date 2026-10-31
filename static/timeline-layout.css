@@ -1,0 +1,21 @@
+/* Compact card workspace keeps the actual editable lanes, not a second timeline. */
+#tlPropertiesToggle{display:none}
+@media(min-width:721px){.scenario-view{flex:1;min-height:0;height:auto}}
+.timeline.compact .tl-toolbar{height:29px;padding:3px 12px;gap:7px;overflow-y:hidden}
+.timeline.compact .tl-toolbar>.button{height:23px;padding:3px 8px;font-size:9px;flex-shrink:0}
+.timeline.compact .tl-title{min-width:105px;margin-right:0}.timeline.compact .tl-title .eyebrow,.timeline.compact .tl-fps{display:none}.timeline.compact .tl-title strong{font-size:10px}
+.timeline.compact #tlNewSegment,.timeline.compact #tlPlaceBlock,.timeline.compact #tlNewMarker,.timeline.compact #tlMusic,.timeline.compact #tlCollapse,.timeline.compact .tl-snap{display:none}
+.timeline.compact #tlPropertiesToggle{display:inline-flex;align-items:center}.timeline.compact .tl-zoom{margin-left:auto}.timeline.compact .tl-zoom input{width:60px}
+.timeline.compact .tl-playback-bar{height:27px;padding:2px 12px}.timeline.compact .tl-playback-bar>.button{height:22px;padding:2px 8px;font-size:9px}
+.timeline.compact .tl-scroll{height:calc(132px + var(--compact-sound-height,0px))}
+.timeline.compact .tl-canvas,.timeline.compact .tl-playhead{height:calc(120px + var(--compact-sound-height,0px))}
+.timeline.compact .tl-ruler,.timeline.compact .tl-gutter span:nth-child(1){height:20px}.timeline.compact .tl-tick b{font-size:8px;bottom:7px}
+.timeline.compact .tl-marker-lane,.timeline.compact .tl-gutter span:nth-child(2){height:14px}.timeline.compact .tl-marker{top:0;height:13px;font-size:10px}.timeline.compact .tl-marker span{font-size:7px}
+.timeline.compact .tl-segment-lane,.timeline.compact .tl-gutter span:nth-child(3){height:24px}.timeline.compact .tl-segment{top:2px;height:20px;padding:2px 6px}.timeline.compact .tl-segment>span{font-size:8px}.timeline.compact .tl-segment>small{font-size:7px}
+.timeline.compact .tl-clip-lane,.timeline.compact .tl-gutter span:nth-child(4){height:34px}.timeline.compact .tl-clip{top:3px;height:28px}.timeline.compact .tl-clip-label{left:5px;top:3px;bottom:auto;font-size:8px}.timeline.compact .tl-clip>small{left:5px;bottom:3px;font-size:7px}.timeline.compact .tl-edit-badge{right:3px;top:1px;padding:1px 3px;font-size:7px}.timeline.compact .tl-context-note{top:1px;font-size:8px}
+.timeline.compact .tl-music-lane,.timeline.compact .tl-gutter span:nth-child(5){height:28px}.timeline.compact .tl-music{top:2px;height:24px}.timeline.compact .tl-music-label{font-size:8px;top:5px}.timeline.compact .tl-music-empty{font-size:9px;padding:6px 10px}
+.timeline.compact .tl-sound-lane,.timeline.compact .tl-gutter>.tl-sound-label{height:16px}.timeline.compact .tl-sound-event{height:14px;top:1px;padding:0 4px;line-height:11px}.timeline.compact .tl-sound-event>span{font-size:8px}
+.timeline.compact .tl-boundary{top:34px;height:calc(86px + var(--compact-sound-height,0px))}.timeline.compact .tl-gutter span{font-size:8px;padding-left:10px}.timeline.compact .tl-empty{top:65px;font-size:9px}
+.timeline.compact .tl-properties,.timeline.compact .tl-status{display:none}.timeline.compact.compact-properties-open .tl-properties{display:flex}
+.timeline.compact.has-timeline-issues .tl-status{display:block;white-space:normal;height:auto;max-height:40px;overflow:auto}
+@media(max-width:900px){.timeline.compact .tl-title{display:none}.timeline.compact .tl-toolbar{gap:4px;padding:3px 8px}.timeline.compact .tl-zoom input{width:42px}}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "audit_run": "M5.2-20261101-000037",
+  "status": "local_archive_and_replica_restore_verified",
+  "notice": "M5.3 created two local archive copies on separate physical disks and verified full restoration of each. Original files remain in place. No remote/cloud copy is configured.",
+  "objects": [
+    {
+      "path": "Studio.config.local.json",
+      "sha256": "681bb073669dfde334367c94bffa628a72faa04e58b9088e7ffffb2e7d574bc3",
+      "bytes": 30101,
+      "category": "local_config",
+      "materialized": true,
+      "storage_uri": "file:///D:/Backups/TrueMoon/ExternalArchive/Snapshots/M5.3-20261101-003215/Objects/sha256/68/681bb073669dfde334367c94bffa628a72faa04e58b9088e7ffffb2e7d574bc3",
+      "external_backup_verified": true,
+      "replica_uris": [
+        "file:///E:/Backups/TrueMoon/ExternalArchive/Snapshots/M5.3-20261101-003215/Objects/sha256/68/681bb073669dfde334367c94bffa628a72faa04e58b9088e7ffffb2e7d574bc3"
+      ],
+      "restore_verified_at": "2026-11-01T00:38:26.424545+05:00"
+    }
+  ],
+  "archive": {
+    "snapshot": "M5.3-20261101-003215",
+    "verified_at": "2026-11-01T00:38:26.424545+05:00",
+    "primary_snapshot_uri": "file:///D:/Backups/TrueMoon/ExternalArchive/Snapshots/M5.3-20261101-003215",
+    "replica_snapshot_uris": [
+      "file:///E:/Backups/TrueMoon/ExternalArchive/Snapshots/M5.3-20261101-003215"
+    ],
+    "archive_manifest_sha256": "94e8baa5d8b0fd2a1030090c60af4608d0c4950b28354b0decc3fad351abda4d",
+    "logical_paths_preserved": true,
+    "restore_verified_from_each_copy": true
+  }
+}

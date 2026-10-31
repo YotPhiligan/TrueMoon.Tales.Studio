@@ -1,0 +1,106 @@
+[
+  {
+    "id": 201,
+    "type": "ImageFromBatch",
+    "title": "Lossless A frame 123 before MP4",
+    "pos": [
+      1600,
+      5730
+    ],
+    "size": [
+      360,
+      240
+    ],
+    "flags": {},
+    "order": 201,
+    "mode": 0,
+    "inputs": [
+      {
+        "name": "image",
+        "type": "IMAGE",
+        "link": 401
+      },
+      {
+        "name": "batch_index",
+        "type": "INT",
+        "link": null,
+        "widget": {
+          "name": "batch_index"
+        }
+      },
+      {
+        "name": "length",
+        "type": "INT",
+        "link": null,
+        "widget": {
+          "name": "length"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "IMAGE",
+        "type": "IMAGE",
+        "links": [
+          402
+        ]
+      }
+    ],
+    "properties": {
+      "cnr_id": "comfy-core",
+      "ver": "0.42.5",
+      "Node name for S&R": "ImageFromBatch"
+    },
+    "widgets_values": [
+      123,
+      1
+    ],
+    "widgets_values_named": {
+      "batch_index": 123,
+      "length": 1
+    }
+  },
+  {
+    "id": 202,
+    "type": "SaveImage",
+    "title": "Save lossless handoff PNG",
+    "pos": [
+      2000,
+      5730
+    ],
+    "size": [
+      360,
+      240
+    ],
+    "flags": {},
+    "order": 202,
+    "mode": 0,
+    "inputs": [
+      {
+        "name": "images",
+        "type": "IMAGE",
+        "link": 402
+      },
+      {
+        "name": "filename_prefix",
+        "type": "STRING",
+        "link": null,
+        "widget": {
+          "name": "filename_prefix"
+        }
+      }
+    ],
+    "outputs": [],
+    "properties": {
+      "cnr_id": "comfy-core",
+      "ver": "0.42.5",
+      "Node name for S&R": "SaveImage"
+    },
+    "widgets_values": [
+      "frames/CL-MC01.A.Last"
+    ],
+    "widgets_values_named": {
+      "filename_prefix": "frames/CL-MC01.A.Last"
+    }
+  }
+]

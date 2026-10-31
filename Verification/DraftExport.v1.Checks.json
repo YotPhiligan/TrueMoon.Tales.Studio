@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-31",
+  "studio": "0.9",
+  "qa_project": "export-qa",
+  "qa_port": 8796,
+  "python_tests": {
+    "passed": 213,
+    "command": "python -s -B -m unittest discover -s tests",
+    "exit_code": 0
+  },
+  "node_tests": {
+    "passed_cases": 105,
+    "baseline_script_passed": true,
+    "runner_entries": 106,
+    "command": "node --test tests/test_*.mjs",
+    "exit_code": 0
+  },
+  "syntax": {
+    "python_ast_files": 37,
+    "static_js_files": 15,
+    "passed": true
+  },
+  "ui": {
+    "created_via_button": true,
+    "ready_id": "export-7ab0090d67124d50",
+    "cancelled_id": "export-c733300b5d3d481d",
+    "native_video_play_and_seek": true,
+    "montage_paused_while_watching_export": true,
+    "restart_preserved_both_states_and_video": true,
+    "repeat_auto_launch": false,
+    "console_errors": 0
+  },
+  "result": {
+    "state": "completed",
+    "output": "Draft.mp4",
+    "sha256": "f73cdc6888ad42cd40ff72338d9e9a2a7c5978bcb18f22708c2c5d66832738ab",
+    "video_info": {
+      "frames": 912,
+      "fps": 24,
+      "seconds": 38.0,
+      "width": 896,
+      "height": 516,
+      "audio": true
+    },
+    "elapsed_seconds": 4.938
+  },
+  "parity": {
+    "mapping": "static/playback-logic.js placementAt at each project frame",
+    "fps": 24,
+    "frames": 912,
+    "video_frame_pts_match": true,
+    "video_content_frames": 192,
+    "black_pause_frames": 720,
+    "video_thumbnail_mae_mean": 1.0419108032559354,
+    "video_thumbnail_mae_max": 1.3139076232910156,
+    "black_pause_mae_max": 0.0,
+    "cuts": [
+      {
+        "frame": 0,
+        "seconds": 0.0,
+        "kind": "gap",
+        "clip_id": null,
+        "thumbnail_mae": 0.0
+      },
+      {
+        "frame": 216,
+        "seconds": 9.0,
+        "kind": "video",
+        "clip_id": "edit-a",
+        "thumbnail_mae": 0.9821227192878723
+      },
+      {
+        "frame": 240,
+        "seconds": 10.0,
+        "kind": "gap",
+        "clip_id": null,
+        "thumbnail_mae": 0.0
+      },
+      {
+        "frame": 264,
+        "seconds": 11.0,
+        "kind": "video",
+        "clip_id": "edit-b",
+        "thumbnail_mae": 0.9918355941772461
+      },
+      {
+        "frame": 312,
+        "seconds": 13.0,
+        "kind": "video",
+        "clip_id": "clip-39693bf263a24cb2",
+        "thumbnail_mae": 1.0316722393035889
+      },
+      {
+        "frame": 336,
+        "seconds": 14.0,
+        "kind": "video",
+        "clip_id": "edit-c",
+        "thumbnail_mae": 0.9853603839874268
+      },
+      {
+        "frame": 384,
+        "seconds": 16.0,
+        "kind": "gap",
+        "clip_id": null,
+        "thumbnail_mae": 0.0
+      },
+      {
+        "frame": 480,
+        "seconds": 20.0,
+        "kind": "video",
+        "clip_id": "edit-d",
+        "thumbnail_mae": 0.9874718189239502
+      },
+      {
+        "frame": 528,
+        "seconds": 22.0,
+        "kind": "gap",
+        "clip_id": null,
+        "thumbnail_mae": 0.0
+      }
+    ],
+    "music_window_output_seconds": [
+      8.25,
+      8.75
+    ],
+    "music_window_source_seconds": [
+      44.25,
+      44.75
+    ],
+    "music_expected_gain": 0.3,
+    "music_measured_gain_projection": 0.2936645690680862,
+    "music_rms_ratio": 0.29567364555600617,
+    "music_correlation": 0.9932071869795608,
+    "music_best_lag_samples": 0,
+    "prefix_silence_peak": 0.0,
+    "output_decoded_audio_samples": 1824768,
+    "target_audio_samples": 1824000
+  },
+  "preservation": {
+    "qa_project_revision": 30,
+    "export_snapshot_revision": 30,
+    "exports_count_after_restart": 2,
+    "production_project_sha_unchanged": {
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": true,
+      "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": true
+    },
+    "gpu_jobs_created": 0
+  },
+  "draft_mp4": "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\UI\\.local\\export-qa-20261031-r1\\project\\Production\\Exports\\export-7ab0090d67124d50\\Draft.mp4",
+  "screenshot": "DraftExport.Desktop.v1.jpg",
+  "remaining": [
+    "transitions",
+    "titles",
+    "extra_audio_tracks",
+    "speed_ramp",
+    "final_master"
+  ],
+  "documentation": {
+    "local_links_checked": 68,
+    "missing_links": []
+  },
+  "cleanup": {
+    "qa_tab_closed": true,
+    "qa_server_8796_stopped": true,
+    "production_server_8787_untouched": true
+  }
+}

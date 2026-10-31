@@ -1,0 +1,111 @@
+{
+  "date": "2026-10-31",
+  "release": "0.7.0",
+  "tests": {
+    "python": {
+      "passed": 179,
+      "seconds": 18.696,
+      "exit_code": 0
+    },
+    "node": {
+      "passed": 85,
+      "exit_code": 0
+    },
+    "new_python": 14,
+    "new_node": 12,
+    "original_js_logic": "PASS",
+    "post_change_narrow_backend": {
+      "passed": 14,
+      "seconds": 2.43,
+      "exit_code": 0
+    }
+  },
+  "qa": {
+    "project_id": "agent-qa",
+    "port": 8794,
+    "revision": 17,
+    "request_states": {
+      "req-07b02c989baa412c": {
+        "state": "cancelled",
+        "intent": "improve_block",
+        "mode": "propose",
+        "result_target": null
+      },
+      "req-46e33b6ee3b24bbf": {
+        "state": "completed",
+        "intent": "prepare_block",
+        "mode": "apply",
+        "result_target": {
+          "segment_id": "tseg-07b997f77b6d4272",
+          "item_id": "clip-87a6e9c858714406",
+          "block_id": "block-9e7f15dee78248ad"
+        }
+      },
+      "req-b0f8d45eda8d48ed": {
+        "state": "cancelled",
+        "intent": "prepare_block",
+        "mode": "propose",
+        "result_target": null
+      },
+      "req-e9aa115ee9764488": {
+        "state": "completed",
+        "intent": "improve_block",
+        "mode": "apply",
+        "result_target": {
+          "segment_id": "tseg-07b997f77b6d4272",
+          "item_id": "clip-93e6062aa784410f",
+          "block_id": "block-5fbd24cf32b24c69"
+        }
+      }
+    },
+    "first_segment_items": 4,
+    "new_item_range_seconds": [
+      15,
+      16
+    ],
+    "ui_cli_prepare_apply_result_open": true,
+    "ui_cli_improve_description_only": true,
+    "improve_preservation": {
+      "music": true,
+      "markers": true,
+      "clips": true,
+      "source_blocks": true
+    },
+    "handoff_clipboard_has_scope_and_neighbors": true,
+    "restart_restores_results": true,
+    "segment_filter": true,
+    "propose_and_cancel_no_block_creation": true,
+    "real_409_retains_fields_rebase_get_and_retry": true,
+    "gpu_jobs": 0,
+    "layout_measured": {
+      "viewport": [
+        1280,
+        720
+      ],
+      "expanded_timeline_height": 356.667,
+      "scenario_height": 298.333
+    },
+    "automatic_dispatch": false
+  },
+  "production_sources": {
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Clair\\Production\\Studio.project.json": {
+      "initial_sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "final_sha256": "9a3e24cb192f4673a79ee19ec978483395848db93dc9c2a57e41c288383ef6e5",
+      "agent_wrote_source": false,
+      "unchanged": true
+    },
+    "E:\\source\\my\\TOSAB\\Book\\TrueMoonTales\\AMV\\Opening\\Production\\Studio.project.json": {
+      "initial_sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "final_sha256": "27168c8cd9087f7a8b5e82a088deb1f20718f3b14e4789548ce9eb4766decb9c",
+      "agent_wrote_source": false,
+      "unchanged": true
+    }
+  },
+  "syntax_python_ast": "PASS",
+  "ui_types_icons_and_layout": "planned only; no type migration or timeline layout changes",
+  "syntax_javascript": "PASS",
+  "git_diff_check": "PASS",
+  "docs_links": "PASS",
+  "owned_preview_server_stopped": true,
+  "owned_preview_tab_closed": true
+}

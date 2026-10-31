@@ -1,0 +1,31 @@
+subject_definitions:
+<Subject 1> is one adult Claire. <Picture 2> defines her proportions and below-collar costume: fitted gray underlayer, segmented gray armor, tactical belt, long central front fabric panel, dark cloak and armored heeled boots. <Picture 4> defines her headgear and anatomical two-handed grip: raised black hood, concealed ponytail, chestnut fringe and exact rigid sealed graphite mask with a smoked visor and one steady thin cyan arc. Her starting body pose comes from <Picture 4>. These pictures depict the same woman; the gray studio backgrounds and the different visor in <Picture 2> are outside their reference roles.
+<Subject 2> is Claire's single rune carbine. <Picture 3> defines its black skeletal stock, pistol grip, circular side mechanism, segmented silver-and-black barrel housing, engraved gold inlays and cylindrical muzzle. <Picture 4> supplies the anatomical two-handed grip; <Picture 4> supplies its supported scale and initial orientation.
+<Subject 3> is the empty rainy upper monastery gallery in <Picture 1>, including the foreground stone parapet, close left pillar, rear columns, broken pointed arches and cold night light.
+<Picture 4> is the assembled first frame of [Shot 1], defining the exact opening camera, Claire's scale and position behind the parapet, closed cyan-arc headgear, supported two-handed aim and muzzle direction slightly beside the lens.
+
+summary:
+[reference generation + keyframe completion] Combine <Subject 1> and <Subject 2> within <Subject 3> for one silent 2.33-second continuous shot: one precise shot flows into a sharp duck and one fast low lateral step toward screen right. Begin from the exact assembled composition of <Picture 4>. <Picture 1> through <Picture 4> retain their location, identity, headgear, grip and prop roles; the subsequent movement and ending remain free to develop.
+
+retention_analysis:
+<Subject 1> (appears in [Shot 1]): fully_preserved - identity, visible costume construction and exact cyan-arc headgear retain their defined source roles; <Picture 4> supplies the active starting body pose that develops into the linked movement.
+<Subject 2> (appears in [Shot 1]): fully_preserved - one rigid carbine retains its design and two-handed shoulder support while moving with Claire.
+<Subject 3> (appears in [Shot 1]): fully_preserved - the gallery's architectural identity, parapet, open floor path, cold lighting and wet materials remain consistent as Claire occupies the scene.
+<Picture 4> ([Shot 1] first frame): fully_preserved - the opening uses its composition, character scale, supported aiming pose, closed mask and muzzle direction.
+
+detailed_description:
+Use the detailed painterly dark-fantasy anime rendering of <Picture 1> and <Picture 4>, with fine linework, cold blue-gray night colors and restrained wet-metal highlights. One fixed camera observes the gallery in a near-frontal, slightly low medium view.
+
+[Shot 1] The opening frame corresponds to <Picture 4>. <Subject 1> is already behind the near foreground parapet of <Subject 3>, initially left of center with open room to her screen right. Her feet are supported by the gallery floor on the inner side of the stone barrier. Its upper edge conceals her lower legs, while her hood, complete mask, shoulders, both attached hands and muzzle remain readable. Her compact loaded aiming crouch follows <Picture 4>, with the fitted armor and heavy cloak construction of <Picture 2>.
+
+She holds <Subject 2> at her anatomical right shoulder. Her right hand encloses its grip and her left supports the fore-end; bent elbows connect the same rigid weapon to her torso. The muzzle projects safely above the parapet and points slightly beside the lens toward the established off-screen lookout in the courtyard on the camera side. The long barrel is naturally foreshortened by this angle.
+
+At the very beginning, <Subject 1> performs one continuous shoot-and-displace maneuver. She fires once: a brief cyan-white pulse leaves the actual muzzle of <Subject 2>, lighting the wet metal. As the stock presses into her shoulder, her knees fold and her hips drop, taking her head, shoulders and supported carbine sharply downward together. This recoil absorption is already her escape movement. Within the first second, the lowering body drives sideways toward screen right; the compressed leg pushes while she is still descending. Her elbows stay tucked, both hands remain connected to the same rigid weapon, and her torso carries it with her.
+
+By about 1.5 seconds, the first fast low step has visibly shifted her whole body to screen right against the fixed columns. Her hips travel parallel to the parapet, at the same distance from the camera. Her hood and shoulders skim along the lowered level while her chest keeps facing the courtyard. The carbine covers the same off-screen direction slightly beside the lens throughout the lateral transfer.
+
+The initial push carries directly into compact low footwork continuing rightward through 2.33 seconds. Successive grounded steps sustain that sideways movement; the final instant catches her still moving near the right edge at the same depth behind cover. Her cloak streams briefly toward screen left from the acceleration and sheds droplets, then follows her body. The stone architecture stays fixed. Her mask remains rigid and sealed with its steady thin cyan arc. Output is silent.
+
+overall_soundscape: N/A
+
+non_diegetic_music: N/A
