@@ -25,7 +25,7 @@
   "path_aliases": [
     {
       "from": "Arts",
-      "to": "@arts/Arts"
+      "to": "@arts"
     },
     {
       "from": "Handbooks",
@@ -682,6 +682,42 @@
     {
       "from": "TrueMoonTales/Chapters/Chapter14/Video",
       "to": "@videos/ChapterAdaptations/TrueMoonTales/Chapter14"
+    },
+    {
+      "from": "@arts/Arts",
+      "to": "@arts"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter12_Preview.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter12_Preview.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter12_Preview_v2.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter12_Preview_v2.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter12_Preview_v2_enhanced.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter12_Preview_v2_enhanced.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter14_Preview.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter14_Preview.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter14_Preview_v2.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter14_Preview_v2.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter14_Preview_v3.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter14_Preview_v3.png"
+    },
+    {
+      "from": "@arts/TrueMoonTales_Chapter14_Preview_v4.png",
+      "to": "@arts/Preview/TrueMoonTales_Chapter14_Preview_v4.png"
+    },
+    {
+      "from": "@arts/Domains.png",
+      "to": "@arts/Infographics/Domains.png"
     }
   ],
   "legacy_read_enabled": false

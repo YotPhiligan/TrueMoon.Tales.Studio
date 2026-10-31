@@ -123,3 +123,12 @@ Copyright 2026 YotPhiligan / Vail Arden.
 Сторонние фрагменты и внешние компоненты сохраняют собственные лицензии.
 Встроенные материалы Comfy Org workflow_templates сопровождаются исходным
 MIT-уведомлением: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
+## Arts · категории в корне
+
+Библиотека TrueMoon.Tales.Arts использует Characters/, Props/ и другие категории
+сразу в корне. Mount @arts указывает на корень репозитория; пример нового адреса:
+@arts/Characters/Claire/ComfyUI_00915_.png. Конфигурация сохраняет aliases для
+старого @arts/Arts/... и прежнего Book/Arts/... без переписывания ID/истории.
+После обновления Studio.config.local.json перезапустить уже открытый сервер Studio.
