@@ -40,7 +40,17 @@ class ExportPlanTests(ExportFixture):
         before, sources = self.project_state(), self.source_state()
         request = self.request()
         self.assertEqual((192, 8, 24, [896, 504], 300), tuple(request[k] for k in ['frames', 'seconds', 'fps', 'size', 'timeout_seconds']))
-        self.assertEqual([1920, 1080], self.request('project')['size'])
+        project = self.request('project')
+        final = self.request('final')
+        self.assertEqual([1920, 1080], project['size'])
+        self.assertEqual(project['size'], final['size'])
+        self.assertEqual(project['clips'], final['clips'])
+        self.assertEqual({'video_codec':'libx264', 'pixel_format':'yuv420p', 'preset':'veryfast',
+                          'crf':25, 'audio_codec':'aac', 'audio_bitrate_kbps':192}, project['encoding'])
+        self.assertEqual(project['encoding'], request['encoding'])
+        self.assertEqual({**project['encoding'], 'preset':'medium', 'crf':18, 'audio_bitrate_kbps':320}, final['encoding'])
+        final['encoding']['crf'] = 7
+        self.assertEqual(18, self.request('final')['encoding']['crf'])
         self.assertEqual(['c1', 'c2'], [c['id'] for c in request['clips']])
         self.assertEqual([(1, 24), (1, 36)], [(c['speed'], c['source_out_frame']) for c in request['clips']])
         asset = request['assets'][self.take['video_asset_id']]
@@ -265,6 +275,7 @@ class ExportEncoderTests(ExportFixture):
                                          'source_in_frame': 12, 'gain': gain, 'muted': muted}
             with patch.object(renderer, 'command') as command:renderer.mux()
             args = command.call_args.args[0];filters = args[args.index('-filter_complex') + 1]
+            self.assertEqual('192k', args[args.index('-b:a') + 1])
             self.assertNotIn(music_path, args);self.assertNotIn('concat', args)
             self.assertIn('anullsrc=r=48000:cl=stereo,atrim=end_sample=240000', filters)
         renderer.request['music'].update(muted=False, gain=.25)

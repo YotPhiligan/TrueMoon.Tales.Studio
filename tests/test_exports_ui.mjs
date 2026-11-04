@@ -43,16 +43,17 @@ test('export dialog opens for legacy project without timeline without writing a 
 test('export summary pins state revision warning output size and duration precision',()=>{
   assert.equal(exportSummary(row(),7),'Экспортируется · снимок v7 · 896 × 504 · 4.000 с');
   assert.equal(exportSummary(row({state:'completed',seconds:2.333333}),8),'Готово · снимок v7 · монтаж уже изменён · 896 × 504 · 2.333 с');
+  assert.match(exportSummary(row({profile:'final'}),7),/финальный/);
   assert.equal(exportSummary(row({state:'interrupted'}),7),'Прерван · снимок v7 · 896 × 504 · 4.000 с');
 });
 
 test('export form performs no automatic POST and keeps retry key on network failure renewing only after success',async t=>{
   const env=setup(t),root=await open(env),before=structuredClone(env.p);
   assert.deepEqual(env.calls,[['/api/projects/p1/exports']]);assert.equal(env.desk.active(),true);
-  root.form.elements.profile.value='project';env.flush=async()=>{env.p.revision=8;};
+  root.form.elements.profile.value='final';env.flush=async()=>{env.p.revision=8;};
   const first=submit(root);await env.waitCall(2);await submit(root);
   assert.equal(env.calls.length,2);assert.equal(root.form.button.disabled,true);
-  const body=env.calls[1][2];assert.deepEqual(body,{expected_revision:8,profile:'project',actor:'author',client_key:'export-client-0000000000000001'});
+  const body=env.calls[1][2];assert.deepEqual(body,{expected_revision:8,profile:'final',actor:'author',client_key:'export-client-0000000000000001'});
   env.pending[1].reject(new Error('Network interrupted'));await first;
   assert.equal(root.error.textContent,'Network interrupted');assert.equal(root.form.button.disabled,false);
   env.flush=async()=>{env.p.revision=9;};const retry=submit(root);await env.waitCall(3);

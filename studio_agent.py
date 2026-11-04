@@ -51,7 +51,7 @@ def parser():
     commands = p.add_subparsers(dest='command', required=True)
     for name in ['doctor', 'projects', 'requests', 'exports']:
         commands.add_parser(name)
-    sub=commands.add_parser('export');sub.add_argument('--revision',type=int,required=True);sub.add_argument('--profile',choices=['draft','project'],default='draft');sub.add_argument('--client-key')
+    sub=commands.add_parser('export');sub.add_argument('--revision',type=int,required=True);sub.add_argument('--profile',choices=['draft','project','final'],default='draft');sub.add_argument('--client-key')
     sub=commands.add_parser('export-status');sub.add_argument('--id',required=True)
     sub=commands.add_parser('export-stop');sub.add_argument('--id',required=True);sub.add_argument('--revision',type=int,required=True)
     sub = commands.add_parser('context'); sub.add_argument('--block'); sub.add_argument('--segment'); sub.add_argument('--item')

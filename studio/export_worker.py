@@ -4,7 +4,7 @@ import fractions,hashlib,json,math,subprocess,sys,time,traceback
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from studio.model import atomic,digest
-from studio.export_plan import parts,source_position
+from studio.export_plan import DRAFT_ENCODING,parts,source_position
 from studio.transitions import brightness
 from studio.titles import TitleCompositor
 from studio.paths import check_export_path
@@ -16,6 +16,11 @@ class DraftRenderer:
         self.book=Path(self.request['book'])  # Logical legacy namespace; the frozen policy guards actual IO.
         check_export_path(self.request,self.folder,write=True)
         self.started=time.monotonic();self.deadline=self.started+self.request['timeout_seconds'];self.last_progress=0
+        self.encoding = self.request.get('encoding')
+        if self.encoding is None:
+            if self.request.get('profile') == 'final':
+                raise ValueError('В снимке финального экспорта нет параметров кодирования.')
+            self.encoding = DRAFT_ENCODING
         self.fps=self.request['fps'];self.frames=self.request['frames'];self.size=self.request['size'];self.samples=round(self.frames/self.fps*48000)
     def check(self):
         if time.monotonic()>self.deadline:raise TimeoutError('Экспорт остановлен по лимиту времени.')
@@ -42,9 +47,9 @@ class DraftRenderer:
     def video(self):
         import av,numpy as np
         from PIL import Image
-        output=av.open(str(self.folder/'Video.mp4'),'w');stream=output.add_stream('libx264',rate=self.fps)
-        stream.width,stream.height=self.size;stream.pix_fmt='yuv420p';stream.codec_context.thread_count=2
-        stream.codec_context.max_b_frames=0;stream.options={'preset':'veryfast','crf':'25'}
+        output=av.open(str(self.folder/'Video.mp4'),'w');stream=output.add_stream(self.encoding['video_codec'],rate=self.fps)
+        stream.width,stream.height=self.size;stream.pix_fmt=self.encoding['pixel_format'];stream.codec_context.thread_count=2
+        stream.codec_context.max_b_frames=0;stream.options={'preset':self.encoding['preset'],'crf':str(self.encoding['crf'])}
         black=np.zeros((self.size[1],self.size[0],3),dtype=np.uint8)
         titles=TitleCompositor(self.request)
         try:
@@ -111,7 +116,7 @@ class DraftRenderer:
         elif len(labels)==1:filters.append(labels[0]+'anull[sound]')
         else:filters.append(''.join(labels)+f'amix=inputs={len(labels)}:duration=longest:normalize=0[sound]')
         self.command([*args,'-filter_complex_threads','1','-filter_complex',';'.join(filters),'-map','0:v:0','-map','[sound]',
-                      '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2','-t',f'{self.frames/self.fps:.12f}',
+                      '-c:v','copy','-c:a',self.encoding['audio_codec'],'-b:a',f"{self.encoding['audio_bitrate_kbps']}k",'-ar','48000','-ac','2','-t',f'{self.frames/self.fps:.12f}',
                       '-movflags','+faststart','-n',str(self.folder/'Draft.mp4')])
     def run(self):
         import av,imageio_ffmpeg

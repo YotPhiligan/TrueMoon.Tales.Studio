@@ -8,13 +8,18 @@ from .transitions import windows
 
 MAX_SECONDS=600
 TIMEOUT=300
+DRAFT_ENCODING = {
+    'video_codec': 'libx264', 'pixel_format': 'yuv420p', 'preset': 'veryfast', 'crf': 25,
+    'audio_codec': 'aac', 'audio_bitrate_kbps': 192,
+}
+FINAL_ENCODING = {**DRAFT_ENCODING, 'preset': 'medium', 'crf': 18, 'audio_bitrate_kbps': 320}
 
 
 def plan(store,pid,revision,profile='draft'):
     with store.lock:
         p=store.get(pid)
         if type(revision) is not int or revision!=p['revision']:raise StudioError('Монтаж изменился. Обновите проект перед экспортом.',409)
-        if profile not in ['draft','project']:raise StudioError('Выберите черновой размер или размер проекта.',422)
+        if profile not in ('draft','project','final'):raise StudioError('Выберите профиль экспорта.',422)
         view=scenario.get(p)
         if view['issues']:raise StudioError('Исправьте неопределённое время и конфликты сценария перед экспортом.',422,view['issues'])
         t=view['timeline'] if view['active'] else timeline.get(p)
@@ -48,7 +53,8 @@ def plan(store,pid,revision,profile='draft'):
             aid='title-layer-'+layer['id']
             assets[aid]={'id':aid,'path':layer['path'],'kind':'image','expected_sha256':layer['sha256']}
             title_layers.append({**{k:v for k,v in layer.items() if k not in ['path','url']},'asset_id':aid})
-        return {'version':1,'project_id':pid,'project_name':p['name'],'project_revision':revision,'book':str(store.book),'path_policy':store.paths.export_policy(),
+        encoding = FINAL_ENCODING if profile == 'final' else DRAFT_ENCODING
+        return {'version':1,'encoding':encoding.copy(),'project_id':pid,'project_name':p['name'],'project_revision':revision,'book':str(store.book),'path_policy':store.paths.export_policy(),
                 'fps':p['fps'],'frames':count,'seconds':count/p['fps'],'size':size,'profile':profile,
                 'clips':clips,'music':music,'clip_audio':t.get('clip_audio',False),'assets':assets,'timeout_seconds':TIMEOUT,**({'sounds':sounds} if sounds else {}),
                 **({'transitions':copy.deepcopy(t['transitions']),'transition_windows':windows(t)} if t.get('transitions') else {}),
