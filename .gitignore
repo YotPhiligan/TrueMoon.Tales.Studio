@@ -1,8 +1,9 @@
 .local/
-# .NET build artifacts.
+# .NET build artifacts and IDE settings.
 bin/
 obj/
 *.user
+.idea/
 __pycache__/
 *.pyc
 Studio.config.local.json
