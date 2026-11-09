@@ -109,7 +109,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _commands.Add(StudioCommand.Inspector, () => _panels.Inspector = !_panels.Inspector);
         _commands.Add(StudioCommand.Timeline, () => _panels.Timeline = !_panels.Timeline);
         _commands.Add(StudioCommand.FocusPreview, _panels.ToggleFocus);
-        _commands.Add(StudioCommand.ResetLayout, _panels.Reset);
+        _commands.Add(StudioCommand.ResetLayout, () => { _panels.Reset(); _layout.ResetSizes(); });
         _commands.Add(StudioCommand.Theme, ToggleTheme);
         _commands.Add(StudioCommand.Close, () => _requestClose?.Invoke(), () => !_model.Saving);
         _commands.Add(StudioCommand.Stay, () => _closePrompt = false);
@@ -288,7 +288,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             SyncRows(_takeButtons, _takes, scene.Takes.Select((row, index) => (row.Id,
                 $"{(index == _model.TakeIndex ? "●" : "○")} {row.Name ?? $"Дубль {index + 1}"}{(row.Id == scene.Clip.TakeId ? " · монтаж" : "")}")), SelectTake, _model.CanSeek && !_model.Trimming);
         }
-        _header?.Refresh(); _commands.Refresh(); _strip.Invalidate(); _layout.Invalidate(Invalidation.Layout);
+        _header?.Refresh(); _commands.Refresh(); _strip.Invalidate(); _layout.Sync();
     }
 
     private void SyncRows(Dictionary<string, Button> rows, VStack list, IEnumerable<(string Id, string Label)> entries, Action<string> select, bool enabled)

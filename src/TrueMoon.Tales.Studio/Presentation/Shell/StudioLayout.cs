@@ -4,49 +4,116 @@ using TrueMoon.Tales.Studio.Presentation;
 
 namespace TrueMoon.Tales.Studio.Presentation.Shell;
 
-// Application composition only. Shared interactive splitters are requested from Alloy.
+// Application composition. Resizable navigation/inspector/timeline use shared Alloy SplitViews;
+// SplitView v1 has no collapse, so panel visibility rewires the split chain while every pane
+// host, divider and content subtree stays retained (no recreation, no dispose).
 internal sealed class StudioLayout : ElementList
 {
-    private readonly Element[] _regions;
+    // Defaults match the initial 1280x820 window: chrome 36, width 1256, content 710.
+    private const float DefaultNavigation = 224, DefaultInspector = 282, DefaultTimeline = 150, Divider = 8;
+
     private readonly StudioPanelState _panels;
+    private readonly Element _notice, _heading, _navigation, _preview, _inspector, _timeline, _footer;
+    private readonly ContentControl _center = new();
+    private readonly SplitView _navigationSplit = new(), _inspectorSplit = new(), _workspaceSplit = new();
+    private bool _synced;
+    private (bool Navigation, bool Inspector, bool Timeline) _shown = (true, true, true);
+
     public StudioLayout(StudioPanelState panels, Element notice, Element heading, Element navigation, Element preview, Element inspector, Element timeline, Element footer)
     {
         _panels = panels;
-        _regions = [notice, heading, navigation, preview, inspector, timeline, footer];
-        foreach (var region in _regions) Add(region);
+        _notice = notice; _heading = heading; _navigation = navigation; _preview = preview;
+        _inspector = inspector; _timeline = timeline; _footer = footer;
+        ConfigureSplit(_navigationSplit, SplitOrientation.Horizontal, DefaultNavigation);
+        _navigationSplit.FirstPane.MinWidth = 150; _navigationSplit.FirstPane.MaxWidth = 460;
+        _navigationSplit.Divider.AccessibleName = "Ширина навигации";
+        ConfigureSplit(_inspectorSplit, SplitOrientation.Horizontal, 1256 - DefaultNavigation - Divider - DefaultInspector - Divider);
+        _inspectorSplit.FirstPane.MinWidth = 240;
+        _inspectorSplit.SecondPane.MinWidth = 200; _inspectorSplit.SecondPane.MaxWidth = 460;
+        _inspectorSplit.Divider.AccessibleName = "Ширина инспектора";
+        ConfigureSplit(_workspaceSplit, SplitOrientation.Vertical, 710 - DefaultTimeline - Divider);
+        _workspaceSplit.FirstPane.MinHeight = 180;
+        _workspaceSplit.SecondPane.MinHeight = 96; _workspaceSplit.SecondPane.MaxHeight = 360;
+        _workspaceSplit.Divider.AccessibleName = "Высота монтажа";
+        Add(notice); Add(heading); Add(_center); Add(footer);
+        Rebuild();
     }
+
+    private static void ConfigureSplit(SplitView split, SplitOrientation orientation, float firstPaneSize) =>
+        (split.Orientation, split.FirstPaneSize) = (orientation, firstPaneSize);
+
+    // Restores preferred pane sizes after user dragging; sizes stay UI state, never project data.
+    public void ResetSizes()
+    {
+        _navigationSplit.FirstPaneSize = DefaultNavigation;
+        _inspectorSplit.FirstPaneSize = Math.Max(0, 1256 - DefaultNavigation - Divider) - DefaultInspector - Divider;
+        _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider;
+    }
+
+    // Called from the shared refresh path; rebuilds the chain only when panel flags changed.
+    public void Sync()
+    {
+        var current = (_panels.Navigation, _panels.Inspector, _panels.Timeline);
+        if (_synced && current == _shown) return;
+        _synced = true; _shown = current;
+        Rebuild();
+    }
+
+    private void Rebuild()
+    {
+        _center.SetContent(null);
+        foreach (var split in new[] { _navigationSplit, _inspectorSplit, _workspaceSplit })
+        { split.FirstPane.SetContent(null); split.SecondPane.SetContent(null); }
+        var content = _panels.Timeline ? (Element)_workspaceSplit : _preview;
+        if (_panels.Timeline)
+        {
+            _workspaceSplit.FirstPane.SetContent(_preview);
+            _workspaceSplit.SecondPane.SetContent(_timeline);
+        }
+        if (_panels.Inspector)
+        {
+            _inspectorSplit.FirstPane.SetContent(content);
+            _inspectorSplit.SecondPane.SetContent(_inspector);
+            content = _inspectorSplit;
+        }
+        if (_panels.Navigation)
+        {
+            _navigationSplit.FirstPane.SetContent(_navigation);
+            _navigationSplit.SecondPane.SetContent(content);
+            content = _navigationSplit;
+        }
+        _center.SetContent(content);
+        Invalidate(Invalidation.Layout);
+    }
+
     private Rect[] Slots(Size size)
     {
-        const float gap = 8;
         var width = Math.Max(0, size.Width - 24);
         var chrome = Math.Min(36, size.Height);
-        var notice = _regions[0].IsVisible ? Math.Min(86, Math.Max(0, size.Height - chrome)) : 0;
+        var notice = _notice.IsVisible ? Math.Min(86, Math.Max(0, size.Height - chrome)) : 0;
         var header = Math.Min(38, Math.Max(0, size.Height - chrome - notice));
         var status = Math.Min(28, Math.Max(0, size.Height - chrome - notice - header));
         var top = chrome + notice + header;
         var contentHeight = Math.Max(0, size.Height - top - status - 8);
-        var track = _panels.Timeline ? Math.Min(150, contentHeight * .3f) : 0;
-        var left = _panels.Navigation ? Math.Min(size.Width < 1050 ? 188 : 224, width * .24f) : 0;
-        var right = _panels.Inspector ? Math.Min(size.Width < 1050 ? 260 : 282, width * .31f) : 0;
-        var center = Math.Max(0, width - left - right - (_panels.Navigation ? gap : 0) - (_panels.Inspector ? gap : 0));
-        var x = 12 + left + (_panels.Navigation ? gap : 0);
-        var previewHeight = Math.Max(0, contentHeight - track - (_panels.Timeline ? gap : 0));
         return [new(12, chrome, width, notice), new(12, chrome + notice, width, header),
-            new(12, top, left, contentHeight), new(x, top, center, previewHeight),
-            new(12 + width - right, top, right, contentHeight),
-            new(x, top + previewHeight + gap, center, track),
-            new(0, size.Height - status, size.Width, status)];
+            new(12, top, width, contentHeight), new(0, size.Height - status, size.Width, status)];
     }
+
     protected override Size MeasureCore(Size available, ITextLayoutService text)
     {
         var slots = Slots(available);
-        for (var i = 0; i < _regions.Length; i++) _regions[i].Measure(new(slots[i].Width, slots[i].Height), text);
+        _notice.Measure(new(slots[0].Width, slots[0].Height), text);
+        _heading.Measure(new(slots[1].Width, slots[1].Height), text);
+        _center.Measure(new(slots[2].Width, slots[2].Height), text);
+        _footer.Measure(new(slots[3].Width, slots[3].Height), text);
         return available;
     }
+
     protected override void ArrangeCore(Rect area)
     {
         var slots = Slots(new(area.Width, area.Height));
-        for (var i = 0; i < _regions.Length; i++) _regions[i].Arrange(slots[i] with { X = area.X + slots[i].X, Y = area.Y + slots[i].Y });
+        var children = new[] { _notice, _heading, _center, _footer };
+        for (var i = 0; i < children.Length; i++) children[i].Arrange(slots[i] with { X = area.X + slots[i].X, Y = area.Y + slots[i].Y });
     }
 }
 
