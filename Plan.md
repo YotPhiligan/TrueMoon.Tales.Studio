@@ -613,18 +613,24 @@ consumer, пример, критерии и временное решение. �
 **Статус двух заявок Cobalt — 09.11.2026.** В TrueMoon обе заявки имеют
 `completed` в COB6e: [hint names](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Decision.md),
 [XML docs](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Decision.md).
-Реализация и независимый local package proof `0.2.5.2-alpha` завершены у владельца;
-проверка потребителя Studio остаётся открытой. Текущий пакет Studio — `0.2.5.1-alpha`.
+Реализация и независимый local package proof `0.2.5.2-alpha` завершены у владельца.
+**Приёмка Studio выполнена 09.11.2026** — текущий пакет Studio `0.2.5.2-alpha`.
 
 - [x] Получены исправления generator и ссылки на проверки TrueMoon.
-- [ ] Обновить согласованный набор пакетов Studio с matching bundled generator.
-- [ ] Повторить Debug/Release с `EmitCompilerGeneratedFiles=true`, XML docs и
-  CS1591 в WarningsAsErrors: generated files записываются на Windows, предупреждений
-  от служебной регистрации нет, собственный CS1591 потребителя остаётся ошибкой.
-- [ ] Повторить Studio generated graph/lifetime/cleanup tests и записать actual
-  версию и результаты в Status. Framework package proof эту приёмку не заменяет.
+- [x] **Обновить согласованный набор пакетов Studio с matching bundled generator — 09.11.2026.**
+  `StudioTrueMoonVersion` → `0.2.5.2-alpha`; `Update-TrueMoonPackages.ps1` собрал
+  полный набор 9 пакетов из текущего TrueMoon в локальный feed с SHA-256 manifest.
+- [x] **Повторить Debug/Release с `EmitCompilerGeneratedFiles=true`, XML docs и
+  CS1591 в WarningsAsErrors — 09.11.2026.** 7 generated-файлов записаны на Windows,
+  0 предупреждений и ошибок в обеих конфигурациях, `Init` с XML summary; обычный
+  Release-сбор — 0 предупреждений (прежние 2 CS1591 исчезли). Отрицательный контроль:
+  собственный недокументированный public-член даёт CS1591 как ошибку.
+- [x] **Повторить Studio generated graph/lifetime/cleanup tests — 09.11.2026.**
+  Debug и Release — по 90 passed, 0 failed (2 опциональные интеграции пропущены).
+  Фактические версии и границы — [в Status](Status.md#cobalt-generator-requests).
 
-Внешняя публикация пакетов и успешное обновление Studio пока не заявлены.
+Внешняя публикация пакетов пока не заявлена; feed остаётся локальной сборкой
+исходников TrueMoon.
 [Текущий статус](Status.md#cobalt-generator-requests).
 
 ## Технические источники

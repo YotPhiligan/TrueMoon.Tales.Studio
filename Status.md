@@ -19,11 +19,21 @@ Hint names ограничены 128 символами и имеют стаби�
 и отрицательный контроль собственного CS1591 прошли.
 [Команды и границы проверки владельца](../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09).
 
-**Приёмка Studio открыта:** здесь всё ещё закреплён `0.2.5.1-alpha`.
-Обновление пакетов и проверки самого Studio graph не выполнялись; external publish
-не заявлен. Критерии следующего шага — [в плане](Plan.md#cobalt-generator-requests).
-Эта запись синхронизирует документацию по Decision владельца; новые сборки,
-тесты и native UI Studio не запускались. Исторические результаты 07.11 сохранены.
+**Приёмка Studio завершена 09.11.2026:** `StudioTrueMoonVersion` обновлён на
+`0.2.5.2-alpha`, полный набор из 9 пакетов собран `Update-TrueMoonPackages.ps1`
+из текущего TrueMoon в локальный feed (`src/.local/truemoon-feed`, SHA-256 manifest).
+Debug и Release — по 90 passed, 0 failed, 2 опциональные интеграции пропущены.
+Полная Release-сборка — 0 предупреждений: прежние два CS1591 из generated-регистрации
+исчезли. Отдельно `EmitCompilerGeneratedFiles=true` + `WarningsAsErrors=CS1591`
+в Debug и Release: 7 generated-файлов записаны на Windows, ошибок нет (CS0016 по
+hint names не воспроизводится), `Init` имеет XML summary. Отрицательный контроль
+собственного недокументированного public-члена даёт ошибку CS1591. Студийный
+Cobalt graph/lifetime/cleanup повторно прошли в этих же запусках.
+Типы `TrueMoon.Argentis.SplitView`/`SplitOrientation` доступны в установленном
+пакете Argentis `0.2.5.2-alpha` (проверено рефлекссией по lib DLL). Native UI
+Studio не запускался; подключение `SplitView` в `StudioLayout` остаётся открытым
+этапом UI-UX05. Внешняя публикация пакетов по-прежнему не заявлена.
+Исторические результаты 07.11 сохранены.
 
 ## Заявка Alloy: разделители реализованы во фреймворке — 09.11.2026
 

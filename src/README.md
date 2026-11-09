@@ -138,7 +138,7 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 
 Обновление статуса 09.11.2026: обе заявки завершены владельцем Cobalt и проверены
 на независимом локальном потребителе `0.2.5.2-alpha`. Studio пока использует
-`0.2.5.1-alpha`; обновление пакетов и повторная приёмка открыты.
+`0.2.5.2-alpha`; обновление пакета и повторная приёмка выполнены 09.11.2026.
 [Decision и границы результата](../Status.md#cobalt-generator-requests) ·
 [следующий шаг Studio](../Plan.md#cobalt-generator-requests).
 Приведённые выше результаты сборок/ограничения относятся к проверке 07.11.2026;
@@ -153,9 +153,14 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 
 ## Пакеты TrueMoon
 
-Версия `0.2.5.1-alpha` закреплена общей `StudioTrueMoonVersion` в
+Версия `0.2.5.2-alpha` закреплена общей `StudioTrueMoonVersion` в
 [Directory.Packages.props](Directory.Packages.props). Все девять пакетов TrueMoon,
 включая транзитивные UI/Core/Cobalt, используют одну версию; SkiaSharp — `4.155.0`.
+Приёмка 09.11.2026: набор пересобран из текущего TrueMoon; Debug/Release — по
+90 passed, Release-сборка — 0 предупреждений (прежние 2 CS1591 generated-регистрации
+закрыты заявками Cobalt), `EmitCompilerGeneratedFiles=true` + `WarningsAsErrors=CS1591`
+проходят без ошибок, `Init` с XML summary; типы `SplitView`/`SplitOrientation`
+доступны в Argentis. Границы — в [Status](../Status.md#cobalt-generator-requests).
 На 07.11.2026 запрошенные пакеты отсутствуют на nuget.org. Используется локальная
 сборка текущих исходников движка, а не опубликованный релиз.
 

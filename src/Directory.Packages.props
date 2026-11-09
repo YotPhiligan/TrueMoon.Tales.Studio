@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <StudioTrueMoonVersion Condition="'$(StudioTrueMoonVersion)' == ''">0.2.5.1-alpha</StudioTrueMoonVersion>
+    <StudioTrueMoonVersion Condition="'$(StudioTrueMoonVersion)' == ''">0.2.5.2-alpha</StudioTrueMoonVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="TrueMoon" Version="$(StudioTrueMoonVersion)" />
