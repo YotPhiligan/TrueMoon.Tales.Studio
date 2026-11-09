@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {frameEnd,blankTimeline,timelineOf,toFrame,frameCode,takeCapacity,extentFrames,rulerStep,snapFrame,trimClip,placementError} from '../static/timeline-logic.js';
+import {frameEnd,blankTimeline,timelineOf,toFrame,frameCode,takeCapacity,extentFrames,rulerStep,snapFrame,snapPosition,trimClip,placementError} from '../static/timeline-logic.js';
 
 test('project frame conversion and clock preserve frame boundaries',()=>{
   assert.equal(toFrame(1.5,24),36);
@@ -106,4 +106,10 @@ test('placement preview returns errors for stale segment and clip ids',()=>{
   for(const kind of ['segment','segment-resize','clip']){
     assert.match(placementError(project,timeline,kind,'missing',{start_frame:24,duration_frames:24}),/не найден/);
   }
+});
+
+test('snap result identifies the actual named target and the trailing edge offset',()=>{
+  const target={frame:60,label:'Cut accent'};
+  assert.deepEqual(snapPosition(34,24,[target],3),{frame:36,target,offset:24});
+  assert.deepEqual(snapPosition(34,24,[target],1),{frame:34,target:null,offset:0});
 });

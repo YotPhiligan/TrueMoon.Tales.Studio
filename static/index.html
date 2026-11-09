@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>True Moon Studio — видеопродакшен</title><meta name="description" content="Локальное рабочее пространство видеопроектов Сказок истинной луны"><link rel="icon" href="/moon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/timeline.css"><link rel="stylesheet" href="/audio.css"><link rel="stylesheet" href="/agent.css"><link rel="stylesheet" href="/scenario.css"><link rel="stylesheet" href="/segment-materials.css"><link rel="stylesheet" href="/scenario-agent.css"><link rel="stylesheet" href="/clip-editor.css"><link rel="stylesheet" href="/exports.css"><link rel="stylesheet" href="/sound.css"><link rel="stylesheet" href="/timeline-menu.css"><link rel="stylesheet" href="/timeline-layout.css"><link rel="stylesheet" href="/transitions.css"><link rel="stylesheet" href="/titles.css"></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>True Moon Studio — видеопродакшен</title><meta name="description" content="Локальное рабочее пространство видеопроектов Сказок истинной луны"><link rel="icon" href="/moon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/take-compare.css"><link rel="stylesheet" href="/timeline.css"><link rel="stylesheet" href="/audio.css"><link rel="stylesheet" href="/agent.css"><link rel="stylesheet" href="/scenario.css"><link rel="stylesheet" href="/segment-materials.css"><link rel="stylesheet" href="/scenario-agent.css"><link rel="stylesheet" href="/clip-editor.css"><link rel="stylesheet" href="/exports.css"><link rel="stylesheet" href="/sound.css"><link rel="stylesheet" href="/timeline-menu.css"><link rel="stylesheet" href="/timeline-layout.css"><link rel="stylesheet" href="/transitions.css"><link rel="stylesheet" href="/titles.css"><link rel="stylesheet" href="/asset-library.css"></head>
 <body>
 <svg class="icon-defs" aria-hidden="true"><defs>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
@@ -8,6 +8,13 @@
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
 <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
 <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 17 6-6 4 4 3-3 5 5"/><circle cx="16" cy="8" r="1.5"/></symbol>
+<symbol id="i-type-dialogue" viewBox="0 0 24 24"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9l-5 4v-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM7 9h10M7 13h7"/></symbol>
+<symbol id="i-type-narration" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11v1a6 6 0 0 0 12 0v-1M12 18v3m-3 0h6"/></symbol>
+<symbol id="i-type-action" viewBox="0 0 24 24"><path d="M13 2 4 13h7l-1 9 10-12h-7z"/></symbol>
+<symbol id="i-type-titles" viewBox="0 0 24 24"><path d="M5 7V4h14v3M12 4v16m-4 0h8"/></symbol>
+<symbol id="i-type-transition" viewBox="0 0 24 24"><path d="M3 8h17m-4-4 4 4-4 4m5 4H4m4-4-4 4 4 4"/></symbol>
+<symbol id="i-type-other" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 20 4-.8L20 7l-3-3L5 16zM14 7l3 3"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
 <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4h16v-4"/></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></symbol>
@@ -18,30 +25,68 @@
 <div id="app" class="app-shell">
   <header class="topbar">
     <div class="brand"><img src="/moon.svg" alt=""><div>TRUE MOON<span>PRODUCTION STUDIO</span></div><span class="version">0.15</span></div>
-    <div class="project-switch"><span class="muted">Проект</span><select id="projectSelect" aria-label="Выбрать проект"></select><button id="newProject" class="icon-button" title="Новый проект" aria-label="Новый проект"><svg><use href="#i-plus"/></svg></button></div>
-    <div class="top-actions"><button id="projectBriefButton" class="button subtle" title="Общий замысел и указания агенту">О проекте</button><span id="saveState" class="save-state">Загрузка…</span><button id="saveButton" class="button subtle"><svg><use href="#i-check"/></svg>Сохранить<span class="keycap">⌘/Ctrl S</span></button><span class="local-status"><i></i>Локально</span></div>
+    <div class="project-switch"><span class="muted">Проект</span><select id="projectSelect" aria-label="Выбрать проект"></select><button id="newProject" class="icon-button" title="Новый проект" aria-label="Новый проект"><svg><use href="#i-plus"/></svg></button><button id="assetsButton" class="button subtle small" type="button" disabled><svg aria-hidden="true"><use href="#i-image"/></svg>Ассеты</button></div>
+    <div class="top-actions"><button id="projectBriefButton" class="button subtle" title="Общий замысел и указания агенту">О проекте</button><span id="saveState" class="save-state">Загрузка…</span><button id="saveButton" class="button subtle" aria-label="Сохранить"><svg><use href="#i-check"/></svg>Сохранить<span class="keycap">⌘/Ctrl S</span></button><span class="local-status"><i></i>Локально</span></div>
   </header>
-  <aside class="sidebar">
-    <div class="sidebar-top"><button id="overviewButton" class="overview-button"><svg><use href="#i-grid"/></svg>Сценарий проекта<span id="projectCount"></span></button><label class="search"><svg><use href="#i-search"/></svg><input id="searchBlocks" placeholder="Найти блок…" aria-label="Найти блок"><kbd>/</kbd></label></div>
-    <div class="eyebrow tree-label">БИБЛИОТЕКА БЛОКОВ<button id="addSegment" class="icon-button" aria-label="Добавить группу источников" title="Добавить группу источников"><svg><use href="#i-plus"/></svg></button></div>
-    <nav id="projectTree" class="project-tree" aria-label="Структура проекта"></nav>
-    <div class="sidebar-footer"><span class="status-dot"></span><div><strong>Omni NVFP4 QAD</strong><span>Ref2VA · native AV</span></div><svg><use href="#i-film"/></svg></div>
-  </aside>
+  <nav id="projectNavigation" class="project-navigation" aria-label="Навигация по проекту">
+    <button id="navScenario" class="button subtle small" type="button" disabled><svg aria-hidden="true"><use href="#i-grid"/></svg>Сценарий</button>
+    <span class="project-nav-separator" aria-hidden="true">›</span>
+    <button class="button subtle small project-nav-toggle" type="button" data-nav-toggle="segment" aria-controls="navSegmentPanel" aria-expanded="false" disabled><span>Сегмент</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
+    <span class="project-nav-separator" aria-hidden="true">›</span>
+    <button class="button subtle small project-nav-toggle" type="button" data-nav-toggle="block" aria-controls="navBlockPanel" aria-expanded="false" disabled><span>Блок</span><svg aria-hidden="true"><use href="#i-chevron"/></svg></button>
+    <section id="navSegmentPanel" class="project-nav-panel" aria-label="Список сегментов" hidden>
+      <input type="search" aria-label="Найти сегмент" placeholder="Найти сегмент…" autocomplete="off">
+      <div class="project-nav-results"></div>
+      <div class="project-nav-actions"><button id="navAddSegment" class="button subtle small" type="button">+ Сегмент</button></div>
+    </section>
+    <section id="navBlockPanel" class="project-nav-panel" aria-label="Список блоков" hidden>
+      <input type="search" aria-label="Найти блок" placeholder="Найти блок…" autocomplete="off">
+      <div class="project-nav-results"></div>
+      <div class="project-nav-actions">
+        <button id="navBlockScope" class="button subtle small" type="button">Все исходники</button>
+        <button id="navSourceOverview" class="button subtle small" type="button">Обзор исходников</button>
+      </div>
+    </section>
+  </nav>
   <main class="workspace">
     <div id="errorBanner" class="error-banner" role="alert" hidden></div>
-    <section id="editorView" class="editor-view">
-      <div class="viewer-column">
-        <div class="viewer-heading"><div><div id="breadcrumb" class="eyebrow"></div><h1 id="blockHeading">Рабочее пространство</h1></div><button id="addBlock" class="button subtle small" title="Создать исходный блок">+ Блок</button><button id="sourceButton" class="button subtle small">Карточка блока<svg><use href="#i-chevron"/></svg></button></div>
-        <div class="viewer-toolbar"><div class="segmented"><button data-view="timeline"><svg><use href="#i-play"/></svg>Монтаж</button><button data-view="video" class="active"><svg><use href="#i-film"/></svg>Дубль</button><button data-view="frames"><svg><use href="#i-image"/></svg>Опоры</button></div><span id="viewerLabel" class="muted"></span><span id="previewBadge" class="badge"></span></div>
-        <div id="segmentPreviewControls" class="segment-preview-controls" hidden><div><button id="segmentBack" class="button subtle small">← К сегменту</button><button id="segmentFull" class="button subtle small">Весь проект</button><output id="segmentClock"></output></div><input id="segmentScrub" type="range" min="0" step="1" value="0" aria-label="Позиция в сегменте"></div>
-        <div id="previewStage" class="preview-stage"><div class="empty-state">Открываем материалы проекта…</div></div>
-        <div class="transport"><button id="playButton" class="icon-button" title="Воспроизвести / пауза" aria-label="Воспроизвести / пауза"><svg><use href="#i-play"/></svg></button><span id="timecode" class="timecode">00:00.000</span><div class="transport-divider"></div><span id="previewMeta" class="muted"></span><button id="compareButton" class="button subtle small push-right">Сравнить дубли</button></div>
-        <div id="jobPanel" class="job-panel" aria-live="polite"></div>
+    <div class="workspace-main">
+      <div class="workspace-views">
+        <section id="editorView" class="editor-view">
+          <div class="viewer-column">
+            <div class="viewer-heading"><div><h1 id="blockHeading">Рабочее пространство</h1></div><button id="addBlock" class="button subtle small" title="Создать исходный блок">+ Блок</button><button id="editBlockDetails" class="button subtle small" type="button" hidden>Изменить исходник</button><button id="sourceButton" class="button subtle small">Карточка блока<svg><use href="#i-chevron"/></svg></button></div>
+            <div class="viewer-toolbar"><div class="segmented"><button data-view="timeline"><svg><use href="#i-play"/></svg>Монтаж</button><button data-view="video" class="active"><svg><use href="#i-film"/></svg>Дубль</button><button data-view="frames"><svg><use href="#i-image"/></svg>Опоры</button></div><span id="viewerLabel" class="muted"></span><span id="previewBadge" class="badge"></span></div>
+            <div id="segmentPreviewControls" class="segment-preview-controls" hidden><div><button id="segmentBack" class="button subtle small">← К сегменту</button><button id="segmentFull" class="button subtle small">Весь проект</button><button id="previewLoop" class="button subtle small" aria-label="Повтор окна просмотра" aria-pressed="false">↻ Повтор</button><output id="segmentClock"></output></div><input id="segmentScrub" type="range" min="0" step="1" value="0" aria-label="Позиция в окне просмотра"></div>
+            <div id="previewStage" class="preview-stage"><div class="empty-state">Открываем материалы проекта…</div></div>
+            <div class="transport"><button id="playButton" class="icon-button" title="Воспроизвести / пауза" aria-label="Воспроизвести / пауза"><svg><use href="#i-play"/></svg></button><span id="timecode" class="timecode">00:00.000</span><div class="transport-divider"></div><span id="previewMeta" class="muted"></span><button id="compareButton" class="button subtle small push-right">Сравнить дубли</button></div>
+            <div id="jobPanel" class="job-panel" aria-live="polite"></div>
+          </div>
+        </section>
+        <section id="overviewView" class="overview-view" hidden></section>
+        <section id="scenarioView" class="scenario-view" hidden></section>
       </div>
-      <aside class="inspector"><div class="inspector-heading"><span>КАРТОЧКА БЛОКА</span><button id="historyButton" class="icon-button" title="История версий" aria-label="История версий"><svg><use href="#i-history"/></svg></button></div><div class="inspector-tabs" role="tablist"><button data-tab="prompt" class="active" role="tab">Постановка</button><button data-tab="references" role="tab">Референсы<span id="refCount"></span></button><button data-tab="guides" role="tab">Опорные кадры<span id="guideCount"></span></button><button data-tab="takes" role="tab">Дубли<span id="takeCount"></span></button><button data-tab="agent" role="tab">ИИ</button></div><div id="inspectorBody" class="inspector-body"></div><div class="inspector-footer"><button id="validateButton" class="button">Проверить</button><button id="prepareButton" class="button primary"><svg><use href="#i-spark"/></svg>Подготовить</button><span>Подготовка сохраняет граф. Генерация запускается отдельно.</span></div></aside>
-    </section>
-    <section id="overviewView" class="overview-view" hidden></section>
-    <section id="scenarioView" class="scenario-view" hidden></section>
+      <aside id="workspaceInspector" class="inspector workspace-inspector" aria-label="Инспектор" hidden>
+        <div class="workspace-inspector-header">
+          <div class="segmented" role="group" aria-label="Раздел инспектора">
+            <button id="inspectMontage" type="button" aria-pressed="true" aria-controls="tlProperties">В монтаже</button>
+            <button id="inspectSource" type="button" aria-pressed="false" aria-controls="inspectorSource">Исходник</button>
+          </div>
+          <button id="closeInspector" type="button" class="icon-button" aria-label="Свернуть инспектор" title="Свернуть инспектор"><svg><use href="#i-close"/></svg></button>
+        </div>
+        <div id="tlProperties" class="inspector-body tl-properties"></div>
+        <div id="inspectorSource" class="inspector-source" hidden><div class="inspector-heading"><span>КАРТОЧКА БЛОКА</span><button id="historyButton" class="icon-button" title="История версий" aria-label="История версий"><svg><use href="#i-history"/></svg></button></div><div class="inspector-tabs" role="tablist"><button data-tab="prompt" class="active" role="tab">Постановка</button><button data-tab="references" role="tab">Референсы<span id="refCount"></span></button><button data-tab="guides" role="tab">Опорные кадры<span id="guideCount"></span></button><button data-tab="takes" role="tab">Дубли<span id="takeCount"></span></button><button data-tab="agent" role="tab">ИИ</button></div><div id="inspectorBody" class="inspector-body"></div><div class="inspector-footer"><button id="validateButton" class="button">Проверить</button><button id="prepareButton" class="button primary"><svg><use href="#i-spark"/></svg>Подготовить</button><span>Подготовка сохраняет граф. Генерация запускается отдельно.</span></div></div>
+      </aside>
+    </div>
+    <div class="workspace-layout-bar">
+      <div id="workspaceLayoutGrip" class="workspace-layout-grip" role="separator" tabindex="0" aria-label="Высота таймлайна" aria-controls="timelineRoot" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0" title="Перетащите границу или используйте стрелки ↑ ↓"></div>
+      <div class="workspace-layout-presets" role="group" aria-label="Компоновка рабочего пространства">
+        <button class="button subtle small" type="button" data-layout-preset="editing" aria-pressed="false">Монтаж</button>
+        <button class="button subtle small" type="button" data-layout-preset="balance" aria-pressed="true">Баланс</button>
+        <button class="button subtle small" type="button" data-layout-preset="preview" aria-pressed="false">Просмотр</button>
+      </div>
+      <button id="workspaceInspectorToggle" class="button subtle small" type="button" aria-controls="workspaceInspector" aria-expanded="false" disabled>Инспектор</button>
+      <button id="workspaceShowTimeline" class="button subtle small" type="button" aria-controls="timelineRoot" hidden>Показать шкалу</button>
+    </div>
     <section id="timelineRoot" class="timeline" aria-label="Общий таймлайн проекта"></section>
   </main>
 </div>

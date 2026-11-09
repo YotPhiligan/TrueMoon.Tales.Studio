@@ -2,7 +2,7 @@ export const clipSpeed=c=>c.speed??1;
 export const sourceOut=c=>c.source_out_frame??c.source_in_frame+c.duration_frames*clipSpeed(c);
 export const sourceFrame=(seconds,fps)=>Math.round(Number(seconds)*fps*1e6)/1e6;
 export const sourceDuration=(start,end,rate)=>Math.ceil((end-start)/rate-1e-8);
-export const editFields=c=>Object.fromEntries(['speed','source_out_frame','anchor_frame','gap_protected'].filter(k=>k in c).map(k=>[k,c[k]]));
+export const editFields=c=>Object.fromEntries(['speed','source_out_frame','anchor_frame','gap_protected','mute_native_audio'].filter(k=>k in c).map(k=>[k,c[k]]));
 export function sourcePatch(c,start,end,rate,capacity=Infinity){
   if(!c.take_id)throw new Error('Сначала назначьте видео.');
   if(typeof end==='number'&&Number.isFinite(end)&&end>capacity+1e-7)throw new Error('Участок выходит за длину дубля.');

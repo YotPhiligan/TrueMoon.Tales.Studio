@@ -30,6 +30,75 @@ class ScenarioAgentTests(ScenarioFixture):
         self.assertEqual(requests, self.request_state())
         self.assertEqual(sources, self.source_state())
 
+    def completed_breakdown(self, *rows):
+        task = self.create({'segment_id': 's1', 'intent': agent.BREAKDOWN_INTENT}, mode='propose')
+        running = agent.update_request(self.store, self.pid, task['id'], task['revision'], 'claim', 'agent:qa')
+        self.refused(lambda: agent.update_request(self.store, self.pid, task['id'], running['revision'],
+                                                 'finish', 'agent:qa', 'Пустой результат'))
+        self.refused(lambda: agent.update_request(self.store, self.pid, task['id'], running['revision'],
+                                                 'finish', 'agent:qa', 'Недопустимый результат',
+                                                 proposal=[{'title': 'Блок', 'description': 'Действие', 'duration_frames': True}]))
+        return agent.update_request(self.store, self.pid, task['id'], running['revision'],
+                                    'finish', 'agent:qa', 'Предложение готово', proposal=list(rows))
+
+    def test_breakdown_preview_is_read_only_and_apply_creates_one_undoable_change(self):
+        original = self.activate()
+        state = self.project_state()
+        scope = {'segment_id': 's1', 'intent': agent.BREAKDOWN_INTENT}
+        self.refused(lambda: self.create(scope, mode='apply'))
+        task = self.completed_breakdown(
+            {'title': 'Снижение', 'description': 'Клэр уходит за парапет.', 'duration_frames': 8,
+             'sound_notes': 'Выстрел затихает'},
+            {'title': 'Смещение', 'description': 'Клэр идёт вдоль парапета.', 'gap_before_frames': 4,
+             'duration_frames': 12, 'continuity_notes': 'Карабин в руках'})
+        rid = task['id']
+        requests = self.request_state()
+        plan = agent.preview_breakdown(self.store, self.pid, rid)
+        self.assertEqual(state, self.project_state())
+        self.assertEqual(requests, self.request_state())
+        self.assertEqual('ready', plan['status'])
+        self.assertEqual((96, 72, 24, 0), tuple(plan[k] for k in
+                         ('window_frames', 'used_frames', 'proposed_frames', 'remaining_frames')))
+        self.assertEqual([(72, 80), (84, 96)], [(r['start_frame'], r['end_frame']) for r in plan['items']])
+        self.refused(lambda: agent.apply_breakdown(self.store, self.pid, rid, plan['project_revision'] - 1, 'author'), 409)
+        updated = agent.apply_breakdown(self.store, self.pid, rid, plan['project_revision'], 'author')
+        new_items = updated['timeline']['scenario']['segments'][0]['items'][2:]
+        self.assertEqual(['Снижение', 'Смещение'], [i['title'] for i in new_items])
+        self.assertEqual(('Выстрел затихает', 'Карабин в руках'),
+                         (new_items[0]['sound_notes'], new_items[1]['continuity_notes']))
+        self.assertTrue(all(i['take_id'] is None for i in new_items))
+        self.assertEqual(original['blocks'], updated['blocks'][:len(original['blocks'])])
+        self.assertEqual(original['timeline']['music'], updated['timeline']['music'])
+        self.assertEqual(original['timeline']['markers'], updated['timeline']['markers'])
+        self.assertEqual(len(original['timeline']['undo']) + 1, len(updated['timeline']['undo']))
+        self.assertEqual('applied', agent.preview_breakdown(self.store, self.pid, rid)['status'])
+        self.refused(lambda: agent.apply_breakdown(self.store, self.pid, rid, updated['revision'], 'author'), 409)
+        undone = self.store.timeline_operation(self.pid, updated['revision'], 'undo', {})
+        self.assertEqual(original['timeline']['scenario'], undone['timeline']['scenario'])
+        redone = self.store.timeline_operation(self.pid, undone['revision'], 'redo', {})
+        self.assertEqual(updated['timeline']['scenario'], redone['timeline']['scenario'])
+        self.assertEqual(requests, self.request_state())
+        self.assert_no_generation()
+
+    def test_breakdown_rechecks_current_budget_and_protects_transitions(self):
+        self.activate()
+        task = self.completed_breakdown({'title': 'Заглушка', 'description': 'Перебежка.', 'duration_frames': 16})
+        rid = task['id']
+        before = agent.preview_breakdown(self.store, self.pid, rid)
+        self.assertEqual(8, before['remaining_frames'])
+        changed = self.edit('update_segment', id='s1', duration_frames=84)
+        after = agent.preview_breakdown(self.store, self.pid, rid)
+        self.assertEqual(('blocked', -4), (after['status'], after['remaining_frames']))
+        self.refused(lambda: agent.apply_breakdown(self.store, self.pid, rid, before['project_revision'], 'author'), 409)
+        self.refused(lambda: agent.apply_breakdown(self.store, self.pid, rid, changed['revision'], 'author'))
+        restored = self.edit('update_segment', id='s1', duration_frames=96)
+        transition = self.store.timeline_operation(self.pid, restored['revision'], 'set_transition', {
+            'left_clip_id': 'c2', 'right_clip_id': 'c3', 'pause_frames': 60, 'fade_out_frames': 4})
+        blocked = agent.preview_breakdown(self.store, self.pid, rid)
+        self.assertEqual('blocked', blocked['status'])
+        self.assertIn('разорвёт настроенный переход', blocked['issues'][0])
+        self.refused(lambda: agent.apply_breakdown(self.store, self.pid, rid, transition['revision'], 'author'))
+
     def test_scope_and_target_use_stable_item_ids_and_component_subset_without_mutation(self):
         p = self.current()
         original = copy.deepcopy(p)

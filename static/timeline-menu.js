@@ -6,7 +6,7 @@ export function timelineCommands(view,kind,item,{frame,revision}){
   if(kind==='clip')return [
     command('source','Участок и скорость',()=>view.editSource(item),{disabled:!item.take_id||!view.editSource}),
     command('description','Описание и время',()=>view.editStoryClip(item),{disabled:!view.editStoryClip}),
-    command('materials','Материалы и промпт',()=>view.openBlock(item.block_id),{disabled:!view.openBlock}),
+    command('materials','Материалы и промпт',()=>view.openBlock(item.block_id,item.segment_id),{disabled:!view.openBlock}),
     command('jump','К началу блока',jump,{disabled:!view.onSeek}),
     command('split','Разрезать по курсору',write('split_clip',{id:item.id,frame}),{group:true,disabled:!Number.isFinite(frame)||frame<=item.start_frame||frame>=item.start_frame+item.duration_frames}),
     command('anchor','Закрепить начало',write('set_clip_anchor',{id:item.id,enabled:item.anchor_frame==null}),{checked:item.anchor_frame!=null}),
@@ -24,6 +24,8 @@ export function timelineCommands(view,kind,item,{frame,revision}){
     command('remove','Убрать сегмент из сценария',write('remove_segment',{id:item.id}),{group:true,danger:true})
   ];
   if(kind==='join')return [
+    command('loop','Зациклить стык',()=>view.previewJoin(item.id),
+      {disabled:!view.previewJoin||!!(view.contextIssues?.()??view.planIssues?.()??[]).length}),
     command('transition','Переход через чёрный',()=>view.editTransition(item),{disabled:!view.editTransition}),
     command('remove','Убрать переход',write('remove_transition',{right_clip_id:item.right.id}),{disabled:!item.transition}),
     command('jump','К началу следующего блока',jump,{group:true,disabled:!view.onSeek})

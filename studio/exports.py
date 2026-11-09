@@ -26,7 +26,7 @@ class Exports:
         self.store=store;self.lock=threading.RLock();self.active=None;self.thread=None;self.stop_event=threading.Event()
     def folder(self,pid,eid,create=False):
         if not isinstance(eid,str) or not re.fullmatch(r'export-[0-9a-f]{16}',eid):raise StudioError('Некорректный ID экспорта.',422)
-        legacy=self.store.safe(self.store.location(pid).parent/'Exports'/eid,False)
+        legacy=self.store.safe(self.store.production_dir(pid)/'Exports'/eid,False)
         root=self.store.paths.exports_root
         configured=self.store.safe(root/pid/eid,False) if root else legacy
         if not create and not configured.exists() and legacy.exists():return legacy
@@ -43,7 +43,7 @@ class Exports:
             if row['state']=='completed':result['video_url']=f'/api/projects/{pid}/exports/{eid}/video'
             return result
     def all_rows(self,pid):
-        folders=[self.store.location(pid).parent/'Exports']
+        folders=[self.store.production_dir(pid)/'Exports']
         if self.store.paths.exports_root:folders.insert(0,self.store.paths.exports_root/pid)
         ids=dict.fromkeys(p.name for folder in folders for p in folder.glob('export-*') if (p/'Status.json').is_file())
         rows=[self.get(pid,eid) for eid in ids]

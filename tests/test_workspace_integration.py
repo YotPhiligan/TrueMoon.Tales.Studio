@@ -7,7 +7,7 @@ import sys
 from unittest.mock import patch
 
 from scenario_fixtures import ScenarioFixture
-from studio import agent, export_plan, titles, timeline
+from studio import agent, export_plan, library, titles, timeline
 from studio.model import Store, StudioError, atomic, digest, read
 from studio.paths import WorkspacePaths
 from studio.export_worker import DraftRenderer
@@ -44,7 +44,7 @@ class WorkspaceIntegrationTests(ScenarioFixture):
     def test_store_external_project_asset_serialization_and_read_only_mount_do_not_touch_framework(self):
         store = self.configured();before = self.tree(self.framework)
         p = store.create('External project',project_id='external')
-        self.assertEqual('@projects/external',p['root']);self.assertEqual(self.ext_projects/'external/Production/Studio.project.json',store.location(p['id']))
+        self.assertEqual('@projects/external',p['root']);self.assertEqual(self.ext_projects/'external/Studio.project.json',store.location(p['id']))
         image = self.ext_arts/'Claire.png';image.write_bytes(b'new external image')
         aid = store.asset(p,image)
         self.assertEqual('@arts/Claire.png',p['assets'][aid]['path']);self.assertEqual(image,store.resolve_asset(p,aid))
@@ -52,6 +52,102 @@ class WorkspaceIntegrationTests(ScenarioFixture):
         self.assertEqual(403,caught.exception.status)
         self.assertEqual(self.ext_cache/'external/Titles',store.cache_dir('external','Titles'))
         self.assertEqual(before,self.tree(self.framework));self.assert_no_generation()
+
+    def test_project_json_can_move_to_root_without_moving_history_or_rewriting_graph(self):
+        store = self.configured()
+        p = store.create('Project to relocate')
+        root = store.project_dir(p['id'])
+        current = store.location(p['id'])
+        legacy = store.production_dir(p['id']) / current.name
+        legacy.parent.mkdir()
+        current.rename(legacy)
+        before = legacy.read_bytes()
+        self.assertEqual(p, store.get(p['id']))
+        legacy.rename(current)
+        self.assertEqual(before, current.read_bytes())
+        self.assertEqual(p, store.get(p['id']))
+        store.commit(p, p['revision'], 'author', 'After relocation')
+        self.assertEqual([before], [path.read_bytes() for path in (legacy.parent/'History').glob('*.json')])
+        legacy.write_bytes(before)
+        with self.assertRaises(StudioError) as caught:
+            store.get(p['id'])
+        self.assertEqual(409, caught.exception.status)
+
+    def test_asset_catalog_discovers_local_media_and_reports_live_reverse_links_without_writes(self):
+        p = self.old_store.get(self.pid)
+        root = self.old_store.project_dir(self.pid)
+        new = root / 'Frames/retakes/Ручная опора.png'
+        new.parent.mkdir(parents=True)
+        new.write_bytes(b'asset fixture')
+        (new.parent/'internal.json').write_bytes(b'not a media file')
+        frame = root / 'Frames/registered.png'
+        frame.write_bytes(b'asset fixture')
+        aid = self.old_store.asset(p, frame)
+        block = self.old_store.find_block(p, self.bid)
+        block['references'].append({'id':'registered-ref','asset_id':aid,'role':'Start'})
+        block['guides'].append({'reference_id':'registered-ref','frame':0})
+        p = self.old_store.commit(p, p['revision'], 'fixture', 'Catalog data')
+        before = self.old_store.location(self.pid).read_bytes()
+        rows = {row['path']:row for row in library.catalog(self.old_store, self.pid)['assets']}
+        self.assertNotIn('Frames/retakes/internal.json', rows)
+        self.assertIsNone(rows['Frames/retakes/Ручная опора.png']['asset_id'])
+        self.assertEqual(aid, rows['Frames/registered.png']['asset_id'])
+        self.assertEqual('guide', rows['Frames/registered.png']['uses'][0]['role'])
+        self.assertEqual([0], rows['Frames/registered.png']['uses'][0]['frames'])
+        video = next(row for row in rows.values() if row['asset_id'] == self.take['video_asset_id'])
+        self.assertEqual({'take','montage_video'}, {use['role'] for use in video['uses']})
+        self.assertEqual(new, library.preview_path(self.old_store, self.pid, 'Frames/retakes/Ручная опора.png'))
+        for name in ['Frames/../registered.png', 'Frames/retakes/internal.json', 'Production/saved.png', 'Frames/retakes/image.png:stream']:
+            with self.subTest(name=name), self.assertRaises(StudioError):
+                library.preview_path(self.old_store, self.pid, name)
+        self.assertEqual(before, self.old_store.location(self.pid).read_bytes())
+
+    def test_picker_assigns_image_and_guide_once_and_reuses_the_asset(self):
+        store = self.old_store
+        root = store.project_dir(self.pid)
+        picture = root / 'References/Picker.png'
+        picture.parent.mkdir(exist_ok=True)
+        picture.write_bytes(b'fixture')
+        p = store.get(self.pid)
+        block = store.find_block(p, self.bid)
+        count = len(block['references'])
+        # The fixture already uses frame 0. Choose an unused intermediate index.
+        p = store.operation(self.pid, p['revision'], 'assign_catalog_image',
+                            {'block_id':self.bid,'asset_selection':{'file':'References/Picker.png'}})
+        ref = store.find_block(p,self.bid)['references'][-1]
+        p = store.operation(self.pid, p['revision'], 'assign_catalog_image',
+                            {'block_id':self.bid,'asset_selection':{'asset_id':ref['asset_id']},'guide_frame':3})
+        block = store.find_block(p,self.bid)
+        self.assertEqual(count+1,len(block['references']))
+        self.assertIn({'reference_id':ref['id'],'frame':3},block['guides'])
+        self.assertEqual(p['revision'],store.operation(self.pid,p['revision'],'assign_catalog_image',
+                         {'block_id':self.bid,'asset_selection':{'asset_id':ref['asset_id']},'guide_frame':3})['revision'])
+
+    def test_picker_adds_video_and_audio_in_one_undoable_placement(self):
+        store=self.old_store
+        source=store.project_dir(self.pid)/'video/Picker.mp4'
+        source.parent.mkdir(exist_ok=True)
+        source.write_bytes(b'fixture')
+        p=store.get(self.pid)
+        before=store.location(self.pid).read_bytes()
+        args={'segment_id':'s2','asset_selection':{'file':'video/Picker.mp4'},
+              'source_in_frame':6,'duration_frames':24,'audio_stream':0}
+        with patch.object(store,'probe_video',return_value={'seconds':2}), patch.object(store,'waveform_path',return_value={'seconds':.2}):
+            with self.assertRaises(StudioError): library.add_video(store,p,args)
+        self.assertEqual(before,store.location(self.pid).read_bytes())
+        self.assertNotIn('Picker.mp4',[row['name'] for row in p['assets'].values()])
+        with patch.object(store,'probe_video',return_value={'seconds':2}), patch.object(store,'waveform_path',return_value={'seconds':1}):
+            changed=library.add_video(store,p,args)
+        result=store.commit(changed,p['revision'],'author','Video and sound')
+        event=result['timeline']['sound_events'][0]
+        clip=next(c for c in result['timeline']['clips'] if c['id']==event['clip_id'])
+        self.assertTrue(clip['mute_native_audio'])
+        self.assertEqual((6,18), (event['source_in_frame'],event['duration_frames']))
+        self.assertEqual('Picker.mp4',result['assets'][event['asset_id']]['name'])
+        reverted=store.timeline_operation(self.pid,result['revision'],'undo',{})
+        self.assertFalse(reverted['timeline']['sound_events'])
+        self.assertNotIn(clip['id'],[c['id'] for c in reverted['timeline']['clips']])
+        self.assertIn(event['asset_id'],reverted['assets'])
 
     def test_alias_registration_preserves_existing_id_raw_path_and_rejects_ambiguous_resolved_assets(self):
         old = self.images[0];new = self.ext_arts/old.name;shutil.copy2(old,new)

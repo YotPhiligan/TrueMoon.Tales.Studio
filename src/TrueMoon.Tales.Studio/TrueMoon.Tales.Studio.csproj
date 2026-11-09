@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>$(TF)</TargetFramework>
+        <EnableCobaltGenerator>true</EnableCobaltGenerator>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="TrueMoon.Tales.Studio.Tests" />
+        <PackageReference Include="TrueMoon" />
+        <PackageReference Include="TrueMoon.Alloy.Hosting" />
+        <PackageReference Include="TrueMoon.Cobalt" />
+        <PackageReference Include="NAudio.WinMM" />
+    </ItemGroup>
+
+</Project>

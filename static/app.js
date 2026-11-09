@@ -1,7 +1,12 @@
+import {bindTakeComparison,takeComparisonMarkup} from './take-compare.js';
 import {MaterialsDesk,guidePatch,nextGuideFrame} from './materials.js';
 import {ScenarioDesk} from './scenario-ui.js';
+import {ProjectNavigation} from './project-navigation.js';
+import {bindButtonTooltips} from './button-tooltips.js';
+import {AssetLibrary,assetQuery,assetSelection} from './asset-library.js';
 import {clipSpeed} from './clip-edit-logic.js';
 import {ClipEditor} from './clip-editor.js';
+import {ClipReplacement} from './clip-replacement.js';
 import {ExportsDesk} from './exports-ui.js';
 import {SoundDesk} from './sound-ui.js';
 import {TransitionsDesk} from './transitions-ui.js';
@@ -9,14 +14,16 @@ import {TitlesDesk} from './titles-ui.js';
 import {ScenarioAgentDesk} from './scenario-agent-ui.js';
 import {scenarioView} from './scenario-logic.js';
 import {AgentDesk,shouldRefreshEditor} from './agent-ui.js';
+import {bindWorkspaceLayout} from './timeline-layout.js';
 import {AudioTimelineView} from './audio-timeline.js';
 import {MontagePlayer} from './montage-player.js';
-import {timelineDuration,segmentPlayback} from './playback-logic.js';
+import {animaticFrame,timelineDuration,segmentPlayback} from './playback-logic.js';
 import {fields,sectionLabels,splitPrompt,joinPrompt,timing,removePicture,escapeHtml as esc,timecode} from './logic.js';
 const $=s=>document.querySelector(s),icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+bindButtonTooltips();
 const editable=['title','notes','prompt','references','guides','settings','montage_seconds','context_take_id'];
-const S={project:null,projects:[],blockId:null,tab:'prompt',promptTab:'detailed_description',view:'video',frameRefId:null,previewTakeId:null,compareIds:[],jobs:[],dirty:false,serial:0,savePromise:null,saveTimer:null,busy:false,conflict:false,validation:null,overview:false,storyMode:true,library:false};
-let token='',toastTimer,polling=false,uploadTarget=null;
+const S={project:null,projects:[],blockId:null,tab:'prompt',promptTab:'detailed_description',view:'video',frameRefId:null,previewTakeId:null,compareIds:[],jobs:[],dirty:false,serial:0,savePromise:null,saveTimer:null,busy:false,conflict:false,validation:null,overview:false,storyMode:true,library:false,inspectorMode:'timeline',inspectorOpen:false};
+let token='',toastTimer,polling=false,uploadTarget=null,disposeComparison;
 const block=()=>S.project?.blocks.find(b=>b.id===S.blockId),segment=()=>S.project?.segments.find(s=>s.id===block()?.segment_id);
 const media=aid=>`/api/media?project=${encodeURIComponent(S.project.id)}&asset=${encodeURIComponent(aid)}`;
 const projectUrl=tail=>`/api/projects/${encodeURIComponent(S.project.id)}${tail?'/'+tail:''}`;
@@ -26,94 +33,392 @@ async function api(path,method='GET',data){const options={method,headers:{}};if(
 
 const montagePlayer = new MontagePlayer({
   getProject:()=>S.project,media:(aid,pid)=>`/api/media?project=${encodeURIComponent(pid)}&asset=${encodeURIComponent(aid)}`,onError:showError,
-  onTime:(seconds,playing)=>{if(S.view!=='timeline'||!S.project)return;timelineView.advance(seconds,playing);$('#timecode').textContent=timecode(seconds);updateSegmentClock(seconds);},
-  onState:state=>{timelineView.updateTransport();if(S.view==='timeline'){$('#playButton').innerHTML=icon(state.playing||state.preparing?'pause':'play');}}
+  onTime:(seconds,playing)=>{if(S.view!=='timeline'||!S.project)return;timelineView.advance(seconds,playing);$('#timecode').textContent=timecode(seconds);updateScopeClock(seconds);},
+  onState:state=>{timelineView.updateTransport();if(S.view==='timeline'){updateLoopButton();$('#playButton').innerHTML=icon(state.playing||state.preparing?'pause':'play');}}
 });
 const timelineView = new AudioTimelineView({
   getLayoutContext:()=>S.storyMode?'story':'editing',
-  root:$('#timelineRoot'),getProject:()=>S.project,getTimeline:()=>{const v=scenarioView(S.project);return v.active?v.timeline:null;},planIssues:()=>S.project?scenarioView(S.project).issues.filter(i=>!montagePlayer.segmentId||i.segment_id===montagePlayer.segmentId):[],getBlock:()=>block(),getTake:()=>previewTake(),api,onError:showError,
+  propertiesRoot:$('#tlProperties'),onSelection:()=>{setWorkspaceInspector('timeline',true);renderNavigation();},
+  getActiveSegment:()=>S.storyMode?storyDesk.selected:montagePlayer.segmentId,
+  root:$('#timelineRoot'),getProject:()=>S.project,getTimeline:()=>{const v=scenarioView(S.project);return v.active?v.timeline:null;},planIssues:()=>S.project&&montagePlayer.range?.kind!=='range'?scenarioView(S.project).issues.filter(i=>!montagePlayer.segmentId||i.segment_id===montagePlayer.segmentId):[],getBlock:()=>block(),getTake:()=>previewTake(),api,onError:showError,
   beforeWrite:async(action,payload)=>{await flush();const m=S.project?.timeline?.music;const level=action==='update_music'&&['start_frame','duration_frames','source_in_frame'].every(k=>!(k in payload)||payload[k]===m?.[k]);if(!['add_marker','update_marker','remove_marker','set_clip_audio'].includes(action)&&!level)montagePlayer.pause();},
-  onProject:p=>{S.project=p;if(S.storyMode)storyDesk.render();if(S.view==='timeline'){montagePlayer.syncProject();renderSegmentScope();if(!montagePlayer.range)$('#previewMeta').textContent='Длина '+timelineDuration(timelineView.data()).toFixed(3)+' с';}renderTree();renderSequence();saveLabel('Сохранено · v'+p.revision);},
+  onProject:p=>{S.project=p;if(S.storyMode)storyDesk.render();if(S.view==='timeline'){montagePlayer.syncProject();renderSegmentScope();if(!montagePlayer.range)$('#previewMeta').textContent='Длина '+timelineDuration(timelineView.data()).toFixed(3)+' с';}renderSequence();saveLabel('Сохранено · v'+p.revision);},
   editSource:c=>clipEditor.open(c).catch(showError),
+  replaceTake:c=>clipReplacement.open(c.id).catch(showError),
   editTransition:j=>transitionsDesk.open(j),
-  openBlock:id=>selectBlock(id),openSegment:id=>storyDesk.open(id),editSegment:id=>storyDesk.segmentForm(storySegment(id)),
+  openBlock:(id,sid)=>selectBlock(id,sid),openSegment:id=>storyDesk.open(id),editSegment:id=>storyDesk.segmentForm(storySegment(id)),
   editStoryClip:c=>{const s=storySegment(c.segment_id),item=s.items.find(i=>i.id===c.id);if(!item)throw new Error('Блок сценария не найден.');return storyDesk.itemForm(s,item);},
-  previewSegment:id=>showSegment(id),addStoryBlock:id=>storyDesk.itemForm(storySegment(id)),addSegmentSound:id=>soundDesk.open(id),contextIssues:()=>scenarioView(S.project).issues,
-  onExport:()=>exportsDesk.open().catch(showError),
+  previewSegment:id=>showSegment(id),previewJoin:id=>showJoin(id),onRepeatRange:(start,end)=>showRange(start,end).catch(showError),addStoryBlock:id=>storyDesk.itemForm(storySegment(id)),addSegmentSound:id=>soundDesk.open(id),contextIssues:()=>scenarioView(S.project).issues,
+  onExport:options=>exportsDesk.open(options).catch(showError),
   onTitles:()=>titlesDesk.openList().catch(showError),onTitle:id=>titlesDesk.open(id).catch(showError),
   onSound:e=>soundDesk.open(e.segment_id,e.id).catch(showError),soundWave:(...args)=>soundDesk.wave(...args),
-  onClip:async(clip,position)=>{try{await selectBlock(clip.block_id);showMontage();montagePlayer.seek(clip.start_frame/S.project.fps+(position-clip.source_in_frame/S.project.fps)/clipSpeed(clip));}catch(e){showError(e);}},
-  onSeek:frame=>{showMontage();montagePlayer.seek(frame/S.project.fps);},
+  onClip:async(clip,position)=>{
+    try{
+      if(!await selectBlock(clip.block_id,clip.segment_id,{view:'timeline',inspector:'timeline',itemId:clip.id}))return;
+      const time=clip.start_frame/S.project.fps+(position-clip.source_in_frame/S.project.fps)/clipSpeed(clip);
+      const range=montagePlayer.range;
+      if(range&&(time<range.start||time>=range.end))showMontage();
+      montagePlayer.seek(time);
+    }catch(error){showError(error);}
+  },
+  onSeek:(frame,options)=>{
+    const position=frame/S.project.fps,r=montagePlayer.range;
+    if(S.view!=='timeline'||S.storyMode||S.overview||(r&&(position<r.start||position>=r.end)))showMontage();
+    montagePlayer.seek(position,options);
+  },
   onPlay:()=>toggleMontage(),onStop:()=>{showMontage(true);montagePlayer.stop();},onEditStart:()=>montagePlayer.pause(),
-  playback:()=>({playing:montagePlayer.playing,preparing:montagePlayer.preparing,range:montagePlayer.range}),importAudio,
+  playback:()=>({playing:montagePlayer.playing,preparing:montagePlayer.preparing,range:montagePlayer.range,looping:montagePlayer.looping}),importAudio,mountAssetPicker,flush,
   dialog:(title,fields,apply)=>{modal(title,`<form id="timelineDialog" class="timeline-dialog">${fields}<button class="button primary" type="submit">Добавить</button></form>`);$('#timelineDialog').onsubmit=async e=>{e.preventDefault();const form=new FormData(e.target);closeModal();await apply(form);};}
 });
+bindWorkspaceLayout($('.workspace'),()=>{
+  if(timelineView.collapsed){timelineView.collapsed=false;timelineView.render();}
+  if(S.project)timelineView.drawWaveform();
+});
 const clipEditor = new ClipEditor({getProject:()=>S.project,getClip:id=>timelineView.lookup('clip',id),flush,modal,closeModal,write:(...args)=>timelineView.write(...args)});
+const clipReplacement=new ClipReplacement({
+  getProject:()=>S.project,getClip:id=>timelineView.lookup('clip',id),flush,media,api,
+  modal:(title,html)=>{montagePlayer.pause();$('#previewVideo')?.pause();modal(title,html,true);return $('#modal');},
+  onDispose:dispose=>{disposeComparison=dispose;},
+  write:(...args)=>timelineView.write(...args),
+  finish:()=>{closeModal();toast('Дубль назначен клипу.');}
+});
 const transitionsDesk = new TransitionsDesk({getProject:()=>S.project,getTimeline:()=>timelineView.data(),flush,modal,closeModal,write:(...args)=>timelineView.write(...args)});
 const titlesDesk = new TitlesDesk({getProject:()=>S.project,getTimeline:()=>timelineView.data(),getCursor:()=>timelineView.cursor,api,flush,modal,closeModal,onError:showError,pause:()=>{montagePlayer.pause();$('#previewVideo')?.pause();},write:(...args)=>timelineView.write(...args)});
-const exportsDesk = new ExportsDesk({getProject:()=>S.project,flush,api,modal,onError:showError,pause:()=>{montagePlayer.pause();$('#previewVideo')?.pause();}});
-const soundDesk = new SoundDesk({getProject:()=>S.project,api,flush,modal,closeModal,onError:showError,pause:()=>{montagePlayer.pause();$('#previewVideo')?.pause();},importFile:file=>importAudio(file,true),onProject:p=>{S.project=p;montagePlayer.syncProject();renderAll();}});
+const exportsDesk = new ExportsDesk({getProject:()=>S.project,flush,api,modal,onError:showError,openIssue:openReadinessIssue,pause:()=>{montagePlayer.pause();$('#previewVideo')?.pause();}});
+const soundDesk = new SoundDesk({getProject:()=>S.project,api,flush,modal,closeModal,onError:showError,pause:()=>{montagePlayer.pause();$('#previewVideo')?.pause();},importFile:file=>importAudio(file,true),mountAssetPicker,onProject:p=>{S.project=p;montagePlayer.syncProject();renderAll();}});
 const agentDesk = new AgentDesk({api,getProject:()=>S.project,getBlock:()=>block(),flush,icon,modal,closeModal,onError:showError,toast,copyText,
   onProject:p=>{S.project=p;renderAll();}});
 const scenarioAgent = new ScenarioAgentDesk({api,getProject:()=>S.project,isActive:()=>S.storyMode,flush,modal,closeModal,onError:showError,toast,copyText,onProject:p=>{S.project=p;renderAll();},openBlock:id=>selectBlock(id).catch(showError)});
 const storyDesk = new ScenarioDesk({project:()=>S.project,api,flush,pause:()=>montagePlayer.pause(),modal,closeModal,onError:showError,media,agent:scenarioAgent,sounds:soundDesk,
-  onProject:p=>{S.project=p;renderAll();},showStory:()=>{montagePlayer.pause();if(montagePlayer.segmentId)montagePlayer.selectSegment(null);S.storyMode=true;S.overview=false;S.library=false;renderAll();},
-  library:()=>{montagePlayer.pause();if(montagePlayer.segmentId)montagePlayer.selectSegment(null);S.library=true;S.storyMode=false;S.overview=true;renderAll();},openBlock:id=>selectBlock(id).catch(showError),preview:id=>showSegment(id).catch(showError),previewAll:()=>showMontage()});
+  onProject:p=>{S.project=p;renderAll();},showStory:()=>{montagePlayer.pause();if(montagePlayer.range)montagePlayer.selectSegment(null);S.storyMode=true;S.overview=false;S.library=false;setWorkspaceInspector('timeline',false);renderAll();},
+  seekScriptFrame:frame=>{timelineView.setCursor(frame);timelineView.rememberCursor();timelineView.revealCursor();},
+  addFromLibrary,openBlock:(id,sid,itemId)=>selectBlock(id,sid,{itemId}).catch(showError),pickAnimaticFrame,preview:(id,options)=>showSegment(id,options).catch(showError),previewAll:()=>showMontage()});
+const assetLibrary=new AssetLibrary({root:$('#overviewView'),api,getProject:()=>S.project,
+  active:()=>S.library==='assets'&&S.overview&&!S.storyMode,openUsage:openAssetUsage,onError:showError});
+const projectNavigation=new ProjectNavigation($('#projectNavigation'),{
+  scenario:()=>flush().then(()=>storyDesk.showOverview()).catch(showError),
+  segment:id=>flush().then(()=>storyDesk.open(id)).catch(showError),
+  block:(id,segmentId,itemId)=>selectBlock(id,segmentId,{itemId}).catch(showError),
+  sourceOverview:()=>openLibrary('blocks').catch(showError),
+  addSegment:()=>storyDesk.segmentForm().catch(showError),
+  dragged:()=>timelineView.librarySuppressUntil>performance.now(),
+  drag:(event,id)=>{
+    const scroll=$('#timelineRoot .tl-scroll');
+    if(event.pointerType==='mouse'&&scroll?.getClientRects().length)timelineView.startLibraryDrag(event,id);
+  }
+});
+function mountAssetPicker(root,allowedKinds,actions){
+  const picker=new AssetLibrary({root,allowedKinds,actions,api,getProject:()=>S.project,onError:showError,
+    active:()=>root.isConnected&&!root.hidden&&root.closest('dialog')?.open});
+  picker.open(S.project);
+  return picker;
+}
+function assertPicker(root,project){
+  if(!root.isConnected||!root.closest('dialog')?.open||S.project.id!==project.id||S.project.revision!==project.revision)
+    throw new Error('Контекст изменился. Откройте выбор ассета заново.');
+}
+async function addFromLibrary(segment){
+  await flush();montagePlayer.pause();const project=S.project;
+  modal('Добавить из библиотеки','<button type="button" class="button subtle" id="pickProductionBlock">Выбрать исходный блок</button><div id="assetPicker"></div>',true);
+  const root=$('#assetPicker');
+  $('#pickProductionBlock').onclick=async()=>{try{assertPicker(root,project);closeModal();await storyDesk.itemForm(segment,null,true);}catch(error){showError(error);}};
+  const video=async(asset,withSound)=>{
+    const query=assetQuery(asset);
+    const info=await api(projectUrl('media-info')+'?'+query);
+    const streams=withSound?await api(projectUrl('audio-streams')+'?'+query):null;
+    assertPicker(root,project);
+    if(streams&&!streams.length)throw new Error('В этом видео нет звукового потока.');
+    closeModal();await storyDesk.catalogVideoForm(segment,asset,info,streams);
+  };
+  mountAssetPicker(root,['video'],[
+    {label:'Только видео',run:asset=>video(asset,false)},
+    {label:'Только звук',run:async asset=>{
+      assertPicker(root,project);
+      if(!timelineView.data().segments.some(s=>s.id===segment.id))throw new Error('Сначала задайте допустимое окно сегмента.');
+      const streams=await api(projectUrl('audio-streams')+'?'+assetQuery(asset));
+      assertPicker(root,project);
+      if(!streams.length)throw new Error('В этом видео нет звукового потока.');
+      closeModal();await soundDesk.open(segment.id,null,null,asset);
+    }},
+    {label:'Видео и звук',run:asset=>video(asset,true)}
+  ]);
+}
+async function pickAnimaticFrame(segment,item){
+  const pid=S.project.id;
+  await flush();
+  if(S.project.id!==pid)return;
+  const project=S.project;
+  item=storySegment(segment.id).items.find(row=>row.id===item.id);
+  if(!item)throw new Error('Сценарный блок уже изменился.');
+  const block=project.blocks.find(b=>b.id===item.block_id);
+  const guides=(block?.guides??[]).flatMap(guide=>{
+    const ref=block.references.find(r=>r.id===guide.reference_id);
+    return ref? [{...guide,assetId:ref.asset_id}]:[];
+  });
+  const current=item.animatic_asset_id,selected=animaticFrame(item,block);
+  const label=guide=>guide.frame===0?'Первый кадр':guide.frame===-1?'Последний кадр':'Кадр '+guide.frame;
+  modal('Кадр аниматика · '+item.title,
+    '<p class="small-note">Для этого размещения. При воспроизведении выбранный дубль имеет приоритет.</p>'+
+    (selected?'<p class="small-note">Текущий кадр · '+esc(project.assets[selected]?.name??'Опора')+'</p>':'')+
+    (guides.length?'<div class="animatic-guides" aria-label="Опоры блока">'+guides.map((guide,index)=>
+      '<button type="button" class="button subtle" data-animatic-guide="'+index+'" '+(guide.assetId===current?'disabled':'')+'>'+
+      '<img src="'+media(guide.assetId)+'" alt="" loading="lazy"><span>'+label(guide)+'</span></button>').join('')+'</div>':'')+
+    (current?'<button type="button" class="button subtle small" id="clearAnimaticFrame">Снять выбор кадра</button>':'')+
+    '<p class="small-note" data-animatic-error role="status"></p><div id="assetPicker"></div>',true);
+  const root=$('#assetPicker');
+  const setFrame=async(selection)=>{
+    assertPicker(root,project);
+    if(selection?.asset_id&&selection.asset_id===current){closeModal();return;}
+    const result=await storyDesk.write('set_animatic_frame',{
+      segment_id:segment.id,id:item.id,asset_selection:selection
+    },project.revision);
+    if(result&&root.isConnected&&root.closest('dialog')?.open)closeModal();
+  };
+  const choose=selection=>setFrame(selection).catch(error=>{
+    const notice=root.parentElement?.querySelector('[data-animatic-error]');
+    if(notice)notice.textContent=error.message;
+  });
+  root.parentElement.querySelectorAll('[data-animatic-guide]').forEach(button=>{
+    button.onclick=()=>choose({asset_id:guides[Number(button.dataset.animaticGuide)].assetId});
+  });
+  const clear=$('#clearAnimaticFrame');
+  if(clear)clear.onclick=()=>choose(null);
+  mountAssetPicker(root,['image'],[{label:'Назначить кадром',run:asset=>choose(assetSelection(asset))}]);
+}
+async function pickBlockImage(guide){
+  await flush();const project=S.project,bid=S.blockId,frame=guide?nextGuideFrame(block()):null;
+  if(guide&&frame===null)throw new Error('Все места для опор уже заняты.');
+  modal(guide?'Выбрать опорный кадр':'Выбрать референс','<div id="assetPicker"></div>',true);
+  const root=$('#assetPicker');
+  mountAssetPicker(root,['image'],[{label:guide?'Назначить опорой':'Добавить референс',run:async asset=>{
+    assertPicker(root,project);
+    const result=await api(projectUrl('operations'),'POST',{expected_revision:project.revision,operation:'assign_catalog_image',
+      payload:{block_id:bid,asset_selection:assetSelection(asset),guide_frame:frame}});
+    if(S.project.id!==project.id||S.blockId!==bid||S.dirty||S.project.revision>result.revision)return;
+    S.project=result;S.validation=null;
+    if(root.isConnected&&root.closest('dialog')?.open)closeModal();
+    renderAll();
+  }}]);
+}
+async function openLibrary(mode){
+  await flush();
+  montagePlayer.pause();if(montagePlayer.range)montagePlayer.selectSegment(null);
+  $('#previewVideo')?.pause();
+  S.view='video';S.library=mode;S.storyMode=false;S.overview=true;setWorkspaceInspector('timeline',false);renderAll();
+}
+async function openAssetUsage(use){
+  await flush();
+  if(use.segment_id){
+    storyDesk.open(use.segment_id);
+    const root=$('#scenarioView'),target=use.item_id
+      ? [...root.querySelectorAll('[data-story-item]')].find(card=>card.dataset.storyItem===use.item_id)
+      : root.querySelector('.story-cards + .sound-section');
+    target?.scrollIntoView({block:'nearest'});
+  }else if(use.block_id){
+    await selectBlock(use.block_id);
+    if(use.take_id){S.previewTakeId=use.take_id;S.tab='takes';}
+    else{S.view='frames';S.frameRefId=use.reference_id??null;S.tab=use.role==='guide'?'guides':'references';}
+    renderAll();
+  }else{
+    showMontage();montagePlayer.seek((use.start_frame??0)/S.project.fps);
+  }
+}
 function storySegment(id){const s=storyDesk.view().segments.find(s=>s.id===id);if(!s)throw new Error('Сегмент сценария не найден.');return s;}
-const materialsDesk = new MaterialsDesk({root:$('#inspectorBody'),getBlock:()=>block(),getProject:()=>S.project,edit,flush,api,media,modal,
+const materialsDesk = new MaterialsDesk({root:$('#inspectorBody'),getBlock:()=>block(),getProject:()=>S.project,edit,flush,api,media,modal,pickImage:pickBlockImage,
   chooseUpload:guide=>{uploadTarget={guide,pid:S.project.id,bid:S.blockId};$('#fileInput').value='';$('#fileInput').multiple=!guide;$('#fileInput').click();},uploadFiles,
-  isDirty:()=>S.dirty,onProject:p=>{S.project=p;renderTree();renderSequence();saveLabel('Сохранено · v'+p.revision);},
+  isDirty:()=>S.dirty,onProject:p=>{S.project=p;renderSequence();saveLabel('Сохранено · v'+p.revision);},
   refresh:()=>{renderInspector();renderPreview();},onError:showError});
-function showMontage(keepScope=false){if(!keepScope&&montagePlayer.segmentId)montagePlayer.selectSegment(null);S.storyMode=false;S.view='timeline';S.overview=false;renderAll();}
-async function showSegment(id){await flush();segmentPlayback(S.project,id);montagePlayer.selectSegment(id);showMontage(true);montagePlayer.play();}
+function openReadinessIssue(issue){
+  closeModal();
+  const item=issue.kind!=='scenario'&&issue.id?timelineView.lookup(issue.kind,issue.id):null;
+  if(!item&&issue.segment_id){
+    const segment=storyDesk.view().segments.find(row=>row.id===issue.segment_id);
+    if(!segment)return;
+    storyDesk.open(segment.id);
+    const frame=issue.frame??segment.start_frame;
+    if(Number.isInteger(frame)){timelineView.setCursor(frame);timelineView.rememberCursor();timelineView.revealCursor();}
+    const root=$('#scenarioView');
+    const card=[...root.querySelectorAll('[data-story-item]')].find(row=>row.dataset.storyItem===issue.item_id);
+    const target=card?.querySelector('[data-edit]')??root.querySelector('#storyEditSegment');
+    target?.focus();
+    return;
+  }
+  if(!item)return;
+  montagePlayer.pause();
+  showMontage();
+  if($('#workspaceShowTimeline')&&!$('#workspaceShowTimeline').hidden)$('#workspaceShowTimeline').click();
+  if(timelineView.collapsed){timelineView.collapsed=false;timelineView.render();}
+  timelineView.choose(issue.kind,String(item.id));
+  if(Number.isInteger(issue.frame)){
+    if(storyDesk.view().issues.length){timelineView.setCursor(issue.frame);timelineView.rememberCursor();}
+    else timelineView.seek(issue.frame,{allowBeyondEnd:true});
+    timelineView.revealCursor();
+  }
+  const selected=[...$('#timelineRoot').querySelectorAll('[data-kind].selected')]
+    .find(row=>row.dataset.kind===issue.kind&&row.dataset.id===String(item.id));
+  selected?.scrollIntoView({block:'nearest',inline:'nearest'});
+  selected?.focus({preventScroll:true});
+}
+function showMontage(keepScope=false){S.library=false;if(!keepScope&&montagePlayer.range)montagePlayer.selectSegment(null);S.storyMode=false;S.view='timeline';S.overview=false;renderAll();}
+async function showSegment(id,options){const pid=S.project.id;await flush();if(S.project.id!==pid)return;montagePlayer.selectSegment(id,options);showMontage(true);montagePlayer.play();}
+async function showJoin(id){await flush();montagePlayer.selectJoin(id);showMontage(true);montagePlayer.play();}
+async function showRange(start,end){const id=S.project.id;await flush();if(S.project.id!==id)return;montagePlayer.selectCustomRange(start,end);showMontage(true);montagePlayer.play();}
 function toggleMontage(){
   if(montagePlayer.segmentId){try{segmentPlayback(S.project,montagePlayer.segmentId);}catch(e){showError(e);return;}}
-  else if(scenarioView(S.project).active&&scenarioView(S.project).issues.length){showError(new Error('Сначала устраните неопределённое время или конфликт сценария.'));return;}
+  else if(montagePlayer.range?.kind!=='range'&&scenarioView(S.project).active&&scenarioView(S.project).issues.length){showError(new Error('Сначала устраните неопределённое время или конфликт сценария.'));return;}
   if(S.view!=='timeline'||S.storyMode){const position=timelineView.cursor/(S.project?.fps??24);showMontage();montagePlayer.seek(position);montagePlayer.play();}else montagePlayer.toggle();
 }
-function updateSegmentClock(seconds=montagePlayer.time()){
-  const r=montagePlayer.range,bar=$('#segmentPreviewControls');if(!bar)return;bar.hidden=!r||S.view!=='timeline';
-  if(!r)return;
-  $('#segmentClock').textContent='Сегмент '+timecode(Math.max(0,seconds-r.start))+' / '+timecode(r.end-r.start)+' · Ролик '+timecode(seconds);
-  $('#segmentScrub').max=Math.round((r.end-r.start)*S.project.fps);$('#segmentScrub').value=Math.round(Math.max(0,seconds-r.start)*S.project.fps);
+function updateScopeClock(seconds=montagePlayer.time()){
+  const r=montagePlayer.range,bar=$('#segmentPreviewControls');
+  bar.hidden=!r||S.view!=='timeline';
+  if(bar.hidden)return;
+  const label=montagePlayer.animatic?'Аниматик':r.kind==='range'?'Диапазон':r.kind==='join'?'Стык':'Сегмент';
+  $('#segmentClock').textContent=label+' '+timecode(Math.max(0,seconds-r.start))+' / '+timecode(r.end-r.start)+' · Ролик '+timecode(seconds);
+  const scrub=$('#segmentScrub');
+  scrub.max=Math.max(0,Math.round((r.end-r.start)*S.project.fps)-1);
+  scrub.value=Math.min(Number(scrub.max),Math.max(0,Math.floor((seconds-r.start)*S.project.fps+1e-7)));
+}
+function updateLoopButton(){
+  const button=$('#previewLoop');
+  button.setAttribute('aria-pressed',String(montagePlayer.looping));
+  button.textContent=montagePlayer.looping?'↻ Повтор включён':'↻ Повтор';
 }
 function renderSegmentScope(){
-  const r=montagePlayer.range;$('#editorView').classList.toggle('segment-preview',!!r&&S.view==='timeline');updateSegmentClock();
-  if(r&&S.view==='timeline'){$('#breadcrumb').textContent='ПРОСМОТР СЕГМЕНТА';$('#blockHeading').textContent=r.name;$('#previewBadge').textContent='СЕГМЕНТ';$('#viewerLabel').textContent=r.start.toFixed(3)+'–'+r.end.toFixed(3)+' с ролика';$('#previewMeta').textContent='Длина сегмента '+(r.end-r.start).toFixed(3)+' с';}
+  const r=montagePlayer.range,shown=!!r&&S.view==='timeline',editor=$('#editorView');
+  const leavingScope=editor.classList.contains('segment-preview')&&!shown;
+  editor.classList.toggle('segment-preview',shown);updateScopeClock();updateLoopButton();
+  if(!shown){
+    if(leavingScope&&S.view==='timeline'){
+      renderHeader();$('#previewBadge').textContent='МОНТАЖ';$('#viewerLabel').textContent='Сегменты · клипы · музыка';
+    }
+    return;
+  }
+  $('#segmentBack').hidden=!montagePlayer.segmentId;
+  $('#blockHeading').textContent=r.name;$('#previewBadge').textContent=montagePlayer.animatic?'АНИМАТИК':r.kind==='range'?'ДИАПАЗОН':r.kind==='join'?'СТЫК':'СЕГМЕНТ';
+  $('#viewerLabel').textContent=r.start.toFixed(3)+'–'+r.end.toFixed(3)+' с ролика';
+  $('#previewMeta').textContent='Окно просмотра '+(r.end-r.start).toFixed(3)+' с';
+}
+
+async function importLibraryVideo(){
+  await flush();
+  const pid=S.project.id,revision=S.project.revision;
+  modal('Импорт видео в библиотеку','<form id="libraryVideoForm" class="modal-form"><label class="field"><span>Видеофайл с компьютера</span><input name="video" type="file" accept=".mp4,.webm,.mov" required></label><p class="small-note">MP4, WebM или MOV, до 128 МБ. Studio сохранит копию в папке video проекта и создаст источник с одним дублем.</p><p data-error role="status"></p><button type="submit" class="button primary">Импортировать</button></form>');
+  const form=$('#libraryVideoForm');
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    const file=form.elements.video.files[0],button=form.querySelector('button');
+    if(!file)return;
+    button.disabled=true;
+    try{
+      const query=new URLSearchParams({name:file.name,revision,mode:'library-video'});
+      const response=await fetch(`/api/projects/${encodeURIComponent(pid)}/upload?${query}`,{method:'POST',headers:{'X-Studio-Token':token,'Content-Type':'application/octet-stream'},body:file});
+      const project=await response.json();
+      if(!response.ok)throw new Error(project.error);
+      if(S.project.id===pid&&S.project.revision<=project.revision&&!S.dirty){S.project=project;renderAll();}
+      if(form.isConnected&&$('#modal').open)closeModal();
+      toast('Видео сохранено в библиотеке проекта.');
+    }catch(error){form.querySelector('[data-error]').textContent=error.message;}
+    finally{button.disabled=false;}
+  };
 }
 
 async function importAudio(file,allowVideo=false){
   await flush();const pid=S.project.id,before=new Set(Object.keys(S.project.assets));
-  const query=new URLSearchParams({name:file.name,revision:S.project.revision,role:allowVideo?'Звук сегмента':'Музыка'});
+  const query=new URLSearchParams({name:file.name,revision:S.project.revision,mode:'project-media',role:allowVideo?'Звук':'Музыка'});
   const response=await fetch(`/api/projects/${encodeURIComponent(pid)}/upload?${query}`,{method:'POST',headers:{'X-Studio-Token':token,'Content-Type':'application/octet-stream'},body:file});
   const p=await response.json();if(!response.ok)throw new Error(p.error);
   if(S.project.id!==pid)throw new Error('Проект сменился. Звуковой файл сохранён в библиотеке исходного проекта.');
-  S.project=p;renderTree();renderSequence();saveLabel('Сохранено · v'+p.revision);
+  S.project=p;renderSequence();saveLabel('Сохранено · v'+p.revision);
   const asset=Object.values(p.assets).find(a=>!before.has(a.id)&&(a.kind==='audio'||allowVideo&&a.kind==='video'));if(!asset)throw new Error('Нужен аудио или видео файл.');return asset.id;
 }
 
 function toast(text){clearTimeout(toastTimer);$('#toast').textContent=text;$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4200);}
 function showError(e){console.error(e);const banner=$('#errorBanner');banner.hidden=false;banner.replaceChildren();banner.append(document.createTextNode(e.message??String(e)));const close=document.createElement('button');close.className='subtle-link';close.textContent='Закрыть';close.onclick=()=>banner.hidden=true;banner.append(close);}
-function modal(title,html,wide=false){$('#modalTitle').textContent=title;$('#modalBody').innerHTML=html;$('#modal').style.width=wide?'1160px':'740px';$('#modal').showModal();}
-function closeModal(){$('#modal').querySelectorAll('video').forEach(v=>v.pause());$('#modal').close();}
+function modal(title,html,wide=false){disposeComparison?.();disposeComparison=null;$('#modalTitle').textContent=title;$('#modalBody').innerHTML=html;$('#modal').style.width=wide?'1160px':'740px';$('#modal').showModal();}
+function closeModal(){$('#modal').querySelectorAll('video,audio').forEach(v=>v.pause());$('#modal').close();}
+$('#modal').addEventListener('cancel',()=>$('#modal').querySelectorAll('video,audio').forEach(v=>v.pause()));
 function saveLabel(text){$('#saveState').textContent=text;}
 function scheduleSave(){clearTimeout(S.saveTimer);if(!S.conflict)S.saveTimer=setTimeout(()=>save().catch(handleSaveError),850);}
 function edit(fn){if(!block())return;fn(block());S.dirty=true;S.serial++;S.validation=null;if($('#validationResult'))$('#validationResult').replaceChildren();saveLabel('Есть изменения');scheduleSave();updateTiming();$('#blockHeading').textContent=block().title||block().label;}
-async function save(){clearTimeout(S.saveTimer);if(S.savePromise){await S.savePromise;if(S.dirty&&!S.conflict)return save();return;}if(!S.dirty||!block())return;if(S.conflict)throw new Error('Сначала разрешите конфликт версий.');const pid=S.project.id,bid=S.blockId,serial=S.serial,snapshot=structuredClone(block()),revision=S.project.revision;saveLabel('Сохраняется…');S.savePromise=(async()=>{const p=await api(`/api/projects/${pid}/blocks/${bid}`,'PATCH',{expected_revision:revision,block:snapshot,actor:'author'});if(S.project.id!==pid)return;const current=structuredClone(block()),hasLaterChanges=S.serial!==serial;S.project=p;if(hasLaterChanges){const target=block();editable.forEach(k=>target[k]=current[k]);S.dirty=true;scheduleSave();}else{S.dirty=false;saveLabel('Сохранено · v'+p.revision);}renderTree();renderSequence();})();try{await S.savePromise;}finally{S.savePromise=null;}}
+async function save(){clearTimeout(S.saveTimer);if(S.savePromise){await S.savePromise;if(S.dirty&&!S.conflict)return save();return;}if(!S.dirty||!block())return;if(S.conflict)throw new Error('Сначала разрешите конфликт версий.');const pid=S.project.id,bid=S.blockId,serial=S.serial,snapshot=structuredClone(block()),revision=S.project.revision;saveLabel('Сохраняется…');S.savePromise=(async()=>{const p=await api(`/api/projects/${pid}/blocks/${bid}`,'PATCH',{expected_revision:revision,block:snapshot,actor:'author'});if(S.project.id!==pid)return;const current=structuredClone(block()),hasLaterChanges=S.serial!==serial;S.project=p;if(hasLaterChanges){const target=block();editable.forEach(k=>target[k]=current[k]);S.dirty=true;scheduleSave();}else{S.dirty=false;saveLabel('Сохранено · v'+p.revision);}renderSequence();})();try{await S.savePromise;}finally{S.savePromise=null;}}
 function handleSaveError(e){saveLabel('Не сохранено');if(e.status===409){S.conflict=true;sessionStorage.setItem('studio-conflict-'+S.project.id,JSON.stringify(block()));const banner=$('#errorBanner');banner.hidden=false;banner.innerHTML='Проект изменился в другой сессии. Ваша версия сохранена в этой вкладке. <button class="subtle-link" id="resolveConflict">Разобрать изменения</button>';$('#resolveConflict').onclick=resolveConflict;}else showError(e);}
 async function flush(){try{await save();}catch(e){handleSaveError(e);throw e;}if(S.dirty)throw new Error('Сначала сохраните правки блока.');}
 async function resolveConflict(){try{const mine=structuredClone(block()),fresh=await api(projectUrl()),other=fresh.blocks.find(b=>b.id===mine.id);modal('Пересекающиеся изменения',`<p class="small-note">Текущая версия проекта — ${fresh.revision}. Применение вашей версии заменит поля этого блока; дубли сохранятся.</p><div class="compare-grid"><div><p>Ваш промпт</p><textarea class="agent-context" readonly>${esc(mine.prompt)}</textarea></div><div><p>Сохранённый промпт</p><textarea class="agent-context" readonly>${esc(other.prompt)}</textarea></div></div><div class="compare-controls"><button class="button" id="useSaved">Загрузить сохранённую</button><button class="button primary" id="useMine">Применить мою версию блока</button></div>`,true);$('#useSaved').onclick=()=>{S.project=fresh;S.dirty=false;S.conflict=false;$('#errorBanner').hidden=true;closeModal();renderAll();};$('#useMine').onclick=async()=>{try{S.project=await api(projectUrl('blocks/'+mine.id),'PATCH',{expected_revision:fresh.revision,block:mine,actor:'author'});S.dirty=false;S.conflict=false;$('#errorBanner').hidden=true;closeModal();renderAll();toast('Ваша версия сохранена новой ревизией.');}catch(e){showError(e);}};}catch(e){showError(e);}}
 
-async function openProject(id){if(S.project)await flush();montagePlayer.pause();if(montagePlayer.segmentId)montagePlayer.selectSegment(null);S.view='video';S.project=await api('/api/projects/'+encodeURIComponent(id));S.jobs=await api(projectUrl('jobs'));S.dirty=false;S.conflict=false;S.validation=null;S.compareIds=[];const hash=new URLSearchParams(location.hash.slice(1)),remembered=hash.get('project')===id?hash.get('block'):null;S.blockId=S.project.blocks.find(b=>b.id===remembered)?.id??S.project.blocks.find(b=>b.label==='CL-MC03')?.id??S.project.blocks.find(b=>b.takes.length)?.id??S.project.blocks[0]?.id;S.previewTakeId=null;S.overview=!S.blockId;S.storyMode=true;S.library=false;storyDesk.selected=null;$('#projectSelect').value=id;localStorage.setItem('studio-project',id);renderAll();}
-async function selectBlock(id){if(id===S.blockId&&!S.overview&&!S.storyMode&&!montagePlayer.segmentId)return;await flush();if(montagePlayer.segmentId){montagePlayer.selectSegment(null);S.view='video';}S.storyMode=false;S.blockId=id;S.previewTakeId=null;S.frameRefId=null;S.validation=null;S.overview=false;renderAll();}
-function renderAll(){if(!S.project)return;$('#scenarioView').hidden=!S.storyMode;if(S.storyMode){$('#editorView').hidden=true;$('#overviewView').hidden=true;storyDesk.render();renderTree();timelineView.render();saveLabel(S.dirty?'Есть изменения':'Сохранено · v'+S.project.revision);return;}$('#editorView').hidden=S.overview;$('#overviewView').hidden=!S.overview;renderTree();if(S.overview)renderOverview();else if(block()||S.view==='timeline'){renderHeader();renderInspector();renderPreview();renderSequence();renderJobs();}else{S.overview=true;renderOverview();}timelineView.render();saveLabel(S.dirty?'Есть изменения':'Сохранено · v'+S.project.revision);history.replaceState(null,'',`#project=${S.project.id}&block=${S.blockId??''}`);}
-function renderHeader(){const b=block();$('#breadcrumb').textContent=S.view==='timeline'?'МОНТАЖ ПРОЕКТА':(segment()?.name??'ПРОЕКТ')+' / '+(b?.label??'');$('#blockHeading').textContent=S.view==='timeline'?S.project.name:(b?.title||b?.label||'Рабочее пространство');$('#refCount').textContent=b?.references.length??0;$('#takeCount').textContent=b?.takes.length??0;$('#guideCount').textContent=b?.guides.length??0;$('#sourceButton').disabled=!b?.card_path;$('#prepareButton').disabled=!b;$('#validateButton').disabled=!b;}
-function renderTree(){$('.tree-label').firstChild.textContent=S.library?'БИБЛИОТЕКА БЛОКОВ':'СЦЕНАРИЙ ПРОЕКТА';$('#searchBlocks').placeholder=S.library?'Найти блок…':'Найти сегмент…';$('#searchBlocks').setAttribute('aria-label',S.library?'Найти блок':'Найти сегмент');$('#addSegment').setAttribute('aria-label',S.library?'Добавить группу источников':'Добавить сценарный сегмент');if(!S.library){storyDesk.tree();return;}renderLibraryTree();const back=document.createElement('button');back.className='button subtle full';back.textContent='← Сценарий проекта';back.onclick=()=>{S.library=false;S.storyMode=true;renderAll();};$('#projectTree').prepend(back);}
-function renderLibraryTree(){const query=$('#searchBlocks').value.trim().toLocaleLowerCase();$('#projectCount').textContent=S.project.blocks.length;$('#projectTree').innerHTML=S.project.segments.map(s=>{const blocks=s.block_ids.map(id=>S.project.blocks.find(b=>b.id===id)).filter(Boolean).filter(b=>(b.label+' '+b.title).toLocaleLowerCase().includes(query));if(query&&!blocks.length)return '';return `<div class="tree-group"><div class="tree-group-heading">${icon('chevron')}${esc(s.name)}<span>${blocks.length}</span></div>${blocks.map(b=>`<button class="tree-block ${b.id===S.blockId&&!S.overview?'active':''}" draggable="false" data-block="${b.id}"><i class="tree-dot ${b.selected_take_id?'selected':b.takes.length?'has-video':''}"></i><span><strong>${esc(b.label)}</strong><small>${esc(b.title)}</small></span><span class="count">${b.takes.length||'·'}</span></button>`).join('')}</div>`;}).join('')||'<div class="empty-state">Блоки не найдены</div>';$('#projectTree').querySelectorAll('[data-block]').forEach(e=>{e.onclick=event=>{if(timelineView.librarySuppressUntil>performance.now()){event.preventDefault();return;}selectBlock(e.dataset.block).catch(showError);};e.onpointerdown=event=>timelineView.startLibraryDrag(event,e.dataset.block);});}
+async function openProject(id){if(S.project)await flush();montagePlayer.pause();if(montagePlayer.range)montagePlayer.selectSegment(null);S.view='video';S.project=await api('/api/projects/'+encodeURIComponent(id));S.jobs=await api(projectUrl('jobs'));S.dirty=false;S.conflict=false;S.validation=null;S.compareIds=[];const hash=new URLSearchParams(location.hash.slice(1)),remembered=hash.get('project')===id?hash.get('block'):null;S.blockId=S.project.blocks.find(b=>b.id===remembered)?.id??S.project.blocks.find(b=>b.label==='CL-MC03')?.id??S.project.blocks.find(b=>b.takes.length)?.id??S.project.blocks[0]?.id;S.previewTakeId=null;S.overview=!S.blockId;S.storyMode=true;S.library=false;S.blockSegmentId=null;S.blockItemId=null;storyDesk.selected=null;storyDesk.overview=false;setWorkspaceInspector('timeline',false);$('#projectSelect').value=id;localStorage.setItem('studio-project',id);renderAll();}
+function syncWorkspaceInspector(){
+  const selectedClip=timelineView.selection?.kind==='clip'&&timelineView.item();
+  const inEditor=!S.storyMode&&!S.overview;
+  const canShowSource=!!selectedClip||(inEditor&&S.view!=='timeline'&&!!block());
+  const source=S.inspectorMode==='source'&&inEditor&&!!block();
+  $('#workspaceInspector').hidden=!S.inspectorOpen;
+  $('#inspectorSource').hidden=!source;
+  $('#tlProperties').hidden=source;
+  $('#inspectMontage').setAttribute('aria-pressed',String(!source));
+  $('#inspectSource').setAttribute('aria-pressed',String(source));
+  $('#inspectSource').hidden=!source&&!canShowSource;
+  const toggle=$('#workspaceInspectorToggle');
+  toggle.disabled=!S.project;
+  toggle.setAttribute('aria-expanded',String(S.inspectorOpen));
+}
+function setWorkspaceInspector(mode,open){
+  S.inspectorMode=mode;
+  S.inspectorOpen=open;
+  syncWorkspaceInspector();
+}
+function closeWorkspaceInspector(){
+  setWorkspaceInspector(S.inspectorMode,false);
+  $('#workspaceInspectorToggle').focus({preventScroll:true});
+}
+async function selectBlock(id,segmentId=null,{view='video',inspector='source',itemId=null}={}){
+  if(id===S.blockId&&segmentId===S.blockSegmentId&&itemId===S.blockItemId&&!S.overview&&!S.storyMode&&S.view===view){
+    setWorkspaceInspector(inspector,true);
+    return true;
+  }
+  const projectId=S.project.id;
+  await flush();
+  if(S.project.id!==projectId)return false;
+  if(view!=='timeline'){
+    montagePlayer.pause();
+    if(montagePlayer.range)montagePlayer.selectSegment(null);
+  }
+  S.library=false;
+  if(id!==S.blockId)S.compareIds=[];
+  S.view=view;S.storyMode=false;S.blockId=id;S.blockSegmentId=segmentId;S.blockItemId=itemId;S.previewTakeId=null;S.frameRefId=null;S.validation=null;S.overview=false;
+  setWorkspaceInspector(inspector,true);
+  renderAll();
+  return true;
+}
+function renderNavigation(){
+  const project=S.project;
+  if(!project)return;
+  const view=storyDesk.view(),inEditor=!S.storyMode&&!S.overview,montage=inEditor&&S.view==='timeline';
+  const clip=montage&&timelineView.selection?.kind==='clip'?timelineView.item():null;
+  const blockId=montage?clip?.block_id:inEditor?S.blockId:null;
+  const source=project.blocks.find(row=>row.id===blockId);
+  const overview=S.storyMode&&storyDesk.overview;
+  let segmentId=null;
+  if(S.storyMode&&!overview)segmentId=storyDesk.selected;
+  else if(montage)segmentId=montagePlayer.segmentId??clip?.segment_id;
+  else if(inEditor&&source){
+    const uses=view.segments.filter(row=>row.items.some(item=>item.block_id===source.id));
+    segmentId=uses.find(row=>row.id===S.blockSegmentId)?.id??(uses.length===1?uses[0].id:null);
+  }
+  const activeSegment=view.segments.find(row=>row.id===segmentId);
+  const matching=source?activeSegment?.items.filter(row=>row.block_id===source.id)??[]:[];
+  const item=matching.find(row=>row.id===(montage?clip?.id:S.blockItemId))??(matching.length===1?matching[0]:null);
+  const assets=$('#assetsButton');
+  assets.disabled=false;
+  if(S.library==='assets')assets.setAttribute('aria-current','page');
+  else assets.removeAttribute('aria-current');
+  projectNavigation.update({project,view,segment:activeSegment,block:source,item,overview});
+}
+function renderAll(){if(!S.project)return;if(S.library!=='assets'||!S.overview||S.storyMode)assetLibrary.pause();$('#scenarioView').hidden=!S.storyMode;if(S.storyMode){$('#editorView').hidden=true;$('#overviewView').hidden=true;storyDesk.render();renderSequence();saveLabel(S.dirty?'Есть изменения':'Сохранено · v'+S.project.revision);return;}$('#editorView').hidden=S.overview;$('#overviewView').hidden=!S.overview;if(S.overview)renderOverview();else if(block()||S.view==='timeline'){renderHeader();renderInspector();renderPreview();renderSequence();renderJobs();}else{S.overview=true;renderOverview();}renderSequence();saveLabel(S.dirty?'Есть изменения':'Сохранено · v'+S.project.revision);history.replaceState(null,'',`#project=${S.project.id}&block=${S.blockId??''}`);}
+function renderHeader(){const b=block();$('#blockHeading').textContent=S.view==='timeline'?S.project.name:(b?.title||b?.label||'Рабочее пространство');$('#refCount').textContent=b?.references.length??0;$('#takeCount').textContent=b?.takes.length??0;$('#guideCount').textContent=b?.guides.length??0;$('#sourceButton').disabled=!b?.card_path;$('#editBlockDetails').hidden=!b||S.view==='timeline';$('#prepareButton').disabled=!b;$('#validateButton').disabled=!b;}
 function thumbnail(b){const t=b.takes.find(t=>t.id===b.selected_take_id)??b.takes[0];return t?.last_frame_asset_id??b.references[0]?.asset_id;}
-function renderSequence(){timelineView.render();}
+function renderSequence(){timelineView.render();syncWorkspaceInspector();renderNavigation();}
 function previewTake(){const b=block();return b?.takes.find(t=>t.id===S.previewTakeId)??b?.takes.find(t=>t.id===b.selected_take_id)??b?.takes[0];}
-function renderPreview(){if(S.view==='timeline'){$('#previewVideo')?.pause();montagePlayer.syncProject();montagePlayer.mount($('#previewStage'));document.querySelectorAll('[data-view]').forEach(e=>e.classList.toggle('active',e.dataset.view==='timeline'));$('#viewerLabel').textContent='Сегменты · клипы · музыка';$('#previewBadge').textContent='МОНТАЖ';$('#previewBadge').className='badge accent';$('#playButton').disabled=timelineDuration(timelineView.data())<=0||!!timelineView.planIssues().length;$('#compareButton').disabled=true;$('#timecode').textContent=timecode(montagePlayer.time());$('#previewMeta').textContent='Длина '+timelineDuration(timelineView.data()).toFixed(3)+' с';renderSegmentScope();return;}if(montagePlayer.segmentId)montagePlayer.selectSegment(null);montagePlayer.detach();renderSegmentScope();const b=block(),take=previewTake();if(!b)return;if(take)S.previewTakeId=take.id;const stage=$('#previewStage');$('#timecode').textContent='00:00.000';document.querySelectorAll('[data-view]').forEach(e=>e.classList.toggle('active',e.dataset.view===S.view));if(S.view==='video'&&take){stage.innerHTML=`<video id="previewVideo" controls playsinline preload="metadata" ${take.last_frame_asset_id?`poster="${media(take.last_frame_asset_id)}"`:''} src="${media(take.video_asset_id)}"></video><span class="preview-watermark">${take.review_state==='accepted'?'ПРИНЯТ':take.review_state==='selected'?'ОТОБРАН':'ТРЕБУЕТ ПРОСМОТРА'}</span>`;$('#viewerLabel').textContent=take.name;$('#previewBadge').textContent=take.review_state==='accepted'?'ПРИНЯТ':take.review_state==='selected'?'ОТОБРАН':'НЕ ОТОБРАН';$('#previewBadge').className='badge '+(['accepted','selected'].includes(take.review_state)?'accent':'warm');const v=$('#previewVideo');v.addEventListener('loadedmetadata',()=>{$('#previewMeta').textContent=`${v.videoWidth} × ${v.videoHeight}  ·  ${v.duration.toFixed(3)} с`;});v.addEventListener('timeupdate',()=>$('#timecode').textContent=timecode(v.currentTime));v.addEventListener('play',()=>$('#playButton').innerHTML=icon('pause'));v.addEventListener('pause',()=>$('#playButton').innerHTML=icon('play'));}else{const ref=b.references.find(r=>r.id===S.frameRefId)??b.references.find(r=>b.guides.some(g=>g.reference_id===r.id&&g.frame===0))??b.references[0];if(ref){S.frameRefId=ref.id;stage.innerHTML=`<img src="${media(ref.asset_id)}" alt="${esc(ref.role)}"><div class="frame-switch">${b.references.map((r,i)=>`<button class="${r.id===ref.id?'active':''}" data-frame="${r.id}">Picture ${i+1}</button>`).join('')}</div>`;stage.querySelectorAll('[data-frame]').forEach(e=>e.onclick=()=>{S.frameRefId=e.dataset.frame;renderPreview();});$('#viewerLabel').textContent=S.project.assets[ref.asset_id]?.name??'';$('#previewMeta').textContent='Изображение · '+ref.role;}else{stage.innerHTML=`<div class="empty-state">${icon('image')}<strong>Начните с материалов</strong>Добавьте референс и назначьте опорный кадр. Исходные файлы сохранятся.</div>`;$('#viewerLabel').textContent='';$('#previewMeta').textContent='';}$('#previewBadge').textContent='ОПОРА';$('#previewBadge').className='badge';}$('#playButton').disabled=!$('#previewVideo');$('#compareButton').disabled=b.takes.length<2;}
+function renderPreview(){if(S.view==='timeline'){$('#previewVideo')?.pause();montagePlayer.syncProject();montagePlayer.mount($('#previewStage'));document.querySelectorAll('[data-view]').forEach(e=>e.classList.toggle('active',e.dataset.view==='timeline'));$('#viewerLabel').textContent='Сегменты · клипы · музыка';$('#previewBadge').textContent='МОНТАЖ';$('#previewBadge').className='badge accent';$('#playButton').disabled=timelineDuration(timelineView.data())<=0||!!timelineView.planIssues().length;$('#compareButton').disabled=true;$('#timecode').textContent=timecode(montagePlayer.time());$('#previewMeta').textContent='Длина '+timelineDuration(timelineView.data()).toFixed(3)+' с';renderSegmentScope();return;}if(montagePlayer.range)montagePlayer.selectSegment(null);montagePlayer.detach();renderSegmentScope();const b=block(),take=previewTake();if(!b)return;if(take)S.previewTakeId=take.id;const stage=$('#previewStage');$('#timecode').textContent='00:00.000';document.querySelectorAll('[data-view]').forEach(e=>e.classList.toggle('active',e.dataset.view===S.view));if(S.view==='video'&&take){stage.innerHTML=`<video id="previewVideo" controls playsinline preload="metadata" ${take.last_frame_asset_id?`poster="${media(take.last_frame_asset_id)}"`:''} src="${media(take.video_asset_id)}"></video><span class="preview-watermark">${take.review_state==='accepted'?'ПРИНЯТ':take.review_state==='selected'?'ОТОБРАН':'ТРЕБУЕТ ПРОСМОТРА'}</span>`;$('#viewerLabel').textContent=take.name;$('#previewBadge').textContent=take.review_state==='accepted'?'ПРИНЯТ':take.review_state==='selected'?'ОТОБРАН':'НЕ ОТОБРАН';$('#previewBadge').className='badge '+(['accepted','selected'].includes(take.review_state)?'accent':'warm');const v=$('#previewVideo');v.addEventListener('loadedmetadata',()=>{$('#previewMeta').textContent=`${v.videoWidth} × ${v.videoHeight}  ·  ${v.duration.toFixed(3)} с`;});v.addEventListener('timeupdate',()=>$('#timecode').textContent=timecode(v.currentTime));v.addEventListener('play',()=>$('#playButton').innerHTML=icon('pause'));v.addEventListener('pause',()=>$('#playButton').innerHTML=icon('play'));}else{const ref=b.references.find(r=>r.id===S.frameRefId)??b.references.find(r=>b.guides.some(g=>g.reference_id===r.id&&g.frame===0))??b.references[0];if(ref){S.frameRefId=ref.id;stage.innerHTML=`<img src="${media(ref.asset_id)}" alt="${esc(ref.role)}"><div class="frame-switch">${b.references.map((r,i)=>`<button class="${r.id===ref.id?'active':''}" data-frame="${r.id}">Picture ${i+1}</button>`).join('')}</div>`;stage.querySelectorAll('[data-frame]').forEach(e=>e.onclick=()=>{S.frameRefId=e.dataset.frame;renderPreview();});$('#viewerLabel').textContent=S.project.assets[ref.asset_id]?.name??'';$('#previewMeta').textContent='Изображение · '+ref.role;}else{stage.innerHTML=`<div class="empty-state">${icon('image')}<strong>Начните с материалов</strong>Добавьте референс и назначьте опорный кадр. Исходные файлы сохранятся.</div>`;$('#viewerLabel').textContent='';$('#previewMeta').textContent='';}$('#previewBadge').textContent='ОПОРА';$('#previewBadge').className='badge';}$('#playButton').disabled=!$('#previewVideo');$('#compareButton').disabled=b.takes.length<2;}
 
 function settingsHtml(b){return `<label class="field title-field"><span>Название блока</span><input id="blockTitle" value="${esc(b.title)}" placeholder="Название действия"></label><div class="settings-grid"><label class="field"><span>Режим</span><select id="mode"><option value="guided" ${b.settings.mode==='guided'?'selected':''}>Новый план</option><option value="context" ${b.settings.mode==='context'?'selected':''}>Motion Context</option></select></label><label class="field"><span>Размер генерации</span><select id="size"><option value="896,512" ${b.settings.size[0]===896?'selected':''}>896 × 512 · черновик</option><option value="1280,736" ${b.settings.size[0]===1280?'selected':''}>1280 × 736</option></select></label><label class="field"><span>Запрошено, с</span><input id="seconds" type="number" min="2" max="8" step="0.25" value="${b.settings.seconds}"></label><label class="field"><span title="Плановая длительность новых размещений. Готовые участки задаются на таймлайне.">План блока, с</span><input id="montage" type="number" min="0.01" step="0.1" placeholder="Не задано" value="${b.montage_seconds??''}"></label><label class="field wide"><span>Seed</span><input id="seed" inputmode="numeric" value="${esc(b.settings.seed)}"></label></div><div id="timingStrip"></div>${b.settings.mode==='context'?contextSelect(b):''}`;}
 function contextSelect(b){const takes=S.project.blocks.flatMap(x=>x.takes.filter(t=>t.native_av_asset_id).map(t=>({t,owner:x.label})));return `<label class="field" style="margin-top:14px"><span>Источник native AV</span><select id="contextTake"><option value="">Выбрать исходный дубль…</option>${takes.map(({t,owner})=>`<option value="${t.id}" ${t.id===b.context_take_id?'selected':''}>${esc(owner+' / '+t.name)}</option>`).join('')}</select></label>`;}
@@ -127,7 +432,7 @@ async function uploadFiles(files,{asGuide=false}={}){
   for(const f of pendingFiles){
     if(S.project.id!==pid||S.blockId!==bid)throw new Error('Выбран другой блок. Повторите добавление в нужном блоке.');
     if(block().references.length>=8||asGuide&&nextGuideFrame(block())===null){toast('Достигнут предел изображений или опор.');break;}
-    const query=new URLSearchParams({name:f.name,revision:S.project.revision,block:bid,role:asGuide?'Опорный кадр':'Референс'});
+    const query=new URLSearchParams({name:f.name,revision:S.project.revision,block:bid,mode:'project-media',role:asGuide?'Опорный кадр':'Референс'});
     const response=await fetch(`/api/projects/${encodeURIComponent(pid)}/upload?${query}`,{method:'POST',headers:{'X-Studio-Token':token,'Content-Type':'application/octet-stream'},body:f});
     const p=await response.json();if(!response.ok)throw new Error(p.error);
     if(S.project.id!==pid||S.blockId!==bid||S.dirty)throw new Error('Файл сохранён в исходном блоке. Перечитайте его после сохранения текущего черновика.');
@@ -139,7 +444,19 @@ async function uploadFiles(files,{asGuide=false}={}){
 
 function renderTakes(){const b=block(),body=$('#inspectorBody');if(!b.takes.length){body.innerHTML=`<div class="empty-state">${icon('film')}<strong>Дублей пока нет</strong>Подготовьте блок. Запуск одного дубля появится отдельным действием.</div>`;return;}body.innerHTML=`<div class="section-label">Результаты<span>${b.takes.length} ДУБЛЕЙ</span></div><p class="prompt-description" style="margin-bottom:15px">Успешная генерация требует просмотра. Отбор и приёмка отмечаются отдельно.</p>${b.takes.map(t=>{const poster=t.last_frame_asset_id??b.references[0]?.asset_id;return `<article class="take-card ${t.id===S.previewTakeId?'active':''}"><div class="take-thumb" data-preview="${t.id}">${poster?`<img src="${media(poster)}" alt="Дубль ${esc(t.name)}" loading="lazy">`:''}<span class="badge ${['selected','accepted'].includes(t.review_state)?'accent':'warm'}">${({unreviewed:'Требует просмотра',selected:'Отобран',accepted:'Принят',rejected:'Отклонён'})[t.review_state]}</span></div><div class="take-name">${esc(t.name)}</div><div class="take-meta"><span>${t.video_info?.frames??'—'} кадр.</span><span>${t.video_info?.seconds?.toFixed(3)??'—'} с</span><span>${t.metrics?.server_wall_seconds?.toFixed(1)??'—'} с на граф</span></div><div class="take-meta"><span title="Общая занятость видеопамяти, включая другие приложения">GPU всего ${t.metrics?.device_gpu_peak_GiB?.toFixed(2)??'—'} ГиБ</span><span title="Пиковая резидентная память процесса">RAM (RSS) ${t.metrics?.rss_peak_GiB?.toFixed(2)??'—'} ГиБ</span></div><div class="take-actions"><button class="button" data-select-take="${t.id}">${t.review_state==='selected'||t.review_state==='accepted'?icon('check'):'Отобрать'}</button><button class="button subtle" data-accept-take="${t.id}">Принять</button>${t.native_av_asset_id&&t.last_frame_asset_id?`<button class="button subtle" data-continue="${t.id}">Продолжить</button>`:''}<label class="take-compare"><input type="checkbox" data-compare="${t.id}" ${S.compareIds.includes(t.id)?'checked':''}>Сравнить</label></div>${t.id===S.previewTakeId?`<textarea class="take-notes" data-take-notes="${t.id}" placeholder="Замечания по движению и деталям…">${esc(t.notes)}</textarea>`:''}</article>`;}).join('')}`;body.querySelectorAll('[data-preview]').forEach(e=>e.onclick=()=>{S.previewTakeId=e.dataset.preview;S.view='video';renderPreview();renderTakes();});body.querySelectorAll('[data-select-take]').forEach(e=>e.onclick=()=>reviewTake(e.dataset.selectTake,'selected'));body.querySelectorAll('[data-accept-take]').forEach(e=>e.onclick=()=>reviewTake(e.dataset.acceptTake,'accepted'));body.querySelectorAll('[data-compare]').forEach(e=>e.onchange=()=>{S.compareIds=S.compareIds.filter(id=>id!==e.dataset.compare);if(e.checked)S.compareIds.push(e.dataset.compare);S.compareIds=S.compareIds.slice(-2);renderTakes();if(S.compareIds.length===2)openCompare();});body.querySelectorAll('[data-continue]').forEach(e=>e.onclick=async()=>{try{await operation('create_continuation',{block_id:S.blockId,take_id:e.dataset.continue});const next=S.project.blocks.at(-1);S.blockId=next.id;S.previewTakeId=null;S.tab='prompt';S.view='frames';renderAll();toast('Продолжение создано как черновик. Уточните следующее действие.');}catch(e){showError(e);}});body.querySelectorAll('[data-take-notes]').forEach(e=>e.onchange=()=>reviewTake(e.dataset.takeNotes,b.takes.find(t=>t.id===e.dataset.takeNotes).review_state,e.value));}
 async function reviewTake(id,state,notes){try{await operation('review_take',{block_id:S.blockId,take_id:id,state,...(notes===undefined?{}:{notes})});renderAll();toast(state==='accepted'?'Дубль принят.':state==='selected'?'Дубль отобран.':'Замечания сохранены.');}catch(e){showError(e);}}
-function openCompare(){const b=block();if(b.takes.length<2)return;const picks=S.compareIds.length===2?S.compareIds.map(id=>b.takes.find(t=>t.id===id)):b.takes.slice(0,2);modal('Сравнение дублей',`<div class="compare-grid">${picks.map(t=>`<div><p>${esc(t.name)}</p><video controls playsinline preload="metadata" src="${media(t.video_asset_id)}"></video></div>`).join('')}</div><div class="compare-controls"><button id="playBoth" class="button primary">${icon('play')}Воспроизвести оба</button><button id="pauseBoth" class="button">Пауза</button></div><p class="small-note">Исходные fps и скорость сохранены. При разной длине результаты заканчиваются в своё время.</p>`,true);$('#playBoth').onclick=()=>$('#modal').querySelectorAll('video').forEach(v=>{v.currentTime=0;v.play().catch(()=>{});});$('#pauseBoth').onclick=()=>$('#modal').querySelectorAll('video').forEach(v=>v.pause());}
+function openCompare(){
+  const b=block();
+  if(!b||b.takes.length<2)return;
+  const picks=S.compareIds.map(id=>b.takes.find(take=>take.id===id)).filter(Boolean);
+  for(const take of b.takes){
+    if(picks.length===2)break;
+    if(!picks.includes(take))picks.push(take);
+  }
+  montagePlayer.pause();
+  $('#previewVideo')?.pause();
+  modal('Сравнение дублей',takeComparisonMarkup(picks,media),true);
+  disposeComparison=bindTakeComparison($('#modal'),picks,{projectId:S.project.id,fps:S.project.fps}).dispose;
+}
 
 function renderAgent(){agentDesk.render();}
 async function copyText(text){try{await navigator.clipboard.writeText(text);toast('Контекст скопирован. Вставьте его в чат с агентом.');}catch{modal('Контекст для агента',`<textarea id="copyFallback" class="agent-context">${esc(text)}</textarea><p class="small-note">Нажмите Ctrl+C, чтобы скопировать выделенный контекст.</p>`);$('#copyFallback').select();}}
@@ -151,10 +468,10 @@ async function prepare(){if(S.busy)return;S.busy=true;buttonsBusy();try{await fl
 function buttonsBusy(){$('#prepareButton').disabled=S.busy||!block();$('#validateButton').disabled=S.busy||!block();}
 function renderJobs(){if(!block()){$('#jobPanel').replaceChildren();return;}const j=S.jobs.find(j=>j.block_id===S.blockId);if(!j){$('#jobPanel').innerHTML='';return;}const active=['queued','preparing','running','collecting','stopping'].includes(j.state),prepared=j.state==='prepared';$('#jobPanel').innerHTML=`<div class="job-line"><span class="status-dot"></span><strong>${esc(j.phase)}</strong>${prepared?`<button id="launchJob" class="button primary small">${icon('play')}Запустить 1 дубль</button>`:active?`<button id="stopJob" class="button small">${icon('stop')}Остановить</button>`:`<span class="badge ${j.state==='completed'?'accent':j.state==='failed'?'red':''}">${esc(j.state==='completed'?'ГОТОВО':j.state==='cancelled'?'ОСТАНОВЛЕНО':j.state==='failed'?'ОШИБКА':'ПРЕРВАНО')}</span>`}</div><div class="job-meta">${esc(j.name)} · ${j.size.join(' × ')} · новое видео ${j.timing.usable_seconds.toFixed(3)} с${j.progress?' · H3 '+j.progress.forwards+'/8':''}</div>${active?`<div class="job-progress"><span style="width:${(j.progress?.forwards??0)/8*100}%"></span></div>`:''}${j.error?`<div class="job-error">${esc(j.error)}</div>`:''}`;if($('#launchJob'))$('#launchJob').onclick=async()=>{if(S.busy)return;S.busy=true;$('#launchJob').disabled=true;try{await flush();await api(projectUrl('jobs/'+j.id+'/launch'),'POST',{actor:'author'});await poll();}catch(e){showError(e);}finally{S.busy=false;renderJobs();}};if($('#stopJob'))$('#stopJob').onclick=async()=>{try{$('#stopJob').disabled=true;await api(projectUrl('jobs/'+j.id+'/stop'),'POST',{});await poll();}catch(e){showError(e);}};}
 
-function renderOverview(){const p=S.project;$('#editorView').hidden=true;$('#overviewView').hidden=false;const selected=p.blocks.filter(b=>b.selected_take_id).length,takes=p.blocks.reduce((n,b)=>n+b.takes.length,0);$('#overviewView').innerHTML=`<div class="overview-hero"><div><span class="eyebrow">ПРОИЗВОДСТВЕННОЕ ПРОСТРАНСТВО</span><h1>${esc(p.name)}</h1><div class="overview-stats"><span><strong>${p.segments.length}</strong>сегментов</span><span><strong>${p.blocks.length}</strong>блоков</span><span><strong>${takes}</strong>дублей</span><span><strong>${selected}</strong>блоков с отбором</span></div></div><button id="overviewAddSegment" class="button">${icon('plus')}Сегмент</button></div><div class="import-notice">${p.import_notes.map(esc).join('<br>')||'Новый проект. Начните с сегмента и добавьте блоки.'}</div>${p.segments.map(s=>`<section class="overview-segment"><h2>${esc(s.name)}<span class="badge">${s.block_ids.length} БЛОКОВ</span><button class="subtle-link" data-overview-add="${s.id}">+ Блок</button></h2><div class="overview-grid">${s.block_ids.map(id=>p.blocks.find(b=>b.id===id)).filter(Boolean).map(b=>{const image=thumbnail(b);return `<button class="overview-card" data-block="${b.id}">${image?`<img src="${media(image)}" alt="" loading="lazy">`:'<div class="sequence-placeholder"></div>'}<div><strong>${esc(b.label)}</strong><p>${esc(b.title)}</p><small>${b.takes.length} дублей · ${b.selected_take_id?'есть отбор':'требует отбора'} · ${b.montage_seconds?esc(b.montage_seconds)+' с':'окно не задано'}</small></div></button>`;}).join('')}</div></section>`).join('')}`;$('#overviewAddSegment').onclick=addSegment;$('#overviewView').querySelectorAll('[data-block]').forEach(e=>e.onclick=()=>selectBlock(e.dataset.block).catch(showError));$('#overviewView').querySelectorAll('[data-overview-add]').forEach(e=>e.onclick=()=>addBlock(e.dataset.overviewAdd));}
+function renderOverview(){const p=S.project;$('#editorView').hidden=true;$('#overviewView').hidden=false;if(S.library==='assets'){assetLibrary.open(p);return;}assetLibrary.pause();const selected=p.blocks.filter(b=>b.selected_take_id).length,takes=p.blocks.reduce((n,b)=>n+b.takes.length,0);$('#overviewView').innerHTML=`<div class="overview-hero"><div><span class="eyebrow">ПРОИЗВОДСТВЕННОЕ ПРОСТРАНСТВО</span><h1>${esc(p.name)}</h1><div class="overview-stats"><span><strong>${p.segments.length}</strong>сегментов</span><span><strong>${p.blocks.length}</strong>блоков</span><span><strong>${takes}</strong>дублей</span><span><strong>${selected}</strong>блоков с отбором</span></div></div><div class="overview-actions"><button id="libraryImportVideo" class="button">Импорт видео</button><button id="overviewAddSegment" class="button">${icon('plus')}Группа</button></div></div><div class="import-notice">${p.import_notes.map(esc).join('<br>')||'Новый проект. Начните с сегмента и добавьте блоки.'}</div>${p.segments.map(s=>`<section class="overview-segment"><h2>${esc(s.name)}<span class="badge">${s.block_ids.length} БЛОКОВ</span><button class="subtle-link" data-overview-add="${s.id}">+ Блок</button></h2><div class="overview-grid">${s.block_ids.map(id=>p.blocks.find(b=>b.id===id)).filter(Boolean).map(b=>{const image=thumbnail(b);return `<button class="overview-card" data-block="${b.id}">${image?`<img src="${media(image)}" alt="" loading="lazy">`:'<div class="sequence-placeholder"></div>'}<div><strong>${esc(b.label)}</strong><p>${esc(b.title)}</p><small>${b.takes.length} дублей · ${b.selected_take_id?'есть отбор':'требует отбора'} · ${b.montage_seconds?esc(b.montage_seconds)+' с':'окно не задано'}</small></div></button>`;}).join('')}</div></section>`).join('')}`;$('#overviewAddSegment').onclick=addSegment;$('#libraryImportVideo').onclick=()=>importLibraryVideo().catch(showError);$('#overviewView').querySelectorAll('[data-block]').forEach(e=>e.onclick=()=>selectBlock(e.dataset.block).catch(showError));$('#overviewView').querySelectorAll('[data-overview-add]').forEach(e=>e.onclick=()=>addBlock(e.dataset.overviewAdd));}
 function createDialog(title,label,placeholder,action){modal(title,`<form id="createForm" class="modal-form"><label class="field"><span>${esc(label)}</span><input id="newName" required maxlength="160" placeholder="${esc(placeholder)}" autocomplete="off"></label><button class="button primary" type="submit">Создать</button></form>`);$('#newName').focus();$('#createForm').onsubmit=async e=>{e.preventDefault();try{await action($('#newName').value);closeModal();}catch(e){showError(e);}};}
 function addSegment(){createDialog('Новая группа блоков','Название','Например: Исследования движения',async name=>{await operation('add_segment',{name});renderAll();});}
-function addBlock(segmentId=segment()?.id??S.project?.segments[0]?.id){if(!segmentId)return;createDialog('Новый блок','Идентификатор блока','Например: CL-003A',async label=>{await operation('add_block',{segment_id:segmentId,label});S.blockId=S.project.blocks.at(-1).id;S.overview=false;S.view='frames';S.tab='prompt';renderAll();});}
+function addBlock(segmentId=segment()?.id??S.project?.segments[0]?.id){if(!segmentId)return;createDialog('Новый блок','Идентификатор блока','Например: CL-003A',async label=>{await operation('add_block',{segment_id:segmentId,label});const id=S.project.blocks.at(-1).id;S.tab='prompt';await selectBlock(id,null,{view:'frames'});});}
 async function showHistory(){await flush();const entries=await api(projectUrl('history'));modal('История проекта',`<p class="small-note">Восстановление возвращает поля текущего блока новой ревизией. Исходники и дубли сохраняются.</p>${entries.map(h=>`<div class="history-row"><span class="badge">v${h.revision}</span><span>${shortDate(h.updated_at)}</span><button class="button small" data-restore="${esc(h.file)}">Восстановить блок</button></div>`).join('')||'<div class="empty-state">После первого изменения здесь появятся сохранённые версии.</div>'}`);$('#modal').querySelectorAll('[data-restore]').forEach(e=>e.onclick=async()=>{try{await operation('restore_block',{block_id:S.blockId,history_file:e.dataset.restore});closeModal();renderAll();toast('Блок восстановлен новой версией.');}catch(e){showError(e);}});}
 async function poll(){
   if(polling||!S.project)return;polling=true;const pid=S.project.id;
@@ -162,10 +479,10 @@ async function poll(){
     const [rows,projects]=await Promise.all([api(projectUrl('jobs')),api('/api/projects')]);
     if(S.project.id!==pid)return;
     S.jobs=rows;renderJobs();const remote=projects.find(p=>p.id===pid);
-    if(remote&&shouldRefreshEditor({...S,timelinePending:timelineView.pending,drag:timelineView.drag},remote.revision)){
+    if(remote&&shouldRefreshEditor({...S,timelinePending:timelineView.pending||storyDesk.pending,drag:timelineView.drag},remote.revision)){
       const p=await api(projectUrl());if(S.project.id!==pid)return;
-      if(!shouldRefreshEditor({...S,timelinePending:timelineView.pending,drag:timelineView.drag},p.revision))return;
-      S.project=p;renderTree();renderSequence();if(S.storyMode)storyDesk.render();
+      if(!shouldRefreshEditor({...S,timelinePending:timelineView.pending||storyDesk.pending,drag:timelineView.drag},p.revision))return;
+      S.project=p;if(S.storyMode)storyDesk.render();renderSequence();
       if(block()){renderHeader();if(S.tab!=='agent')renderInspector();}
       if(!S.storyMode&&S.view==='timeline')renderPreview();
       if(!S.storyMode&&S.overview)renderOverview();saveLabel('Сохранено · v'+p.revision);
@@ -174,18 +491,42 @@ async function poll(){
   }catch(e){if(!String(e.message).includes('Failed to fetch'))console.warn(e);}finally{polling=false;}
 }
 
+$('#workspaceInspectorToggle').onclick=()=>setWorkspaceInspector(S.inspectorMode,!S.inspectorOpen);
+$('#closeInspector').onclick=closeWorkspaceInspector;
+$('#workspaceInspector').onkeydown=event=>{
+  if(event.key==='Escape'&&!$('#modal').open){event.preventDefault();closeWorkspaceInspector();}
+};
+$('#inspectMontage').onclick=()=>setWorkspaceInspector('timeline',true);
+$('#inspectSource').onclick=()=>{
+  if(S.inspectorMode==='source')return;
+  const clip=timelineView.selection?.kind==='clip'&&timelineView.item();
+  if(!clip){setWorkspaceInspector('source',true);return;}
+  const view=S.storyMode||S.overview?'video':S.view;
+  selectBlock(clip.block_id,clip.segment_id,{view,inspector:'source',itemId:clip.id}).catch(showError);
+};
 $('#saveButton').onclick=()=>flush().catch(showError);
-$('#segmentBack').onclick=()=>{const id=montagePlayer.segmentId;montagePlayer.pause();if(id)storyDesk.open(id);};$('#segmentFull').onclick=()=>showMontage();$('#segmentScrub').oninput=e=>{if(montagePlayer.range)montagePlayer.seek(montagePlayer.range.start+Number(e.target.value)/S.project.fps);};
-$('#projectSelect').onchange=e=>openProject(e.target.value).catch(showError);$('#searchBlocks').oninput=renderTree;$('#overviewButton').onclick=()=>{S.storyMode=true;S.library=false;montagePlayer.pause();if(montagePlayer.segmentId)montagePlayer.selectSegment(null);renderAll();};$('#addSegment').onclick=()=>{if(S.library)addSegment();else storyDesk.segmentForm().catch(showError);};$('#addBlock').onclick=()=>addBlock();$('#projectBriefButton').onclick=()=>agentDesk.editBrief().catch(showError);
-$('#newProject').onclick=()=>createDialog('Новый видеопроект','Название','Название проекта',async name=>{await flush();const p=await api('/api/projects','POST',{name});S.projects=await api('/api/projects');renderProjectSelect();await openProject(p.id);});$('#closeModal').onclick=closeModal;$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal();});$('#playButton').onclick=()=>{if(S.view==='timeline'){toggleMontage();return;}const v=$('#previewVideo');if(v){if(v.paused)v.play().catch(showError);else v.pause();}};$('#compareButton').onclick=openCompare;$('#validateButton').onclick=()=>validate().catch(showError);$('#prepareButton').onclick=prepare;$('#historyButton').onclick=()=>showHistory().catch(showError);$('#sourceButton').onclick=async()=>{try{const c=await api(projectUrl('source')+'?block='+S.blockId);modal(c.path.split('/').at(-1),`<pre class="source-text">${esc(c.text)}</pre>`,true);}catch(e){showError(e);}};$('#fileInput').onchange=e=>{const target=uploadTarget;uploadTarget=null;if(target&&(target.pid!==S.project.id||target.bid!==S.blockId)){showError(new Error('Выбран другой блок. Повторите добавление.'));}else uploadFiles(Array.from(e.target.files),{asGuide:!!target?.guide}).catch(showError);};document.querySelectorAll('[data-tab]').forEach(e=>e.onclick=()=>{S.tab=e.dataset.tab;renderInspector();$('#inspectorBody').scrollTop=0;});document.querySelectorAll('[data-view]').forEach(e=>e.onclick=()=>{if(e.dataset.view==='timeline'){showMontage();return;}if(!block())return;S.view=e.dataset.view;renderHeader();renderPreview();});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();flush().catch(showError);}if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();$('#searchBlocks').focus();}});window.addEventListener('beforeunload',e=>{if(S.dirty||timelineView.pending||timelineView.drag){e.preventDefault();e.returnValue='';}});
+$('#segmentBack').onclick=()=>{const id=montagePlayer.segmentId;montagePlayer.pause();if(id)storyDesk.open(id);};$('#segmentFull').onclick=()=>showMontage();$('#previewLoop').onclick=()=>montagePlayer.setLoop(!montagePlayer.looping);$('#segmentScrub').oninput=e=>{if(montagePlayer.range)montagePlayer.seek(montagePlayer.range.start+Number(e.target.value)/S.project.fps);};
+$('#projectSelect').onchange=event=>openProject(event.target.value).catch(showError);
+$('#assetsButton').onclick=()=>openLibrary('assets').catch(showError);
+$('#addBlock').onclick=()=>addBlock();$('#projectBriefButton').onclick=()=>agentDesk.editBrief().catch(showError);
+$('#editBlockDetails').onclick=()=>{setWorkspaceInspector('source',true);S.tab='prompt';renderInspector();$('#blockTitle').focus();$('#blockTitle').select();};
+$('#newProject').onclick=()=>createDialog('Новый видеопроект','Название','Название проекта',async name=>{await flush();const p=await api('/api/projects','POST',{name});S.projects=await api('/api/projects');renderProjectSelect();await openProject(p.id);});$('#closeModal').onclick=closeModal;$('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))closeModal();});$('#playButton').onclick=()=>{if(S.view==='timeline'){toggleMontage();return;}const v=$('#previewVideo');if(v){if(v.paused)v.play().catch(showError);else v.pause();}};$('#compareButton').onclick=openCompare;$('#validateButton').onclick=()=>validate().catch(showError);$('#prepareButton').onclick=prepare;$('#historyButton').onclick=()=>showHistory().catch(showError);$('#sourceButton').onclick=async()=>{try{const c=await api(projectUrl('source')+'?block='+S.blockId);modal(c.path.split('/').at(-1),`<pre class="source-text">${esc(c.text)}</pre>`,true);}catch(e){showError(e);}};$('#fileInput').onchange=e=>{const target=uploadTarget;uploadTarget=null;if(target&&(target.pid!==S.project.id||target.bid!==S.blockId)){showError(new Error('Выбран другой блок. Повторите добавление.'));}else uploadFiles(Array.from(e.target.files),{asGuide:!!target?.guide}).catch(showError);};document.querySelectorAll('[data-tab]').forEach(e=>e.onclick=()=>{S.tab=e.dataset.tab;renderInspector();$('#inspectorBody').scrollTop=0;});document.querySelectorAll('[data-view]').forEach(e=>e.onclick=()=>{if(e.dataset.view==='timeline'){showMontage();return;}if(!block())return;S.view=e.dataset.view;renderHeader();renderPreview();});document.addEventListener('keydown',event=>{
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();flush().catch(showError);}
+  if(event.key!=='/'||event.ctrlKey||event.metaKey||event.altKey||event.isComposing||$('#modal').open||
+    event.target.closest?.('input,textarea,select,[contenteditable]')||!S.project)return;
+  event.preventDefault();
+  if(S.library==='assets')$('#overviewView [data-asset-search]')?.focus();
+  else projectNavigation.open(S.storyMode&&(storyDesk.overview||!storyDesk.selected)?'segment':'block');
+});
+window.addEventListener('beforeunload',e=>{if(S.dirty||storyDesk.hasDescriptionDraft()||timelineView.pending||timelineView.drag){e.preventDefault();e.returnValue='';}});
 function renderProjectSelect(){$('#projectSelect').innerHTML=S.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(S.project)$('#projectSelect').value=S.project.id;}
-async function boot(){try{const b=await api('/api/bootstrap');token=b.token;S.projects=b.projects;renderProjectSelect();if(!S.projects.length){saveLabel('Создайте проект');S.overview=true;$('#editorView').hidden=true;$('#overviewView').hidden=false;$('#overviewView').innerHTML='<div class="empty-state"><strong>Первый проект</strong>Нажмите плюс рядом с выбором проекта, чтобы начать.</div>';return;}const hash=new URLSearchParams(location.hash.slice(1));let pid=hash.get('project')??localStorage.getItem('studio-project');if(!S.projects.some(p=>p.id===pid))pid=S.projects[0].id;await openProject(pid);setInterval(poll,2200);setTimeout(()=>$('.tree-block.active')?.scrollIntoView({block:'nearest'}),100);}catch(e){showError(e);saveLabel('Нет соединения');}}
+async function boot(){try{const b=await api('/api/bootstrap');token=b.token;S.projects=b.projects;renderProjectSelect();if(!S.projects.length){saveLabel('Создайте проект');S.overview=true;$('#editorView').hidden=true;$('#overviewView').hidden=false;$('#overviewView').innerHTML='<div class="empty-state"><strong>Первый проект</strong>Нажмите плюс рядом с выбором проекта, чтобы начать.</div>';return;}const hash=new URLSearchParams(location.hash.slice(1));let pid=hash.get('project')??localStorage.getItem('studio-project');if(!S.projects.some(p=>p.id===pid))pid=S.projects[0].id;await openProject(pid);setInterval(poll,2200);}catch(e){showError(e);saveLabel('Нет соединения');}}
 boot();
 
 document.addEventListener('keydown',e=>{
   if(e.defaultPrevented||e.repeat||$('#modal').open||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||e.target.isContentEditable||!S.project)return;
   if(S.view==='timeline'||$('#timelineRoot').contains(e.target)){
-    if(e.code==='Space'){e.preventDefault();toggleMontage();}
+    if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();toggleMontage();}
     if(e.key.toLowerCase()==='m'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();timelineView.quickMarker();}
   }
 });

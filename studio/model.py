@@ -8,7 +8,8 @@ from .paths import WorkspacePaths,PathPolicyError
 FIELDS=['subject_definitions','summary','retention_analysis','detailed_description','overall_soundscape','non_diegetic_music']
 IMAGES={'.png','.jpg','.jpeg','.webp','.avif'}
 VIDEOS={'.mp4','.webm','.mov'}
-MEDIA=IMAGES|VIDEOS|{'.mp3','.wav','.ogg','.flac','.m4a','.aac','.opus'}
+AUDIO={'.mp3','.wav','.ogg','.flac','.m4a','.aac','.opus'}
+MEDIA=IMAGES|VIDEOS|AUDIO
 ACTIVE={'queued','preparing','running','collecting','stopping'}
 
 class StudioError(Exception):
@@ -71,7 +72,7 @@ class Store:
 
     def cache_dir(self,pid,kind):
         if kind not in ['Audio','Sound','Titles']:raise StudioError('Некорректный вид кэша.',422)
-        base=self.paths.cache_root/pid if self.paths.cache_root else self.location(pid).parent/'Preview'
+        base=self.paths.cache_root/pid if self.paths.cache_root else self.production_dir(pid)/'Preview'
         return self.writable(base/kind,False)
 
     def adopt_registry(self,filename):
@@ -82,7 +83,7 @@ class Store:
             ids=set();roots=set()
             for row in value['projects']:
                 if not isinstance(row,dict) or not isinstance(row.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}',row['id']):raise StudioError('Некорректный ID проекта в реестре.',422)
-                root=self.safe(row.get('root'),False);project=read(self.safe(root/'Production/Studio.project.json'))
+                root=self.safe(row.get('root'),False);project=read(self.project_file(root))
                 if row['id'] in ids or root in roots or project.get('id')!=row['id'] or self.safe(project.get('root'),False)!=root:raise StudioError('Конфликт ID или путей проектов в реестре.',409)
                 ids.add(row['id']);roots.add(root)
             if self.registry.get('projects') and self.registry!=value:raise StudioError('Новый реестр уже содержит другие проекты; он не перезаписан.',409)
@@ -90,11 +91,23 @@ class Store:
             self.registry=value
             return self.list_projects()
 
-    def location(self,project_id):
+    def project_dir(self,project_id):
         row=next((r for r in self.registry['projects'] if r['id']==project_id),None)
         if not row:raise StudioError('Проект не найден.',404)
-        root=self.safe(row['root'],False)
-        return self.safe(root/'Production/Studio.project.json',False)
+        return self.safe(row['root'],False)
+
+    def production_dir(self,project_id):
+        return self.safe(self.project_dir(project_id)/'Production',False)
+
+    def project_file(self,root):
+        current=self.safe(root/'Studio.project.json',False)
+        legacy=self.safe(root/'Production/Studio.project.json',False)
+        if current.exists() and legacy.exists():
+            raise StudioError('В проекте два файла Studio.project.json. Устраните конфликт расположений.',409)
+        return legacy if legacy.exists() or (self.paths.legacy_mode and not current.exists()) else current
+
+    def location(self,project_id):
+        return self.project_file(self.project_dir(project_id))
 
     def list_projects(self):
         result=[]
@@ -123,12 +136,24 @@ class Store:
                 e=next((e for e in sound.events(get_timeline(p)) if e['id']==payload.get('id')), {}) if action=='update_sound' else {}
                 aid=payload.get('asset_id',e.get('asset_id'));stream=payload.get('stream',e.get('stream',0))
                 if type(stream) is not int or not 0<=stream<64:raise StudioError('Некорректный звуковой поток.',422)
-                wave=self.waveform(pid,aid,stream)
-                payload={**payload,'source_seconds':wave['seconds']}
+                if 'asset_selection' in payload:
+                    from .library import select
+                    aid,path=select(self,p,payload['asset_selection'],('audio','video'))
+                    wave=self.waveform_path(pid,path,stream)
+                else:wave=self.waveform(pid,aid,stream)
+                payload={**payload,'asset_id':aid,'source_seconds':wave['seconds']}
             if action=='set_music' and isinstance(payload,dict):
-                aid=payload.get('asset_id');asset=p['assets'].get(aid) if isinstance(aid,str) else None
-                if not asset or asset['kind']!='audio':raise StudioError('Выберите звуковой файл из библиотеки проекта.',422)
-                wave=self.waveform(pid,aid);asset['audio_info']={k:wave[k] for k in ['seconds','sample_rate','channels','source_sha256']}
+                aid=payload.get('asset_id')
+                if 'asset_selection' in payload:
+                    from .library import select
+                    aid,path=select(self,p,payload['asset_selection'],('audio',))
+                    wave=self.waveform_path(pid,path)
+                    payload={**payload,'asset_id':aid}
+                else:
+                    if not isinstance(aid,str) or p['assets'].get(aid,{}).get('kind')!='audio':
+                        raise StudioError('Выберите звуковой файл из библиотеки проекта.',422)
+                    wave=self.waveform(pid,aid)
+                p['assets'][aid]['audio_info']={k:wave[k] for k in ['seconds','sample_rate','channels','source_sha256']}
             if action in ['add_clip','update_clip'] and isinstance(payload,dict) and payload.get('take_id'):
                 clip=next((c for c in get_timeline(p)['clips'] if c['id']==payload.get('id')),None)
                 bid=payload.get('block_id') if action=='add_clip' else (clip or {}).get('block_id')
@@ -170,13 +195,16 @@ class Store:
         return self.safe(self.cache_dir(pid,'Titles')/(key+'.png'))
 
     def waveform(self,pid,aid,stream=0):
-        from . import audio
         if not isinstance(aid,str):raise StudioError('Некорректный звуковой материал.',422)
         p=self.get(pid);asset=p['assets'].get(aid)
         if not asset:raise StudioError('Материал не найден.',404)
         if asset['kind'] not in ['audio','video']:raise StudioError('Для звуковой волны нужен аудио или видео файл.',422)
+        return self.waveform_path(pid,self.resolve_asset(p,aid),stream)
+
+    def waveform_path(self,pid,source,stream=0):
+        from . import audio
         if type(stream) is not int or not 0<=stream<64:raise StudioError('Некорректный звуковой поток.',422)
-        source=self.resolve_asset(p,aid);fingerprint=digest(source)
+        fingerprint=digest(source)
         cache=self.writable(self.cache_dir(pid,'Audio')/f'{fingerprint}{".stream"+str(stream) if stream else ""}.v{audio.VERSION}.json',False)
         with self.audio_lock:
             if cache.is_file():
@@ -190,11 +218,15 @@ class Store:
             data['source_sha256']=fingerprint;atomic(cache,data);return data
 
     def sound_streams(self,pid,aid):
-        from . import sound
         if not isinstance(aid,str):raise StudioError('Некорректный звуковой материал.',422)
         p=self.get(pid);asset=p['assets'].get(aid)
         if not asset or asset['kind'] not in ['audio','video']:raise StudioError('Выберите аудио или видео.',422)
-        try:return sound.streams(self.resolve_asset(p,aid))
+        return self.sound_streams_path(self.resolve_asset(p,aid))
+
+    @staticmethod
+    def sound_streams_path(path):
+        from . import sound
+        try:return sound.streams(path)
         except ValueError as error:raise StudioError(str(error),422) from error
 
     def sound_preview(self,pid,eid):
@@ -232,7 +264,7 @@ class Store:
                 raise StudioError('Проект изменился в другой сессии. Сохранённые правки не перезаписаны.',409,{'current_revision':current['revision']})
             value=copy.deepcopy(project);value['revision']=expected+1;value['updated_at']=now()
             value['activity']=(value.get('activity',[])+[{'at':now(),'actor':str(actor)[:80],'action':action,'revision':value['revision']}])[-100:]
-            history=self.writable(path.parent/'History'/f'r{current["revision"]:06d}-{uid()}.json',False)
+            history=self.writable(self.production_dir(project['id'])/'History'/f'r{current["revision"]:06d}-{uid()}.json',False)
             atomic(history,current);atomic(path,value);return value
 
     def asset(self,project,path):
@@ -254,6 +286,32 @@ class Store:
                                'sha256':existing.get('sha256') if existing and existing['modified_ns']==stat.st_mtime_ns else None}
         return aid
 
+    def import_video(self,pid,revision,path,name):
+        with self.lock:
+            project=self.get(pid)
+            if project['revision']!=revision:raise StudioError('Проект изменился; повторите импорт после обновления.',409)
+            info=self.probe_video(path)
+            asset_id=self.asset(project,path)
+            block,_=self.video_source(project,asset_id,name,info)
+            return self.commit(project,revision,'author','Импортировано видео '+block['title'])
+
+    def video_source(self,project,asset_id,name,info):
+        group=next((row for row in project['segments'] if row.get('imported_videos')),None)
+        if group is None:
+            group={'id':uid('seg-'),'name':'Импортированное видео','notes':'','block_ids':[],'imported_videos':True}
+            project['segments'].append(group)
+        title=Path(name).stem[:160].strip() or 'Импортированное видео'
+        block=self.new_block(group['id'],title)
+        block['title']=title
+        take={'id':uid('take-'),'name':name,'video_asset_id':asset_id,
+              'video_info':info,'native_av_asset_id':None,'last_frame_asset_id':None,
+              'technical_status':'imported','review_state':'unreviewed','notes':'',
+              'created_at':now(),'imported':True}
+        block['takes'].append(take)
+        group['block_ids'].append(block['id'])
+        project['blocks'].append(block)
+        return block,take
+
     def resolve_asset(self,project,asset_id):
         asset=project['assets'].get(asset_id)
         if not asset:raise StudioError('Материал не найден.',404)
@@ -268,7 +326,7 @@ class Store:
             folder=self.writable(root,False) if root else self.writable(self.paths.projects_root/project_id,False)
             if self.paths.legacy_mode and not folder.is_relative_to(self.amv):raise StudioError('Каталог проекта должен находиться внутри AMV.',403)
             if any(self.safe(r['root'],False)==folder for r in self.registry['projects']):raise StudioError('Этот каталог уже открыт как проект.',409)
-            path=self.writable(folder/'Production/Studio.project.json',False)
+            path=self.writable(self.project_file(folder),False)
             if path.exists():raise StudioError('В каталоге уже есть состояние Studio; оно не перезаписано.',409)
             p={'schema_version':1,'id':project_id,'name':str(name).strip()[:160],'root':self.relative(folder),
                'revision':1,'created_at':now(),'updated_at':now(),'fps':24,'output_size':[1280,736],'episodes':[],'scenes':[],
@@ -282,7 +340,7 @@ class Store:
     def seed(self):
         if self.registry['projects']:return
         for name,folder,pid in [('Клэр · Satisfy','Clair','claire'),('Сказки истинной луны · Опенинг','Opening','opening')]:
-            root=self.amv/folder;state=root/'Production/Studio.project.json'
+            root=self.amv/folder;state=self.project_file(root)
             if state.exists():
                 existing=read(state)
                 if existing.get('id')!=pid:raise StudioError('Найден проект с другим ID; автоматический импорт остановлен.',409)
@@ -525,6 +583,13 @@ class Store:
                 b['guides']=[{'reference_id':ref['id'],'frame':0}]
                 b['notes']='Продолжение '+take['name']+'. Промпт перенесён как черновик: задайте следующее действие и проверьте роли остальных картинок.'
                 p['blocks'].append(b);next(s for s in p['segments'] if s['id']==b['segment_id'])['block_ids'].append(b['id'])
+            elif operation=='assign_catalog_image':
+                from .library import assign_image
+                if type(revision) is not int or p['revision']!=revision:
+                    raise StudioError('Проект изменился. Откройте выбор изображения заново.',409)
+                before=copy.deepcopy(p)
+                assign_image(self,p,payload)
+                if p==before:return p
             elif operation=='add_asset':
                 aid=self.asset(p,payload['path'])
                 if payload.get('block_id'):
@@ -533,7 +598,7 @@ class Store:
                     if len(b['references'])>=8:raise StudioError('Допустимо до восьми референсов.')
                     b['references'].append({'id':uid('ref-'),'asset_id':aid,'role':str(payload.get('role','Референс'))})
             elif operation=='restore_block':
-                bid=payload['block_id'];history_path=self.location(pid).parent/'History'/Path(payload['history_file']).name
+                bid=payload['block_id'];history_path=self.production_dir(pid)/'History'/Path(payload['history_file']).name
                 if not history_path.is_file():raise StudioError('Версия не найдена.',404)
                 old=self.find_block(read(history_path),bid);b=self.find_block(p,bid)
                 for key in ['title','notes','prompt','references','guides','settings','montage_seconds','context_take_id']:b[key]=copy.deepcopy(old[key])
@@ -549,5 +614,5 @@ class Store:
                 'editing_contract':'PATCH needs expected_revision; propose variants without overwriting, explicit prepare and explicit launch are separate actions.'}
 
     def history(self,pid):
-        files=sorted((self.location(pid).parent/'History').glob('*.json'),reverse=True)
+        files=sorted((self.production_dir(pid)/'History').glob('*.json'),reverse=True)
         return [{'file':f.name,'revision':read(f)['revision'],'updated_at':read(f)['updated_at']} for f in files[:60]]

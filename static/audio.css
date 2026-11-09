@@ -1,8 +1,9 @@
-.tl-playback-bar{height:36px;display:flex;align-items:center;gap:9px;padding:5px 15px;background:#171e25;border-bottom:1px solid #303c45}
+.tl-playback-bar{height:36px;display:flex;align-items:center;gap:9px;padding:5px 15px;background:#171e25;border-bottom:1px solid #303c45;overflow-x:auto;scrollbar-width:thin}
 .tl-playback-bar>.button{font-size:10px;padding:4px 10px;height:26px;flex-shrink:0}
 .tl-playback-bar>strong{font:8px "Consolas",monospace;letter-spacing:1.2px;color:#a1b2bd}
 #tlDuration{font:10px "Consolas",monospace;color:#a9c3c8;white-space:nowrap}
 #tlPlaybackStatus{font-size:9px;color:#8b9daa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tlFollow[aria-pressed="true"]{color:var(--mint);background:#223731}
 #tlBeat{margin-left:auto}
 #tlBeat kbd{font:8px "Consolas",monospace;border:1px solid #56616c;padding:1px 4px;border-radius:3px;margin-left:5px}
 .tl-clip-audio{display:flex;align-items:center;gap:5px;font-size:9px;color:#a6b5bf;white-space:nowrap}
@@ -28,6 +29,8 @@
 .montage-preview{position:absolute;inset:0;background:#000;overflow:hidden}
 .montage-preview>video,.montage-preview>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .montage-preview>img{opacity:.65}
+.montage-preview[data-animatic=true]>img{opacity:1}
+.montage-preview[data-animatic=true] .montage-message span{max-width:60ch;white-space:pre-wrap;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;font-size:clamp(12px,1.3vw,16px)}
 .montage-preview .montage-message{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;pointer-events:none;background:#0002;padding:20px;color:#a6b3bd}
 .montage-message strong{font-weight:500;font-size:15px;color:#cbd8df}
 .montage-message span{font-size:10px;line-height:1.6}

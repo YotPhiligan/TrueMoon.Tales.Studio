@@ -41,6 +41,30 @@ export function scenarioView(project){
   return {active:!!t.scenario,segments,issues,timeline:projection};
 }
 
+// Mirror the spatial edit translation, then reuse the ordinary scenario projection.
+export function previewScenarioClip(project,segment,clip,patch){
+  if(patch.segment_id&&patch.segment_id!==segment.id)
+    return {error:'Перенос между сегментами: добавьте использование источника в нужной карточке.'};
+  const items=segment.items.slice(),index=items.findIndex(item=>item.id===clip.id);
+  if(index<0)return {error:'Сценарный блок не найден.'};
+  const previous=items[index],edited={...previous,...patch};
+  const start=patch.start_frame??clip.start_frame;
+  if(start!==clip.start_frame){
+    if(previous.anchor_frame!=null)return {error:'Начало блока закреплено. Снимите закрепление перед переносом.'};
+    if(edited.source_in_frame!==previous.source_in_frame){
+      edited.gap_before_frames=Math.max(0,previous.gap_before_frames+start-clip.start_frame);
+      items[index]=edited;
+    }else{
+      items.splice(index,1);
+      const rank=items.filter(item=>item.start_frame!=null&&item.start_frame<start).length;
+      items.splice(rank,0,edited);
+    }
+  }else items[index]=edited;
+  const timeline={...project.timeline,scenario:{...project.timeline.scenario,segments:[{...segment,items}]}};
+  const view=scenarioView({...project,timeline});
+  return {clips:view.timeline.clips,warning:view.issues.map(issue=>issue.message).join(' ')};
+}
+
 export function windowFromEdit(values,field,fps){
   const frame=v=>v===''||v==null?null:Math.round(Number(v)*fps);
   let start=frame(values.start),duration=frame(values.duration),end=frame(values.end);

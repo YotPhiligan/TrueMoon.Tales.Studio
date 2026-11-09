@@ -18,7 +18,7 @@ test('clip menu commands reuse montage actions',async()=>{
   const {v,items,calls}=view(),c=items.clip,before=structuredClone(c),rows=timelineCommands(v,'clip',c,context);
   assert.deepEqual(rows.map(r=>r.id),['source','description','materials','jump','split','anchor','gap','remove']);
   for(const id of ['source','description','materials','jump','split','anchor','gap','remove'])await command(rows,id).run();
-  assert.deepEqual(calls,[['editSource',c],['editStoryClip',c],['openBlock','block-a'],['seek',12],
+  assert.deepEqual(calls,[['editSource',c],['editStoryClip',c],['openBlock','block-a','seg-a'],['seek',12],
     ['write','split_clip',{id:'clip-a',frame:24},{expectedRevision:7}],['write','set_clip_anchor',{id:'clip-a',enabled:true},{expectedRevision:7}],
     ['write','set_gap_protected',{id:'clip-a',enabled:true},{expectedRevision:7}],['write','remove_clip',{id:'clip-a'},{expectedRevision:7}]]);
   assert.deepEqual(c,before);

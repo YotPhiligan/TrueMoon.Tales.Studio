@@ -48,6 +48,85 @@ class ScenarioTests(ScenarioFixture):
         for key in ['music', 'markers', 'clip_audio']:
             self.assertEqual(original['timeline'][key], result['timeline'][key])
 
+    def test_segment_type_projects_clears_and_undoes_without_moving_clips(self):
+        original = self.activate()
+        typed = self.edit('update_segment', id='s1', segment_type='action')
+        view = scenario.get(typed)
+        self.assertEqual('action', view['segments'][0]['segment_type'])
+        self.assertEqual('action', typed['timeline']['segments'][0]['segment_type'])
+        self.assertEqual(original['timeline']['clips'], typed['timeline']['clips'])
+        self.assertEqual(original['timeline']['music'], typed['timeline']['music'])
+        self.rejected('update_segment', {'id':'s1','segment_type':[]})
+        cleared = self.edit('update_segment', id='s1', segment_type=None)
+        self.assertNotIn('segment_type', cleared['timeline']['segments'][0])
+        restored = self.store.timeline_operation(self.pid,cleared['revision'],'undo',{})
+        self.assertEqual('action',scenario.get(restored)['segments'][0]['segment_type'])
+        redone = self.store.timeline_operation(self.pid,restored['revision'],'redo',{})
+        self.assertNotIn('segment_type',scenario.get(redone)['segments'][0])
+        self.assertEqual(original['timeline']['clips'], redone['timeline']['clips'])
+
+    def test_animatic_frame_is_per_placement_and_undoable_without_editing_source(self):
+        from studio import library
+
+        original = self.activate()
+        frame_dir = self.store.project_dir(self.pid) / 'Frames'
+        frame_dir.mkdir(exist_ok=True)
+        (frame_dir / 'Still.png').write_bytes(self.images[0].read_bytes())
+        invalid = {'segment_id': 's1', 'id': 'c1'}
+        self.rejected('set_animatic_frame', invalid)
+        self.rejected('set_animatic_frame', {**invalid, 'asset_selection': {'asset_id': self.take['video_asset_id']}})
+        changed = self.edit('set_animatic_frame', **invalid, asset_selection={'file': 'Frames/Still.png'})
+        first, other_use = scenario.get(changed)['segments'][0]['items']
+        aid = first['animatic_asset_id']
+        self.assertEqual('image', changed['assets'][aid]['kind'])
+        self.assertNotIn('animatic_asset_id', other_use)
+        self.assertEqual([('animatic_frame', 's1', 'c1')],
+                         [(u['role'], u['segment_id'], u['item_id']) for u in library.usage_index(changed)[aid]])
+        self.assertEqual(original['timeline']['clips'], changed['timeline']['clips'])
+        self.assertEqual(original['blocks'], changed['blocks'])
+        self.assertEqual(original['timeline']['music'], changed['timeline']['music'])
+        reverted = self.store.timeline_operation(self.pid, changed['revision'], 'undo', {})
+        self.assertNotIn('animatic_asset_id', scenario.get(reverted)['segments'][0]['items'][0])
+        restored = self.store.timeline_operation(self.pid, reverted['revision'], 'redo', {})
+        self.assertEqual(aid, scenario.get(restored)['segments'][0]['items'][0]['animatic_asset_id'])
+        cleared = self.edit('set_animatic_frame', **invalid, asset_selection=None)
+        self.assertNotIn('animatic_asset_id', scenario.get(cleared)['segments'][0]['items'][0])
+        self.assert_no_generation()
+
+    def test_item_notes_survive_context_partial_edits_undo_and_split(self):
+        from studio import agent
+
+        original = self.activate()
+        notes = {'sound_notes': '«Принято».\nДождь стихает.', 'continuity_notes': 'Карабин остаётся в руках.'}
+        self.rejected('update_item', {'segment_id': 's1', 'id': 'c1', 'sound_notes': None})
+        self.rejected('update_item', {'segment_id': 's1', 'id': 'c1', 'continuity_notes': 'а' * 12001})
+        with patch.object(self.store, 'probe_video', side_effect=AssertionError('Text edit must not probe video')):
+            edited = self.edit('update_item', segment_id='s1', id='c1', **notes)
+        self.assertEqual(original['timeline']['clips'], edited['timeline']['clips'])
+        self.assertEqual(original['blocks'], edited['blocks'])
+        context = agent.context(self.store, self.pid, sid='s1', iid='c1')
+        self.assertEqual(notes, {key: context['scenario_item'][key] for key in notes})
+        other_use = context['scenario_segment']['items'][1]
+        self.assertEqual('c2', other_use['id'])
+        self.assertTrue(set(notes).isdisjoint(other_use))
+
+        self.edit('update_item', segment_id='s1', id='c1', description='Новое действие')
+        cleared = self.edit('update_item', segment_id='s1', id='c1', sound_notes='')
+        item = scenario.get(cleared)['segments'][0]['items'][0]
+        self.assertNotIn('sound_notes', item)
+        self.assertEqual(notes['continuity_notes'], item['continuity_notes'])
+        restored = self.store.timeline_operation(self.pid, cleared['revision'], 'undo', {})
+        item = scenario.get(restored)['segments'][0]['items'][0]
+        self.assertEqual(notes, {key: item[key] for key in notes})
+
+        divided = self.store.timeline_operation(self.pid, restored['revision'], 'split_clip', {'id': 'c1', 'frame': 24})
+        left, right, _ = scenario.get(divided)['segments'][0]['items']
+        self.assertEqual(notes['sound_notes'], left['sound_notes'])
+        self.assertEqual(notes['continuity_notes'], right['continuity_notes'])
+        self.assertNotIn('continuity_notes', left)
+        self.assertNotIn('sound_notes', right)
+        self.assert_no_generation()
+
     def test_duration_and_explicit_gap_edits_ripple_items_inside_fixed_window(self):
         self.activate()
         p = self.edit('update_item', segment_id='s1', id='c1', duration_frames=36, gap_before_frames=8)

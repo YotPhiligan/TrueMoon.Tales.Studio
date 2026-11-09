@@ -61,7 +61,7 @@ class TimelineHttpTests(Fixture):
 
     def test_post_returns_full_project_with_actor_and_get_returns_same_timeline(self):
         original = self.current()
-        status, project = self.post('add_segment', {'name': 'Action', 'start_frame': 24, 'duration_frames': 48}, actor='agent')
+        status, project = self.post('add_segment', {'name': 'Action', 'start_frame': 24, 'duration_frames': 48, 'segment_type': 'action'}, actor='agent')
         self.assertEqual(200, status)
         self.assertEqual(self.pid, project['id'])
         self.assertEqual(original['revision'] + 1, project['revision'])
@@ -70,7 +70,7 @@ class TimelineHttpTests(Fixture):
         status, timeline = self.request('GET', self.path)
         self.assertEqual(200, status)
         self.assertEqual(project['timeline'], timeline)
-        self.assertEqual((24, 48), tuple(timeline['segments'][0][k] for k in ['start_frame', 'duration_frames']))
+        self.assertEqual((24, 48, 'action'), tuple(timeline['segments'][0][k] for k in ['start_frame', 'duration_frames', 'segment_type']))
 
     def test_missing_token_stale_revision_and_invalid_frames_never_commit(self):
         revision = self.current()['revision']

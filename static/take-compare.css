@@ -1,0 +1,51 @@
+.take-compare-videos {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+}
+.take-compare-videos figure {position:relative;min-width:0;margin:0}
+.take-compare-videos figcaption {margin:0 0 5px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.take-compare-videos video,.take-compare-placeholder {
+  width:100%;
+  display:block;
+  aspect-ratio:16/9;
+  max-height:min(36vh,360px);
+  object-fit:contain;
+  background:#090c10;
+  border-radius:5px;
+}
+.take-compare-placeholder{display:grid;place-items:center;color:var(--muted)}
+.clip-replacement{display:grid;gap:12px}
+.clip-replace-controls{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px}
+.clip-replace-controls :is(select,input){width:100%}
+.clip-replace-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+#replacementStatus{flex:1 1 240px;font-size:12px;color:var(--muted)}
+.take-compare-end {
+  position:absolute;
+  bottom:6px;
+  left:6px;
+  border-radius:3px;
+  padding:3px 6px;
+  font-size:10px;
+  background:#1c232be8;
+  color:var(--muted);
+}
+.take-compare-transport {display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px}
+.take-compare-transport label,.take-compare-transport output {font-size:11px;color:var(--muted)}
+.take-compare-transport output {margin-left:auto;font-variant-numeric:tabular-nums}
+.take-compare-transport select {padding:3px 4px}
+.take-compare-scrub {width:100%;margin-top:6px;accent-color:var(--mint)}
+.take-compare-status {margin:2px 0 10px}
+.take-compare-details {width:100%;table-layout:fixed;border-collapse:collapse;font-size:11px}
+.take-compare-details caption {text-align:left;margin-bottom:6px;color:var(--text);font-weight:600}
+.take-compare-details th,.take-compare-details td {
+  padding:6px 8px;
+  border:1px solid var(--line);
+  vertical-align:top;
+  text-align:left;
+  overflow-wrap:anywhere;
+}
+.take-compare-details th:first-child {width:26%}
+.take-compare-details tr.different {background:#47372273}
+.take-compare-details tr.different th small {display:block;font-size:9px;color:var(--amber)}
+.take-compare-details tr.unknown td {color:var(--muted)}

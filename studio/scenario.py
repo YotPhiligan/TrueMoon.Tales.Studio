@@ -6,6 +6,9 @@ from . import timeline as tl
 from . import clip_edit as ce
 
 
+ITEM_NOTE_FIELDS = ('sound_notes', 'continuity_notes')
+
+
 def number(value, label, minimum=0, optional=False):
     if optional and value is None: return None
     try: return tl.integer(value, label, minimum)
@@ -16,6 +19,17 @@ def label(value, empty=False):
     if not isinstance(value, str) or len(value) > (12000 if empty else 160) or (not empty and not value.strip()):
         raise StudioError('Некорректное название или описание сценария.', 422)
     return value if empty else value.strip()
+
+
+def update_item_notes(item, payload):
+    for field in ITEM_NOTE_FIELDS:
+        if field not in payload:
+            continue
+        value = label(payload[field], True)
+        if value.strip():
+            item[field] = value
+        else:
+            item.pop(field, None)
 
 
 def find(rows, value):
@@ -50,10 +64,19 @@ def validate(project, story):
         label(segment['name']); label(segment['description'], True)
         number(segment['start_frame'], 'Начало', optional=True); number(segment['duration_frames'], 'Длина', 1, True)
         if segment['color'] not in tl.COLORS or not isinstance(segment['items'], list): raise StudioError('Некорректный сегмент.', 422)
+        try:tl.validate_segment_type(segment.get('segment_type'))
+        except tl.TimelineError as error:raise StudioError(str(error),422) from error
         ids.append(segment['id'])
         for item in segment['items']:
             if not isinstance(item,dict) or not {'id','block_id','title','description','duration_frames','gap_before_frames','take_id','source_in_frame'}<=item.keys():raise StudioError('Некорректные поля блока.',422)
             count += 1; ids.append(item['id']); label(item['title']); label(item['description'], True)
+            for field in ITEM_NOTE_FIELDS:
+                if field in item:
+                    label(item[field], True)
+            if 'animatic_asset_id' in item:
+                aid = item['animatic_asset_id']
+                if not isinstance(aid, str) or project['assets'].get(aid, {}).get('kind') != 'image':
+                    raise StudioError('Кадр аниматика должен быть изображением проекта.', 422)
             number(item['duration_frames'], 'Длина блока', 1, True); number(item['gap_before_frames'], 'Пауза')
             try:
                 tl.validate_edit_fields(item)
@@ -81,7 +104,7 @@ def get(project):
         if start is None or length is None: issue('unplaced_segment', sid, 'Не задано окно сегмента.')
         if start is not None and length is not None:
             if start + length > tl.MAX_FRAME: issue('range', sid, 'Конец сегмента превышает предел таймлайна.')
-            projected['segments'].append({k: segment[k] for k in ['id', 'name', 'start_frame', 'duration_frames', 'color']})
+            projected['segments'].append({k: segment[k] for k in ('id','name','start_frame','duration_frames','color','segment_type') if k in segment})
         for item in segment['items']:
             duration = item['duration_frames']; used += item['gap_before_frames']
             if cursor is not None: cursor += item['gap_before_frames']
@@ -121,21 +144,101 @@ def record(t, before, action):
         t['undo'] = (t.get('undo', []) + [{'state': before, 'action': action}])[-tl.HISTORY_LIMIT:]; t['redo'] = []
 
 
+
+def breakdown_plan(project, sid, proposal, request_id):
+    """Preview an append using the same ordered layout as ordinary scenario items."""
+    from .transitions import joins
+
+    view = get(project)
+    segment = find(view['segments'], sid)
+    start, window, used = (segment[k] for k in ('start_frame', 'duration_frames', 'used_frames'))
+    applied = any(b.get('scenario_breakdown_id') == request_id for b in project['blocks'])
+    cursor = None if applied or start is None or used is None else start + used
+    proposed = 0
+    rows = []
+    for index, item in enumerate(proposal, 1):
+        gap, duration = item['gap_before_frames'], item['duration_frames']
+        proposed += gap + duration
+        item_start = None if cursor is None else cursor + gap
+        cursor = None if item_start is None else item_start + duration
+        rows.append({**item, 'id': f'{request_id}:{index}', 'start_frame': item_start, 'end_frame': cursor})
+
+    remaining = segment['remaining_frames']
+    remaining = None if applied or remaining is None else remaining - proposed
+    issues = [issue['message'] for issue in view['issues'] if issue['segment_id'] == sid and issue['code'] != 'overflow']
+    if not issues and any(other['id'] != sid and start < tl.end(other) and other['start_frame'] < start + window
+                          for other in view['timeline']['segments']):
+        issues.append('Окно пересекается с соседним сегментом.')
+    if not applied and sum(len(s['items']) for s in view['segments']) + len(rows) > 2000:
+        issues.append('Разбивка превышает лимит числа блоков в проекте.')
+    if not applied and remaining is not None and remaining < 0:
+        issues.append(f'Не хватает {-remaining / project["fps"]:.3f} с в окне сегмента.')
+    if not applied and not issues:
+        montage = view['timeline']
+        before = {(j['left']['id'], j['right']['id']) for j in joins(montage)}
+        after = {(j['left']['id'], j['right']['id']) for j in joins({**montage, 'clips': montage['clips'] + rows})}
+        if any((t['left_clip_id'], t['right_clip_id']) in before - after for t in montage.get('transitions', [])):
+            issues.append('Разбивка разорвёт настроенный переход. Сначала согласуйте стык на таймлайне.')
+    return {'project_revision': project['revision'], 'segment_id': sid, 'segment_name': segment['name'],
+            'fps': project['fps'], 'window_frames': window, 'used_frames': used, 'proposed_frames': proposed,
+            'remaining_frames': remaining, 'items': rows, 'issues': issues, 'status': 'applied' if applied else 'blocked' if issues else 'ready'}
+
+
+def insert_item(store, project, segment, payload, breakdown_id=None):
+    block = find(project['blocks'], payload['block_id']) if payload.get('block_id') else None
+    if block is None:
+        group = next((g for g in project['segments'] if g.get('scenario_drafts')), None)
+        if group is None:
+            group = {'id': uid('seg-'), 'name': 'Сценарные заготовки', 'notes': '', 'block_ids': [], 'scenario_drafts': True}
+            project['segments'].append(group)
+        block = store.new_block(group['id'], 'SB-' + str(len(project['blocks']) + 1).zfill(3))
+        block['title'] = label(payload.get('title'))
+        if breakdown_id is not None:
+            block['scenario_breakdown_id'] = breakdown_id
+        project['blocks'].append(block)
+        group['block_ids'].append(block['id'])
+    item = {'id': uid('clip-'), 'block_id': block['id'], 'title': payload.get('title') or block['title'] or block['label'],
+            'description': payload.get('description', ''), 'duration_frames': payload.get('duration_frames'),
+            'gap_before_frames': payload.get('gap_before_frames', 0), 'take_id': payload.get('take_id'),
+            'source_in_frame': payload.get('source_in_frame', 0), **tl.edit_fields(payload)}
+    update_item_notes(item, payload)
+    items = segment['items']
+    index = payload.get('index', len(items))
+    if type(index) is not int or not 0 <= index <= len(items):
+        raise StudioError('Некорректная позиция блока.', 422)
+    items.insert(index, item)
+    return item
+
+
+def append_breakdown(store, project, sid, proposal, request_id):
+    p = copy.deepcopy(project)
+    t = tl.get(p)
+    before = tl.content(t)
+    story = copy.deepcopy(t.get('scenario') or adopt(p, t))
+    segment = find(story['segments'], sid)
+    for row in proposal:
+        insert_item(store, p, segment, row, request_id)
+    validate(p, story)
+    return save_story(p, t, story, before, 'apply_breakdown')
+
+
 def apply(store, project, action, payload):
     if not isinstance(payload, dict): raise StudioError('Ожидаются параметры сценария.', 422)
     p = copy.deepcopy(project); t = tl.get(p); before = tl.content(t)
     story = copy.deepcopy(t.get('scenario') or adopt(p, t)); segments = story['segments']
     if action == 'add_segment':
-        segments.append({'id': uid('tseg-'), 'name': label(payload.get('name')), 'description': label(payload.get('description', ''), True),
-                         'start_frame': payload.get('start_frame'), 'duration_frames': payload.get('duration_frames'),
-                         'color': payload.get('color', tl.COLORS[len(segments) % len(tl.COLORS)]), 'items': []})
+        s = {'id': uid('tseg-'), 'name': label(payload.get('name')), 'description': label(payload.get('description', ''), True),
+             'start_frame': payload.get('start_frame'), 'duration_frames': payload.get('duration_frames'),
+             'color': payload.get('color', tl.COLORS[len(segments) % len(tl.COLORS)]), 'items': []}
+        segments.append(s)
     elif action == 'reorder_segments':
         story['segments'] = reorder(segments, payload.get('order'))
     elif action in ['update_segment', 'remove_segment']:
         s = find(segments, payload.get('id'))
         if action == 'remove_segment':
             segments.remove(s)
-            if 'sound_events' in t:t['sound_events']=[e for e in t['sound_events'] if e['segment_id']!=s['id']]
+            from .sound import remove_placements
+            remove_placements(t,{i['id'] for i in s['items']},s['id'])
         else:
             if 'start_frame' in payload and s['start_frame'] is not None and payload['start_frame'] is not None:
                 delta=number(payload['start_frame'],'Начало')-s['start_frame']
@@ -147,38 +250,48 @@ def apply(store, project, action, payload):
         s = find(segments, payload.get('segment_id'))
         if action == 'reorder_items': s['items'] = reorder(s['items'], payload.get('order'))
         elif action == 'add_item':
-            block = find(p['blocks'], payload['block_id']) if payload.get('block_id') else None
-            if block is None:
-                group = next((g for g in p['segments'] if g.get('scenario_drafts')), None)
-                if group is None:
-                    group = {'id': uid('seg-'), 'name': 'Сценарные заготовки', 'notes': '', 'block_ids': [], 'scenario_drafts': True}; p['segments'].append(group)
-                block = store.new_block(group['id'], 'SB-' + str(len(p['blocks']) + 1).zfill(3)); block['title'] = label(payload.get('title'))
-                p['blocks'].append(block); group['block_ids'].append(block['id'])
-            item = {'id': uid('clip-'), 'block_id': block['id'], 'title': payload.get('title') or block['title'] or block['label'],
-                    'description': payload.get('description', ''), 'duration_frames': payload.get('duration_frames'),
-                    'gap_before_frames': payload.get('gap_before_frames', 0), 'take_id': payload.get('take_id'), 'source_in_frame': payload.get('source_in_frame', 0), **tl.edit_fields(payload)}
-            index = payload.get('index', len(s['items']))
-            if type(index) is not int or not 0 <= index <= len(s['items']): raise StudioError('Некорректная позиция блока.', 422)
-            s['items'].insert(index, item)
+            item = insert_item(store, p, s, payload)
         else:
             item = find(s['items'], payload.get('id'))
-            if action == 'remove_item': s['items'].remove(item)
+            if action == 'remove_item':
+                from .sound import remove_placements
+                remove_placements(t,{item['id']});s['items'].remove(item)
             else:
                 previous=copy.deepcopy(item)
                 for key in ['title', 'description', 'duration_frames', 'gap_before_frames', 'take_id', 'source_in_frame',*tl.EDIT_FIELDS]:
                     if key in payload: item[key] = payload[key]
+                update_item_notes(item, payload)
                 if not item['take_id']: item['source_in_frame'] = 0
                 try:ce.sync_interval(item,payload,previous)
                 except ce.ClipEditError as error:raise StudioError(str(error),422) from error
+    elif action == 'set_animatic_frame':
+        from .library import select
+
+        s = find(segments, payload.get('segment_id'))
+        item = find(s['items'], payload.get('id'))
+        if 'asset_selection' not in payload:
+            raise StudioError('Укажите изображение или null для снятия выбора.', 422)
+        selection = payload['asset_selection']
+        if selection is None:
+            item.pop('animatic_asset_id', None)
+        else:
+            item['animatic_asset_id'], _ = select(store, p, selection, ('image',))
     elif action in ['edit_clip_source','slip_clip','split_clip','set_clip_anchor','set_gap_protected','compact_segment']:
-        edit_montage(store,p,story,action,payload)
+        edit_montage(store,p,t,story,action,payload)
     else: raise StudioError('Неизвестная операция сценария.', 422)
+    if action in ('add_segment','update_segment'):
+        try:tl.set_segment_type(s,payload)
+        except tl.TimelineError as error:raise StudioError(str(error),422) from error
     validate(p, story)
     # Probe only on explicit take assignment, never on a read or a text-only edit.
     if action in ['add_item', 'update_item'] and payload.get('take_id'):
         take = find(find(p['blocks'], item['block_id'])['takes'], item['take_id'])
         try: tl.capacity(take, p['fps'])
         except tl.TimelineError: take['video_info'] = store.probe_video(store.resolve_asset(p, take['video_asset_id']))
+    return save_story(p, t, story, before, action)
+
+
+def save_story(p, t, story, before, action):
     t['scenario'] = story; p['timeline'] = t; view = get(p)
     if not view['issues']:
         t['segments'] = view['timeline']['segments']; t['clips'] = view['timeline']['clips']
@@ -196,7 +309,7 @@ def reorder(rows, order):
     return [find(rows, value) for value in order]
 
 
-def edit_montage(store, project, story, action, payload):
+def edit_montage(store, project, timeline, story, action, payload):
     view=get({**project,'timeline':{**tl.get(project),'scenario':story}})
     if action=='compact_segment':
         s=find(story['segments'],payload.get('segment_id',payload.get('id')))
@@ -227,6 +340,11 @@ def edit_montage(store, project, story, action, payload):
             left,right=ce.split(shown,payload.get('frame'));copy_item=copy.deepcopy(item)
             item.update(left);copy_item.update(right,id=uid('clip-'),title=item['title'][:156]+' · 2',gap_before_frames=0)
             copy_item.pop('anchor_frame',None);copy_item.pop('gap_protected',None)
+            # Keep the sound intention with the original item, and the outgoing note with its end.
+            copy_item.pop('sound_notes', None)
+            item.pop('continuity_notes', None)
+            from .sound import split_placement
+            split_placement(timeline,item['id'],copy_item['id'],left['duration_frames'])
             s['items'].insert(index+1,copy_item)
         elif action in ['set_clip_anchor','set_gap_protected']:
             enabled=payload.get('enabled')

@@ -50,6 +50,34 @@ class ExportHttpTests(ExportFixture):
         status, _, data = self.http('GET', self.url + '/' + row['id']);self.assertEqual(200, status);self.assertEqual(row, json.loads(data))
         self.popen.assert_called_once();self.assertEqual(before, self.project_state());self.assertEqual(sources, self.source_state());self.assert_no_generation()
 
+    def test_readiness_reports_multiple_blockers_and_targets_without_starting_export(self):
+        ready_status, _, body = self.http('GET', self.url + '/readiness', auth=False)
+        self.assertEqual(200, ready_status)
+        self.assertTrue(json.loads(body)['ready'])
+
+        self.activate()
+        p = self.edit('update_item', segment_id='s1', id='c2', duration_frames=None, take_id=None)
+        self.store.resolve_asset(p, self.take['video_asset_id']).unlink()
+        before = self.project_state()
+        with patch.object(self.store, 'render_title_layers') as render_titles:
+            status, _, body = self.http('GET', self.url + '/readiness', auth=False)
+            self.assertEqual(200, status)
+            report = json.loads(body)
+            self.assertFalse(report['ready'])
+            self.assertEqual(p['revision'], report['project_revision'])
+            issues = {row['code']: row for row in report['issues']}
+            self.assertEqual({'unknown_duration', 'missing_take', 'unavailable_asset'}, set(issues))
+            self.assertEqual(('s1', 'c2'), (issues['unknown_duration']['segment_id'], issues['unknown_duration']['item_id']))
+            self.assertEqual(('clip', 'c1', 12), tuple(issues['unavailable_asset'][field] for field in ('kind', 'id', 'frame')))
+            status, _, body = self.http('POST', self.url, {'expected_revision': p['revision']})
+            self.assertEqual(422, status)
+            self.assertEqual(report['issues'], json.loads(body)['details'])
+            render_titles.assert_not_called()
+        self.assertEqual(before, self.project_state())
+        self.assertEqual([], self.exports.list(self.pid))
+        self.popen.assert_not_called()
+        self.assert_no_generation()
+
     def test_stop_route_uses_export_revision_and_requires_session(self):
         before = self.project_state();row = self.create();url = self.url + '/' + row['id'] + '/stop'
         self.assertEqual(403, self.http('POST', url, {'expected_revision': row['revision']}, auth=False)[0])

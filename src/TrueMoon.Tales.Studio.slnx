@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/Items/">
+    <File Path="README.md" />
+    <File Path="WindowDesign.md" />
+    <File Path="WindowMenus.md" />
+    <File Path="TimelineDrag.md" />
+    <File Path="Playback.md" />
+    <File Path="QASessions.md" />
+    <File Path="NativeCrash.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="NuGet.Config" />
+    <File Path="Update-TrueMoonPackages.ps1" />
+  </Folder>
+  <Project Path="TrueMoon.Tales.Studio/TrueMoon.Tales.Studio.csproj" />
+  <Project Path="TrueMoon.Tales.Studio.Tests/TrueMoon.Tales.Studio.Tests.csproj" />
+</Solution>

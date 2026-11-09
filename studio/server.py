@@ -3,7 +3,7 @@ from __future__ import annotations
 import json,mimetypes,re,secrets,socket,urllib.parse
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from .model import MEDIA,StudioError,atomic,now,read,uid
+from .model import AUDIO,IMAGES,MEDIA,VIDEOS,StudioError,atomic,now,read,uid
 from . import agent
 from . import scenario
 
@@ -110,7 +110,18 @@ def handler_for(store,jobs,static,exports=None):
                 if match:
                     pid,tail=match.groups()
                     if not tail:return self.respond(store.get(pid))
+                    if tail in ('asset-library','asset-library/preview'):
+                        from .library import catalog, preview_path
+                        if tail=='asset-library':return self.respond(catalog(store,pid))
+                        return self.file(preview_path(store,pid,arg('file')),True)
+                    take_comparison=re.fullmatch(r'takes/([^/]+)/comparison',tail)
+                    if take_comparison:
+                        from .take_comparison import describe
+                        return self.respond(describe(store,jobs,pid,urllib.parse.unquote(take_comparison.group(1))))
                     if tail=='jobs':return self.respond(jobs.progress(pid))
+                    if tail=='exports/readiness':
+                        from .export_plan import readiness
+                        return self.respond(readiness(store,pid))
                     if tail=='exports':return self.respond(exports.list(pid))
                     export_match=re.fullmatch(r'exports/(export-[0-9a-f]{16})(/video)?',tail or '')
                     if export_match:
@@ -124,6 +135,16 @@ def handler_for(store,jobs,static,exports=None):
                         from .timeline import get
                         return self.respond(get(store.get(pid)))
                     if tail=='scenario':return self.respond(scenario.get(store.get(pid)))
+                    if tail in ('media-info','waveform','audio-streams') and arg('file') is not None:
+                        from .library import KINDS, preview_path
+                        file=preview_path(store,pid,arg('file'));kind=KINDS[file.suffix.lower()]
+                        if tail=='media-info' and kind=='video':return self.respond(store.probe_video(file))
+                        if kind not in ('audio','video') or tail=='media-info':
+                            raise StudioError('Этот тип материала здесь не поддерживается.',422)
+                        if tail=='audio-streams':return self.respond(store.sound_streams_path(file))
+                        stream=arg('stream') or '0'
+                        if not re.fullmatch(r'\d{1,2}',stream):raise StudioError('Некорректный звуковой поток.',422)
+                        return self.respond(store.waveform_path(pid,file,int(stream)))
                     if tail=='media-info':return self.respond(store.probe_video(store.resolve_asset(store.get(pid),arg('asset'))))
                     if tail=='waveform':
                         stream=arg('stream') or '0'
@@ -135,6 +156,8 @@ def handler_for(store,jobs,static,exports=None):
                     if tail=='brief':return self.respond(agent.get_brief(store.get(pid)))
                     if tail=='agent/context':return self.respond(agent.context(store,pid,arg('block'),arg('segment'),arg('item')))
                     if tail=='agent/requests':return self.respond(agent.list_requests(store,pid))
+                    breakdown_match=re.fullmatch(r'agent/requests/([^/]+)/breakdown',tail)
+                    if breakdown_match:return self.respond(agent.preview_breakdown(store,pid,breakdown_match.group(1)))
                     request_match=re.fullmatch(r'agent/requests/([^/]+)',tail)
                     if request_match:return self.respond(agent.get_request(store,pid,request_match.group(1)))
                     if tail=='source':
@@ -161,9 +184,12 @@ def handler_for(store,jobs,static,exports=None):
             if tail=='brief' and self.command=='PATCH':return self.respond(agent.save_brief(store,pid,d.get('brief'),revision,actor))
             if tail=='agent/requests' and self.command=='POST':
                 return self.respond(agent.create_request(store,pid,revision,d.get('goal'),d.get('mode','propose'),d.get('block_id'),actor,d.get('scope'),d.get('client_key')),201)
+            breakdown_match=re.fullmatch(r'agent/requests/([^/]+)/breakdown',tail)
+            if breakdown_match and self.command=='POST':
+                return self.respond(agent.apply_breakdown(store,pid,breakdown_match.group(1),revision,actor))
             request_match=re.fullmatch(r'agent/requests/([^/]+)',tail)
             if request_match and self.command=='POST':
-                return self.respond(agent.update_request(store,pid,request_match.group(1),revision,d.get('action'),actor,d.get('result',''),d.get('result_target')))
+                return self.respond(agent.update_request(store,pid,request_match.group(1),revision,d.get('action'),actor,d.get('result',''),d.get('result_target'),d.get('proposal')))
             match=re.fullmatch(r'blocks/([^/]+)',tail)
             if match and self.command=='PATCH':return self.respond(store.save_block(pid,match.group(1),d.get('block',{}),revision,actor))
             if tail=='operations' and self.command=='POST':return self.respond(store.operation(pid,revision,d.get('operation'),d.get('payload',{}),actor))
@@ -171,7 +197,10 @@ def handler_for(store,jobs,static,exports=None):
             if tail=='scenario' and self.command=='POST':
                 with store.lock:
                     project=store.get(pid);agent.check_project_revision(project,revision)
-                    updated=scenario.apply(store,project,d.get('action'),d.get('payload',{}))
+                    if d.get('action')=='add_catalog_video':
+                        from .library import add_video
+                        updated=add_video(store,project,d.get('payload',{}))
+                    else:updated=scenario.apply(store,project,d.get('action'),d.get('payload',{}))
                     return self.respond(store.commit(updated,revision,actor,'Сценарий: '+str(d.get('action'))))
             match=re.fullmatch(r'blocks/([^/]+)/validate',tail)
             if match and self.command=='POST':
@@ -191,16 +220,39 @@ def handler_for(store,jobs,static,exports=None):
             if suffix not in MEDIA:raise StudioError('Поддерживаются изображения, видео и звук.',415)
             expected=int(q.get('revision',['0'])[0]);p=store.get(pid)
             if p['revision']!=expected:raise StudioError('Проект изменился; повторите добавление файла после обновления.',409)
-            folder=store.writable(store.location(pid).parent/'Imports');folder.mkdir(exist_ok=True)
-            basename=re.sub(r'[^\w. -]','_',name,flags=re.UNICODE)[-100:];target=store.writable(folder/(uid('asset-')+'-'+basename),False)
-            with target.open('xb') as f:
-                remaining=count
-                while remaining:
-                    chunk=self.rfile.read(min(1024*1024,remaining))
-                    if not chunk:raise StudioError('Загрузка прервалась.')
-                    f.write(chunk);remaining-=len(chunk)
-            payload={'path':str(target),'block_id':q.get('block',[None])[0],'role':q.get('role',['Референс'])[0]}
-            return self.respond(store.operation(pid,expected,'add_asset',payload),201)
+            library=q.get('mode')==['library-video']
+            block_id=q.get('block',[None])[0]
+            if library and suffix not in VIDEOS:raise StudioError('Выберите MP4, WebM или MOV.',415)
+            if library and block_id:raise StudioError('Импорт видео создаёт отдельный источник.',422)
+            root=store.project_dir(pid)
+            role=q.get('role',['Референс'])[0]
+            project_media=q.get('mode')==['project-media']
+            if library or (project_media and suffix in VIDEOS):dest='video'
+            elif project_media and suffix in AUDIO:dest='Audio'
+            elif project_media and suffix in IMAGES:dest='Frames' if role=='Опорный кадр' else 'References'
+            else:dest=None
+            folder=store.writable(root/dest if dest else store.production_dir(pid)/'Imports')
+            if dest and folder.parent!=root:raise StudioError('Каталог материалов находится вне проекта.',403)
+            folder.mkdir(parents=True,exist_ok=True)
+            basename=re.sub(r'[^\w. -]','_',name,flags=re.UNICODE)[-100:]
+            target=store.writable(folder/(uid('asset-')+'-'+basename),False)
+            created=False
+            try:
+                with target.open('xb') as f:
+                    created=True;remaining=count
+                    while remaining:
+                        chunk=self.rfile.read(min(1024*1024,remaining))
+                        if not chunk:raise StudioError('Загрузка прервалась.')
+                        f.write(chunk);remaining-=len(chunk)
+                if library:
+                    result=store.import_video(pid,expected,target,name)
+                else:
+                    result=store.operation(pid,expected,'add_asset',
+                        {'path':str(target),'block_id':block_id,'role':role})
+            except Exception:
+                if created:target.unlink(missing_ok=True)
+                raise
+            return self.respond(result,201)
 
         def handle_route(self):
             try:self.route()

@@ -16,7 +16,17 @@
     "texts": "../TrueMoon.Tales.Texts"
   },
   "project_write_roots": [
+    "../TrueMoon.Tales.Videos/Clair/Studio.project.json",
+    "../TrueMoon.Tales.Videos/Clair/video",
+    "../TrueMoon.Tales.Videos/Clair/Frames",
+    "../TrueMoon.Tales.Videos/Clair/References",
+    "../TrueMoon.Tales.Videos/Clair/Audio",
     "../TrueMoon.Tales.Videos/Clair/Production",
+    "../TrueMoon.Tales.Videos/Opening/Studio.project.json",
+    "../TrueMoon.Tales.Videos/Opening/video",
+    "../TrueMoon.Tales.Videos/Opening/Frames",
+    "../TrueMoon.Tales.Videos/Opening/References",
+    "../TrueMoon.Tales.Videos/Opening/Audio",
     "../TrueMoon.Tales.Videos/Opening/Production"
   ],
   "protected_roots": [

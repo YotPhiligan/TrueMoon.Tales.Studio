@@ -46,3 +46,32 @@ test('late add response cannot select an old project item after switching projec
   assert.equal(current().id,'beta');assert.deepEqual(v.selection,{kind:'segment',id:'beta-segment'});
   assert.deepEqual(calls.projects,[]);assert.deepEqual(calls.errors,[]);assert.equal(v.pending,false);
 });
+
+test('navigation takes strict neighbours in either direction and accepts a marker at frame zero',()=>{
+  const {v}=view();
+  v.navigationFrames={join:[24,48,72],marker:[0,24,24,96]};
+  v.cursor=24;
+  assert.equal(v.adjacentFrame('marker',-1),0);
+  assert.equal(v.adjacentFrame('marker',1),96);
+  assert.equal(v.adjacentFrame('join',-1),undefined);
+  assert.equal(v.adjacentFrame('join',1),48);
+  v.cursor=96;
+  assert.equal(v.adjacentFrame('marker',1),undefined);
+});
+
+test('fit segment uses explicit timeline selection, then open segment, then cursor',()=>{
+  const {v}=view(),a={id:'a',start_frame:0,duration_frames:24},b={id:'b',start_frame:36,duration_frames:60};
+  const timeline={segments:[a,b],clips:[{id:'clip',segment_id:'b'}]};
+  v.cursor=12;
+  assert.equal(v.segmentToFit(timeline),a);
+  v.getActiveSegment=()=>b.id;
+  assert.equal(v.segmentToFit(timeline),b);
+  v.selection={kind:'segment',id:a.id};
+  assert.equal(v.segmentToFit(timeline),a);
+  v.selection={kind:'clip',id:'clip'};
+  assert.equal(v.segmentToFit(timeline),b);
+  v.selection=null;
+  v.getActiveSegment=()=>null;
+  v.cursor=24;
+  assert.equal(v.segmentToFit(timeline),undefined);
+});

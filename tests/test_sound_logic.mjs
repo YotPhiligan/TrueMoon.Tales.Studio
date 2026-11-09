@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {placedSounds,soundSchedule,soundLanes} from '../static/sound-logic.js';
+import {placeSound,placedSounds,soundDragPatch,soundSchedule,soundLanes} from '../static/sound-logic.js';
 import {timelineDuration,segmentPlayback,criticalSignature} from '../static/playback-logic.js';
 import {MontagePlayer} from '../static/montage-player.js';
 import {SoundDesk,waveformSvg} from '../static/sound-ui.js';
+import {AudioTimelineView} from '../static/audio-timeline.js';
 
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8,`${actual} != ${expected}`);
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
@@ -20,6 +21,26 @@ test('placed sounds follow segment offset ignore orphan preserve inputs and show
   p.timeline.segments[0].start_frame+=10;
   assert.deepEqual(placedSounds(p.timeline).map(e=>e.start_frame),[82,118]);assert.deepEqual(before.timeline.sound_events,p.timeline.sound_events);
   assert.deepEqual(placedSounds({segments:[]}),[]);assert.deepEqual(Object.keys(soundLanes),['voice','sfx','ambience']);
+});
+
+test('clip sound lines use placement intervals and skip segment sounds and trimmed events',()=>{
+  const p=project(),t=p.timeline;
+  const first={id:'clip1',segment_id:'s1',block_id:'same',story_title:'Первый & блок',start_frame:48,duration_frames:36,take_id:null,source_in_frame:0};
+  t.clips=[first,{...first,id:'clip2',start_frame:84,story_title:'Второй'}];
+  t.sound_events=[
+    event({id:'bound',clip_id:first.id,offset_frames:12,duration_frames:48,muted:true}),
+    event({id:'out',clip_id:first.id,offset_frames:36}),
+    event({id:'segment-only'})
+  ];
+  const view=new AudioTimelineView({getProject:()=>p});
+  view.zoom=24;
+  const html=view.canvas(t);
+  const [firstHtml,secondHtml]=html.split('data-id="clip2"');
+  assert.match(firstHtml,/class="tl-block-sound-line muted" data-sound-line="bound" data-audio-role="voice" style="left:12px;width:24px"/);
+  assert.doesNotMatch(secondHtml,/tl-block-sound-line/);
+  assert.doesNotMatch(html,/data-sound-event="out"/);
+  assert.match(html,/data-sound-event="bound" data-sound-clip="clip1".+title="[^"]*Первый &amp; блок/);
+  assert.match(html,/data-sound-event="segment-only" aria-label=/);
 });
 
 test('sound schedule uses cut-preview time and clamps buffer segment end mute and half-open range',()=>{
@@ -69,7 +90,7 @@ test('player schedules selected cut and seek uses local offset while pause stops
   assert.deepEqual(env.sources[0].starts[0],[p.anchor+3,0,2]);assert.equal(env.gains[0].gain.value,.4);
   env.nextPlaying=deferred();p.seek(3.5);await env.nextPlaying.promise;
   assert.equal(env.sources[0].stops,1);assert.deepEqual(env.sources[1].starts[0],[p.anchor,.5,1.5]);assert.equal(env.fetches.length,1);
-  p.pause();assert.equal(env.sources[1].stops,1);assert.equal(env.sources[1].disconnected,true);assert.deepEqual(p.soundNodes,[]);assert.equal(env.rafs.size,0);
+  p.pause();assert.equal(env.sources[1].stops,1);assert.equal(env.sources[1].disconnected,true);assert.equal(p.activeAudio,null);assert.equal(env.rafs.size,0);
 });
 
 test('player selected segment clips sound tail and end replay schedules audio again without decoding twice',async t=>{
@@ -78,6 +99,33 @@ test('player selected segment clips sound tail and end replay schedules audio ag
   assert.deepEqual(env.sources[0].starts[0],[p.anchor+2.5,0,.5]);
   p.pause();p.position=p.end();await p.play();
   assert.equal(p.position,2);assert.equal(env.sources.length,2);assert.deepEqual(env.sources[1].starts[0],[p.anchor+2.5,0,.5]);assert.equal(env.decodeCount,1);
+});
+
+test('loop schedules the next mix at the same absolute offsets and cancels queued audio on pause',async t=>{
+  const env=playerSetup(t),p=env.player;
+  env.p.timeline.music={asset_id:'a',start_frame:0,duration_frames:240,source_in_frame:0,gain:.8,muted:false};
+  env.p.timeline.sound_events=[event({offset_frames:3,duration_frames:12})];
+  env.decodeResult=Promise.resolve({duration:10});p.media=()=>'/music';
+  const step=time=>{
+    env.ctx.currentTime=time;
+    const [id,callback]=env.rafs.entries().next().value;
+    env.rafs.delete(id);callback();
+  };
+  p.selectSegment('s1');p.seek(3);p.setLoop(true);await p.play();
+  assert.deepEqual(env.sources[0].starts[0],[p.anchor,3,2]);
+  assert.equal(env.sources.length,1);
+  const firstBoundary=p.anchor+2;
+  step(firstBoundary-.1);
+  assert.deepEqual(env.sources[1].starts[0],[firstBoundary,2,3]);
+  assert.deepEqual(env.sources[2].starts[0],[firstBoundary+.125,0,.5]);
+  step(firstBoundary-1e-9);
+  assert.equal(p.position,2);
+  step(firstBoundary+.03);
+  assert.equal(p.playing,true);close(p.time(),2.03);assert.equal(p.anchor,firstBoundary);
+  step(firstBoundary+2.9);
+  assert.deepEqual(env.sources[3].starts[0],[firstBoundary+3,2,3]);
+  assert.equal(env.decodeCount,2);
+  p.pause();assert.ok(env.sources.every(source=>source.stops===1));assert.equal(env.rafs.size,0);
 });
 
 test('pause during sound decode or project switch cannot schedule stale buffers',async t=>{
@@ -142,4 +190,26 @@ test('SoundDesk wave cache separates stream and media stamp and retries after fa
   const retry=env.desk.wave('a',1);env.pending[2].resolve({peaks:[.5]});await retry;
   env.p.assets.a.modified_ns++;const changed=env.desk.wave('a',1);env.pending[3].resolve({peaks:[.8]});await changed;
   assert.equal(env.calls.length,4);
+});
+
+test('sound drag preserves the source interval on move and trims left against source and owner',()=>{
+  const e=event(),owner={start_frame:48,duration_frames:72};
+  assert.deepEqual(soundDragPatch(e,owner,'',109,24),{offset_frames:61});
+  assert.deepEqual(soundDragPatch(e,owner,'',18,24),{offset_frames:0});
+  assert.deepEqual(soundDragPatch(e,owner,'left',10,24),{offset_frames:12,source_in_frame:0,duration_frames:60});
+  assert.deepEqual(soundDragPatch(e,owner,'left',500,24),{offset_frames:71,source_in_frame:59,duration_frames:1});
+  assert.deepEqual(soundDragPatch(e,owner,'right',900,24),{duration_frames:108});
+  assert.deepEqual(soundDragPatch(e,owner,'right',120,24),{});
+});
+
+test('clip sound drag preserves the visible length and hidden source tail until an explicit trim',()=>{
+  const clip={id:'clip',segment_id:'s1',start_frame:48,duration_frames:72};
+  const clipped=event({clip_id:clip.id,offset_frames:36,duration_frames:60});
+  assert.deepEqual(soundDragPatch(clipped,clip,'',105,24),{});
+  const moved={...clipped,...soundDragPatch(clipped,clip,'',60,24)};
+  assert.equal(moved.duration_frames,60);
+  assert.equal(placeSound(moved,clip).duration_frames,60);
+  assert.deepEqual(soundDragPatch(clipped,clip,'left',90,24),{offset_frames:42,source_in_frame:18,duration_frames:54});
+  assert.deepEqual(soundDragPatch(clipped,clip,'right',134,24),{});
+  assert.deepEqual(soundDragPatch(clipped,clip,'right',106,24),{duration_frames:22});
 });

@@ -66,7 +66,8 @@ def parser():
         sub = commands.add_parser(name); sub.add_argument('--id', required=True); sub.add_argument('--revision', type=int, required=True)
         if name in ['finish', 'fail']:
             sub.add_argument('--result-file', required=True)
-        if name == 'finish': sub.add_argument('--target-file')
+        if name == 'finish':
+            sub.add_argument('--target-file'); sub.add_argument('--proposal-file')
     for name in ['patch-block', 'prepare', 'continue']:
         sub = commands.add_parser(name); sub.add_argument('--block', required=True); sub.add_argument('--revision', type=int, required=True)
         if name == 'patch-block': sub.add_argument('--file', required=True)
@@ -138,6 +139,7 @@ def execute(client, args):
         payload = {'expected_revision': args.revision, 'action': command,
                    'result': file_text(args.result_file) if command in ['finish', 'fail'] else ''}
         if command == 'finish' and args.target_file: payload['result_target'] = json.loads(file_text(args.target_file))
+        if command == 'finish' and args.proposal_file: payload['proposal'] = json.loads(file_text(args.proposal_file))
         return task_summary(client.call('POST', path, payload))
     if command in ['patch-block', 'prepare', 'continue']:
         context = client.call('GET', base + '/agent/context?' + parse.urlencode({'block': args.block}))

@@ -11,7 +11,7 @@ test('split availability follows the live cursor and respects both boundaries an
   const prior=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{setItem(){}}});
   t.after(()=>prior?Object.defineProperty(globalThis,'localStorage',prior):delete globalThis.localStorage);
-  const p=project(),button={disabled:true},view=new AudioTimelineView({getProject:()=>p,root:{querySelector:s=>s==='#tlSplit'?button:null}});
+  const p=project(),button={disabled:true},view=new AudioTimelineView({getProject:()=>p,root:{querySelector:()=>null},propertiesRoot:{querySelector:s=>s==='#tlSplit'?button:null}});
   view.selection={kind:'clip',id:'c1'};
   view.advance(1,false);assert.equal(button.disabled,true,'at first frame');
   view.advance(25/24,true);assert.equal(button.disabled,false,'inside clip without a property form rerender');

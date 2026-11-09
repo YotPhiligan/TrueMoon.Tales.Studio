@@ -1,12 +1,16 @@
 import {escapeHtml as esc} from './logic.js';
+import {segmentTypeIcon,segmentTypeLabel,segmentTypeOptions} from './segment-types.js';
 import {clipSpeed,sourceOut} from './clip-edit-logic.js';
-import {timelineOf,frameEnd,frameCode,toFrame,takeCapacity,extentFrames,rulerStep,snapFrame,trimClip,placementError} from './timeline-logic.js';
+import {timelineOf,frameEnd,frameCode,toFrame,takeCapacity,extentFrames,rulerStep,snapFrame,snapPosition,trimClip,placementError} from './timeline-logic.js';
 import {TimelineMenu} from './timeline-menu.js';
+import {timelineDuration} from './playback-logic.js';
+import {previewScenarioClip,scenarioView} from './scenario-logic.js';
 import {layoutContext,loadDensity,saveDensity} from './timeline-layout.js';
 import {timelineJoins,transitionWindows} from './transitions-logic.js';
 
 const colors=['mint','blue','violet','amber','rose','teal'];
 const seconds=(n,fps)=>(n/fps).toFixed(3);
+const minZoom=.1,maxZoom=160;
 
 export class TimelineView {
   constructor(options){
@@ -17,18 +21,25 @@ export class TimelineView {
   timelineLayout(){
     const context=layoutContext(this.getLayoutContext?.());this.densityPrefs??={};
     this.densityPrefs[context]??=loadDensity(context);
-    if(this.lastLayoutContext!==context){this.compactProperties=false;this.lastLayoutContext=context;}
     const compact=this.densityPrefs[context]==='compact';return {context,compact,collapsed:!compact&&!!this.collapsed};
   }
   setDensity(value){
     const {context}=this.timelineLayout();saveDensity(context,value);this.densityPrefs[context]=value;
-    this.collapsed=false;this.compactProperties=false;this.lastSignature='';this.render();
+    this.collapsed=false;this.lastSignature='';this.render();
     this.root.querySelector('#tlDensity')?.focus({preventScroll:true});
   }
-  syncLayoutControls(){
-    const layout=this.timelineLayout(),button=this.root.querySelector('#tlPropertiesToggle');
-    if(button){button.disabled=!this.item();button.setAttribute('aria-expanded',String(!!this.compactProperties));}
-    this.root.classList.toggle('compact-properties-open',layout.compact&&!!this.compactProperties);
+  refreshProperties(){
+    if(!this.propertiesRoot)return;
+    const {id,revision}=this.project();
+    const key=JSON.stringify([id,revision,this.selection]);
+    if(key!==this.propertiesKey){
+      this.propertiesKey=key;
+      this.properties(this.propertiesRoot);
+      this.propertiesRoot.scrollTop=0;
+    }
+    const submit=this.propertiesRoot.querySelector('#tlEdit button[type="submit"]');
+    if(submit)submit.disabled=this.pending;
+    this.refreshClipActions();
   }
   data(){return this.getTimeline?.()??timelineOf(this.project());}
   media(id){return `/api/media?project=${encodeURIComponent(this.project().id)}&asset=${encodeURIComponent(id)}`;}
@@ -42,46 +53,60 @@ export class TimelineView {
     return kind==='music'?this.data().music:this.data()[kind+'s']?.find(x=>x.id===id);
   }
   item(){return this.selection?this.lookup(this.selection.kind,this.selection.id):null;}
-  refreshClipActions(){const button=this.root.querySelector('#tlSplit'),item=this.selection?.kind==='clip'?this.item():null;if(button)button.disabled=this.pending||!item||this.cursor<=item.start_frame||this.cursor>=frameEnd(item);}
+  refreshClipActions(){const button=this.propertiesRoot?.querySelector('#tlSplit'),item=this.selection?.kind==='clip'?this.item():null;if(button)button.disabled=this.pending||!item||this.cursor<=item.start_frame||this.cursor>=frameEnd(item);}
   render(){
     const p=this.project();if(!p||this.drag)return;
     if(this.projectId!==p.id){
       this.projectId=p.id;this.selection=null;this.lastSignature='';
       this.cursor=Number(localStorage.getItem('studio-cursor-'+p.id)||0);this.zoom=Number(localStorage.getItem('studio-zoom-'+p.id)||32);
       if(!Number.isFinite(this.cursor)||this.cursor<0)this.cursor=0;
-      if(!Number.isFinite(this.zoom)||this.zoom<2||this.zoom>160)this.zoom=32;
+      if(!Number.isFinite(this.zoom)||this.zoom<minZoom||this.zoom>maxZoom)this.zoom=32;
     }
     const layout=this.timelineLayout(),collapsed=layout.collapsed;
-    const t=this.data(),signature=JSON.stringify([p.id,p.revision,this.zoom,this.cursor,this.selection,collapsed,this.pending,this.getBlock()?.id,layout,!!this.compactProperties]);
+    const t=this.data(),signature=JSON.stringify([p.id,p.revision,this.zoom,this.cursor,this.selection,collapsed,this.pending,this.getBlock()?.id,this.getActiveSegment?.(),layout]);
     if(signature===this.lastSignature)return;this.lastSignature=signature;
     this.contextMenu?.close(false);
-    const old=this.root.querySelector('.tl-scroll'),scroll=old?.scrollLeft??0,focused=this.root.contains(document.activeElement)?document.activeElement.dataset.id:null;
+    const old=this.root.querySelector('.tl-scroll'),scroll=old?.scrollLeft??0,scrollTop=old?.scrollTop??0,focused=this.root.contains(document.activeElement)?document.activeElement.dataset.id:null;
+    const toolbarScroll=this.root.querySelector('.tl-toolbar')?.scrollLeft??0;
+    const joins=timelineJoins(t);
+    this.navigationFrames={
+      join:joins.map(join=>join.start_frame),
+      marker:t.markers.map(marker=>marker.frame).sort((a,b)=>a-b)
+    };
     if(this.selection&&!this.item())this.selection=null;
-    if(!this.selection)this.compactProperties=false;
     this.root.className='timeline'+(collapsed?' collapsed':'')+(this.pending?' pending':'')+(layout.compact?' compact':'');
     this.root.dataset.layoutContext=layout.context;this.root.dataset.density=layout.compact?'compact':'full';
     this.root.innerHTML=`<header class="tl-toolbar"><div class="tl-title"><span class="eyebrow">МОНТАЖ ПРОЕКТА</span><strong>Общий таймлайн</strong></div>
       <output id="tlTimecode" class="tl-timecode">${frameCode(this.cursor,t.fps)}</output><span class="tl-fps">${t.fps} fps</span>
+      <div class="tl-jumps" role="group" aria-label="Переход по стыкам">
+        <button type="button" class="button subtle small" data-tl-jump="join" data-direction="-1" title="Предыдущий стык" aria-label="Предыдущий стык">‹</button><span aria-hidden="true">Стык</span><button type="button" class="button subtle small" data-tl-jump="join" data-direction="1" title="Следующий стык" aria-label="Следующий стык">›</button>
+      </div>
+      <div class="tl-jumps" role="group" aria-label="Переход по меткам и битам">
+        <button type="button" class="button subtle small" data-tl-jump="marker" data-direction="-1" title="Предыдущая метка или бит" aria-label="Предыдущая метка или бит">‹</button><span aria-hidden="true">Метки</span><button type="button" class="button subtle small" data-tl-jump="marker" data-direction="1" title="Следующая метка или бит" aria-label="Следующая метка или бит">›</button>
+      </div>
+      <label class="tl-zoom" title="Масштаб вокруг курсора · Ctrl + колесо над шкалой — вокруг указателя"><span>−</span><input id="tlZoom" aria-label="Масштаб таймлайна" type="range" min="${minZoom}" max="${maxZoom}" step="any" value="${this.zoom}"><span>+</span></label>
+      <button id="tlFit" class="button subtle small">Уместить проект</button><button id="tlFitSegment" class="button subtle small">Уместить сегмент</button>
       <button id="tlUndo" class="button subtle small" title="Отменить монтажное действие · Ctrl+Z" ${!t.undo.length||this.pending?'disabled':''}>↶</button>
       <button id="tlRedo" class="button subtle small" title="Повторить монтажное действие · Ctrl+Shift+Z" ${!t.redo.length||this.pending?'disabled':''}>↷</button>
-      <button id="tlDensity" class="button subtle small" title="${layout.compact?'Развернуть монтажные инструменты':'Уменьшить высоту, сохранив дорожки'}">${layout.compact?'Полный таймлайн':'Компактный вид'}</button><button id="tlPropertiesToggle" class="button subtle small" aria-controls="tlProperties" aria-expanded="${!!this.compactProperties}" ${this.item()?'':'disabled'}>Свойства</button>
+      <button id="tlDensity" class="button subtle small" title="${layout.compact?'Развернуть монтажные инструменты':'Уменьшить высоту, сохранив дорожки'}">${layout.compact?'Полный таймлайн':'Компактный вид'}</button>
       <label class="tl-snap"><input id="tlSnap" type="checkbox" ${this.snapping?'checked':''}>Привязка</label>
       <button id="tlNewSegment" class="button subtle small" ${this.pending?'disabled':''}>+ Сегмент</button>
       <button id="tlPlaceBlock" class="button small" ${!this.getBlock()||!t.segments.length||this.pending?'disabled':''}>+ Текущий блок</button>
       <button id="tlNewMarker" class="button subtle small" ${this.pending?'disabled':''}>◇ Маркер</button>
-      <label class="tl-zoom" title="Пикселей на секунду"><span>−</span><input id="tlZoom" aria-label="Масштаб таймлайна" type="range" min="2" max="160" value="${this.zoom}"><span>+</span></label>
-      <button id="tlFit" class="button subtle small">Уместить</button><button id="tlCollapse" class="button subtle small" aria-label="${collapsed?'Развернуть':'Свернуть'} таймлайн">${collapsed?'⌃':'⌄'}</button></header>
+      <button id="tlCollapse" class="button subtle small" aria-label="${collapsed?'Развернуть':'Свернуть'} таймлайн">${collapsed?'⌃':'⌄'}</button></header>
       <div class="tl-body"><div class="tl-scroll" aria-label="Монтажная шкала" tabindex="0"><div class="tl-gutter"><span>Время</span><span>Маркеры</span><span>Сегменты</span><span>Блоки</span></div><div class="tl-canvas" style="width:${Math.max(600,this.px(extentFrames(t)))}px">${this.canvas(t)}</div></div>
-      <div id="tlProperties" class="tl-properties"></div><div id="tlStatus" class="tl-status" role="status">${t.clips.length?'Перетаскивайте клипы и края. Alt — без привязки. Плеер показывает выбранный блок.':'Создайте монтажный сегмент и перетащите блок из дерева или нажмите «Текущий блок». Источники остаются в библиотеке.'}</div></div>`;
-    this.root.querySelector('.tl-scroll').scrollLeft=scroll;
-    this.bind();this.properties();this.syncLayoutControls();if(focused)this.root.querySelector(`[data-id="${focused}"]`)?.focus({preventScroll:true});
+      <output class="tl-drag-feedback" hidden></output><div id="tlStatus" class="tl-status" role="status">${t.clips.length?'Перетаскивайте клипы и края. Alt — без привязки. Плеер показывает выбранный блок.':'Создайте монтажный сегмент и перетащите блок из дерева или нажмите «Текущий блок». Источники остаются в библиотеке.'}</div></div>`;
+    const viewport=this.root.querySelector('.tl-scroll');viewport.scrollLeft=scroll;viewport.scrollTop=scrollTop;
+    this.bind();this.refreshProperties();this.refreshNavigation(t);
+    this.root.querySelector('.tl-toolbar').scrollLeft=toolbarScroll;
+    if(focused)this.root.querySelector(`[data-id="${focused}"]`)?.focus({preventScroll:true});
   }
-  canvas(t){
+  canvas(t,clipOverlay=()=>''){
     const extent=extentFrames(t),major=rulerStep(this.zoom,t.fps),minor=Math.max(1,Math.round(major/5));
     let ticks='';for(let n=0;n<=extent;n+=major)ticks+=`<span class="tl-tick major" style="left:${this.px(n)}px"><b>${frameCode(n,t.fps)}</b></span>`;
     for(let n=0;n<=extent;n+=minor)if(n%major)ticks+=`<span class="tl-tick" style="left:${this.px(n)}px"></span>`;
     const active=(kind,id)=>this.selection?.kind===kind&&this.selection.id===id?' selected':'';
-    const segments=t.segments.map(s=>`<div class="tl-segment ${s.color}${active('segment',s.id)}" data-kind="segment" data-id="${s.id}" tabindex="0" role="button" aria-label="Сегмент ${esc(s.name)}" title="${esc(s.name)} · ${frameCode(s.start_frame,t.fps)} — ${frameCode(frameEnd(s),t.fps)}" style="left:${this.px(s.start_frame)}px;width:${this.px(s.duration_frames)}px"><span>${esc(s.name)}</span><small>${seconds(s.duration_frames,t.fps)} с</small><i class="tl-handle right" data-edge="segment-right" aria-hidden="true"></i></div>`).join('');
+    const segments=t.segments.map(s=>`<div class="tl-segment ${s.color}${active('segment',s.id)}" data-kind="segment" data-id="${s.id}" tabindex="0" role="button" aria-label="Сегмент ${esc(s.name)} · ${segmentTypeLabel(s.segment_type)}" title="${esc(s.name)} · ${segmentTypeLabel(s.segment_type)} · ${frameCode(s.start_frame,t.fps)} — ${frameCode(frameEnd(s),t.fps)}" style="left:${this.px(s.start_frame)}px;width:${this.px(s.duration_frames)}px">${segmentTypeIcon(s.segment_type)}<span>${esc(s.name)}</span><span class="tl-segment-type">${segmentTypeLabel(s.segment_type)}</span><small>${seconds(s.duration_frames,t.fps)} с</small><i class="tl-handle right" data-edge="segment-right" aria-hidden="true"></i></div>`).join('');
     const sequence=t.clips.toSorted((a,b)=>a.start_frame-b.start_frame);
     const windows=transitionWindows(t),incoming=new Map(windows.map(w=>[w.right_clip_id,w])),outgoing=new Map(windows.map(w=>[w.left_clip_id,w]));
     const clips=t.clips.map(c=>{
@@ -91,28 +116,40 @@ export class TimelineView {
       const into=incoming.get(c.id),out=outgoing.get(c.id),px=n=>n*this.zoom/t.fps;
       const layer=(type,start,length)=>length>0?`<i class="tl-fade-band ${type}" aria-hidden="true" style="left:${px(start)}px;width:${px(length)}px"></i>`:'';
       const fades=(into?layer('fade-in',0,into.fade_in_frames):'')+(out?layer('fade-out',out.out_start_frame-c.start_frame,out.fade_out_frames)+layer('black-tail',out.black_start_frame-c.start_frame,c.start_frame+c.duration_frames-out.black_start_frame):'');
-      return `<div class="tl-clip ${s?.color??'mint'}${c.take_id?'':' placeholder'}${active('clip',c.id)}" data-kind="clip" data-id="${c.id}" tabindex="0" role="button" aria-label="Клип ${esc(c.story_title??b?.label??'Блок')}" title="${esc(c.story_title??b?.label??'Блок')} · ${seconds(c.duration_frames,t.fps)} с${contextWarning?' · Проверьте стык Motion Context':''}" style="left:${this.px(c.start_frame)}px;width:${this.px(c.duration_frames)}px">${poster?`<img src="${this.media(poster)}" alt="" draggable="false" loading="lazy">`:''}${fades}<i class="tl-handle left" data-edge="left" aria-hidden="true"></i><span class="tl-clip-label">${esc(c.story_title??b?.label??'Блок')}</span><small>${c.take_id?`${frameCode(c.source_in_frame,t.fps)} · ${seconds(c.duration_frames,t.fps)} с`:'ЗАГЛУШКА'}</small>${clipSpeed(c)!==1||c.anchor_frame!=null||c.gap_protected?`<b class="tl-edit-badge">${clipSpeed(c)}×${c.anchor_frame!=null?' · фикс.':''}${c.gap_protected?' · пауза':''}</b>`:''}${contextWarning?'<span class="tl-context-note" title="Перед этим клипом не размещён дубль, из которого взят Motion Context. Проверьте стык.">↗</span>':''}<i class="tl-handle right" data-edge="right" aria-hidden="true"></i></div>`;
+      return `<div class="tl-clip ${s?.color??'mint'}${c.take_id?'':' placeholder'}${active('clip',c.id)}" data-kind="clip" data-id="${c.id}" tabindex="0" role="button" aria-label="Клип ${esc(c.story_title??b?.label??'Блок')}" title="${esc(c.story_title??b?.label??'Блок')} · ${seconds(c.duration_frames,t.fps)} с${contextWarning?' · Проверьте стык Motion Context':''}" style="left:${this.px(c.start_frame)}px;width:${this.px(c.duration_frames)}px">${poster?`<img src="${this.media(poster)}" alt="" draggable="false" loading="lazy">`:''}${fades}<i class="tl-handle left" data-edge="left" aria-hidden="true"></i><span class="tl-clip-label">${esc(c.story_title??b?.label??'Блок')}</span><small>${c.take_id?`${frameCode(c.source_in_frame,t.fps)} · ${seconds(c.duration_frames,t.fps)} с`:'ЗАГЛУШКА'}</small>${clipOverlay(c)}${clipSpeed(c)!==1||c.anchor_frame!=null||c.gap_protected?`<b class="tl-edit-badge">${clipSpeed(c)}×${c.anchor_frame!=null?' · фикс.':''}${c.gap_protected?' · пауза':''}</b>`:''}${contextWarning?'<span class="tl-context-note" title="Перед этим клипом не размещён дубль, из которого взят Motion Context. Проверьте стык.">↗</span>':''}<i class="tl-handle right" data-edge="right" aria-hidden="true"></i></div>`;
     }).join('');
     const boundaries=t.segments.map(s=>[s.start_frame,frameEnd(s)].map((n,i)=>`<i class="tl-boundary" data-boundary="${s.id}" data-end="${i}" style="left:${this.px(n)}px"></i>`).join('')).join('');
     const markers=t.markers.map(m=>`<button class="tl-marker${active('marker',m.id)}" data-kind="marker" data-id="${m.id}" style="left:${this.px(m.frame)}px" title="${esc(m.name)} · ${frameCode(m.frame,t.fps)}">◇ <span>${esc(m.name)}</span></button>`).join('');
     const joins=timelineJoins(t).map(j=>`<button class="tl-join${j.transition?' configured':''}" data-kind="join" data-id="${j.id}" aria-haspopup="menu" aria-expanded="false" aria-label="${j.cross_segment?'Стык сегментов':'Стык блоков'} ${esc(this.joinName(j,t))}" title="${j.cross_segment?'Стык сегментов':'Стык блоков'} · ${esc(this.joinName(j,t))} · переход через чёрный" style="left:${this.px(j.start_frame)}px">${j.transition?'◆':'◇'}</button>`).join('');
-    return `<div class="tl-ruler">${ticks}</div><div class="tl-marker-lane">${markers}</div><div class="tl-segment-lane">${segments}</div><div class="tl-clip-lane">${clips}${joins}</div>${boundaries}<div class="tl-playhead" style="left:${this.px(this.cursor)}px"><i></i></div>${!t.segments.length?'<div class="tl-empty">Сначала добавьте сегмент — его границы зададут монтажное окно.</div>':''}`;
+    return `<div class="tl-ruler" title="Перемотка · Shift + перетаскивание — повтор диапазона">${ticks}</div><div class="tl-marker-lane">${markers}</div><div class="tl-segment-lane">${segments}</div><div class="tl-clip-lane">${clips}${joins}</div>${boundaries}<i class="tl-range-draft" hidden aria-hidden="true"></i><i class="tl-snap-guide" hidden aria-hidden="true"></i><div class="tl-playhead" style="left:${this.px(this.cursor)}px"><i title="Перетащить курсор · Shift — выбрать диапазон"></i></div>${!t.segments.length?'<div class="tl-empty">Сначала добавьте сегмент — его границы зададут монтажное окно.</div>':''}`;
   }
   bind(){
     const q=s=>this.root.querySelector(s);
     q('#tlUndo').onclick=()=>this.write('undo',{});q('#tlRedo').onclick=()=>this.write('redo',{});
     q('#tlSnap').onchange=e=>{this.snapping=e.target.checked;};
     q('#tlZoom').onchange=e=>this.setZoom(Number(e.target.value));
-    q('#tlFit').onclick=()=>this.setZoom(Math.max(2,Math.min(160,(q('.tl-scroll').clientWidth-100)/(extentFrames(this.data())/this.data().fps))));
+    q('#tlFit').onclick=()=>{
+      const t=this.data();
+      this.fitRange(0,extentFrames(t)/t.fps);
+    };
+    q('#tlFitSegment').onclick=()=>{
+      const t=this.data(),segment=this.segmentToFit(t);
+      if(segment)this.fitRange(segment.start_frame/t.fps,segment.duration_frames/t.fps);
+    };
+    this.root.querySelectorAll('[data-tl-jump]').forEach(button=>{
+      button.onclick=()=>{
+        const target=this.adjacentFrame(button.dataset.tlJump,Number(button.dataset.direction));
+        if(target==null)return;
+        this.seek(target,{allowBeyondEnd:button.dataset.tlJump==='marker'});
+        this.revealCursor();
+      };
+    });
     q('#tlCollapse').onclick=()=>{this.collapsed=!this.collapsed;this.render();};
     q('#tlDensity').onclick=()=>this.setDensity(this.timelineLayout().compact?'full':'compact');
-    q('#tlPropertiesToggle').onclick=()=>{
-      this.onEditStart?.();this.compactProperties=!this.compactProperties;this.render();
-      (this.compactProperties?this.root.querySelector('#tlProperties input, #tlProperties select'):q('#tlPropertiesToggle'))?.focus({preventScroll:true});
-    };
     q('#tlNewSegment').onclick=()=>this.newSegment();q('#tlNewMarker').onclick=()=>this.newMarker();
     q('#tlPlaceBlock').onclick=()=>this.placeBlock(this.getBlock()?.id,this.cursor,this.getTake()?.id);
-    q('.tl-ruler').onpointerdown=e=>{if(e.button!==0)return;this.seek(this.frameAt(e.clientX));};
+    q('.tl-ruler').onpointerdown=e=>this.startScrub(e);
+    q('.tl-playhead>i').onpointerdown=e=>this.startScrub(e,true);
     q('.tl-clip-lane').ondblclick=e=>{if(e.target===q('.tl-clip-lane'))this.seek(this.frameAt(e.clientX));};
     this.root.querySelectorAll('[data-kind]').forEach(el=>{
       if(el.dataset.kind==='join'){
@@ -128,6 +165,17 @@ export class TimelineView {
       if(el.tagName==='BUTTON')el.onclick=e=>e.preventDefault();
     });
     const scroll=q('.tl-scroll');
+    scroll.addEventListener('wheel',event=>{
+      if(!(event.ctrlKey||event.metaKey)||!event.deltaY)return;
+      event.preventDefault();
+      if(this.scrubbing||this.drag)return;
+      const width=this.visibleLaneWidth(scroll);
+      const laneLeft=scroll.getBoundingClientRect().left+scroll.clientLeft+scroll.clientWidth-width;
+      const offset=Math.max(0,Math.min(width,event.clientX-laneLeft));
+      const time=(scroll.scrollLeft+offset)/this.zoom;
+      const pixels=event.deltaY*(event.deltaMode===1?16:event.deltaMode===2?scroll.clientHeight:1);
+      this.setZoom(this.zoom*Math.exp(-pixels*.003),{time,offset});
+    },{passive:false});
     scroll.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-studio-block')){e.preventDefault();e.dataTransfer.dropEffect='copy';scroll.classList.add('drop-active');}};
     scroll.ondragleave=()=>scroll.classList.remove('drop-active');
     scroll.ondrop=e=>{e.preventDefault();scroll.classList.remove('drop-active');const id=e.dataTransfer.getData('application/x-studio-block');if(id)this.placeBlock(id,this.frameAt(e.clientX));};
@@ -136,23 +184,162 @@ export class TimelineView {
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();this.write(e.shiftKey?'redo':'undo',{});}
     };
   }
-  setZoom(zoom){
-    const scroll=this.root.querySelector('.tl-scroll'),width=scroll.clientWidth,middle=(scroll.scrollLeft+width/2)/this.zoom;
-    this.zoom=Math.round(zoom*10)/10;localStorage.setItem('studio-zoom-'+this.project().id,this.zoom);this.render();
-    this.root.querySelector('.tl-scroll').scrollLeft=Math.max(0,middle*this.zoom-width/2);
+  visibleLaneWidth(scroll){
+    const gutter=this.root.querySelector('.tl-gutter')?.offsetWidth??0;
+    return Math.max(0,scroll.clientWidth-gutter);
+  }
+  setZoom(value,anchor){
+    if(this.scrubbing||this.drag)return;
+    const scroll=this.root.querySelector('.tl-scroll'),width=this.visibleLaneWidth(scroll);
+    if(!width)return;
+    const time=this.cursor/this.data().fps,offset=time*this.zoom-scroll.scrollLeft;
+    const point=anchor??{time,offset:offset>=0&&offset<width?offset:width/2};
+    const focused=this.root.contains(document.activeElement)?document.activeElement.id:'';
+    this.zoom=Math.max(minZoom,Math.min(maxZoom,value));
+    localStorage.setItem('studio-zoom-'+this.project().id,this.zoom);
+    this.render();
+    const next=this.root.querySelector('.tl-scroll');
+    next.scrollLeft=Math.max(0,point.time*this.zoom-point.offset);
+    if(focused)this.root.querySelector('#'+focused)?.focus({preventScroll:true});
+  }
+  fitRange(start,duration){
+    const width=this.visibleLaneWidth(this.root.querySelector('.tl-scroll'));
+    if(width>24&&duration>0)this.setZoom((width-24)/duration,{time:start,offset:12});
+  }
+  segmentToFit(t){
+    const selection=this.selection;
+    const selectedId=selection?.kind==='segment'?selection.id:
+      selection?.kind==='clip'?t.clips.find(clip=>clip.id===selection.id)?.segment_id:null;
+    const id=selectedId??this.getActiveSegment?.();
+    return id?t.segments.find(segment=>segment.id===id):
+      t.segments.find(segment=>this.cursor>=segment.start_frame&&this.cursor<frameEnd(segment));
+  }
+  adjacentFrame(kind,direction){
+    const frames=this.navigationFrames?.[kind]??[];
+    return direction<0?frames.findLast(frame=>frame<this.cursor):frames.find(frame=>frame>this.cursor);
+  }
+  refreshNavigation(t){
+    const fit=this.root.querySelector('#tlFitSegment');
+    if(!fit)return;
+    const segment=this.segmentToFit(t);
+    fit.disabled=!segment;
+    fit.title=segment?segment.name:'Выберите сегмент с заданными границами';
+    for(const button of this.root.querySelectorAll('[data-tl-jump]')){
+      button.disabled=this.adjacentFrame(button.dataset.tlJump,Number(button.dataset.direction))==null;
+    }
+  }
+  revealCursor(margin=0){
+    const scroll=this.root.querySelector('.tl-scroll');
+    if(!scroll)return;
+    const width=this.visibleLaneWidth(scroll),x=this.px(this.cursor);
+    if(width&&(x<scroll.scrollLeft||x>=scroll.scrollLeft+width-Math.min(margin,width/4))){
+      scroll.scrollLeft=Math.max(0,x-width/4);
+    }
   }
   frameAt(clientX){return Math.max(0,Math.round((clientX-this.root.querySelector('.tl-canvas').getBoundingClientRect().left)/this.zoom*this.data().fps));}
+  setCursor(frame){
+    this.cursor=Math.max(0,Math.round(frame));
+    const t=this.data(),code=this.root.querySelector('#tlTimecode'),head=this.root.querySelector('.tl-playhead');
+    if(code)code.textContent=frameCode(this.cursor,t.fps);
+    if(head)head.style.left=this.cursor*this.zoom/t.fps+'px';
+    this.refreshClipActions();
+    this.refreshNavigation(t);
+  }
+  rememberCursor(){localStorage.setItem('studio-cursor-'+this.project().id,this.cursor);}
+  startScrub(event,grabHandle=false){
+    if(event.button!==0||this.pending||this.drag||this.scrubbing)return;
+    event.preventDefault();
+    const root=this.root,project=this.project(),t=this.data();
+    const selecting=event.shiftKey&&!!this.onRepeatRange;
+    const last=Math.max(0,Math.round(timelineDuration(t)*t.fps)-(selecting?0:1));
+    const offset=grabHandle?event.clientX-root.querySelector('.tl-playhead').getBoundingClientRect().left:0;
+    const pointer=event.pointerId,listeners=new AbortController(),options={signal:listeners.signal};
+    let x=event.clientX,frame,anchor,raf,previous=performance.now();
+    const viewport=()=>{
+      const scroll=root.querySelector('.tl-scroll'),gutter=root.querySelector('.tl-gutter');
+      if(!scroll||!gutter)return null;
+      const bounds=scroll.getBoundingClientRect();
+      const left=Math.max(bounds.left,gutter.getBoundingClientRect().right);
+      const right=bounds.left+scroll.clientWidth;
+      return right>left?{scroll,left,right}:null;
+    };
+    const current=()=>{
+      const active=this.project();
+      return active?.id===project.id&&active.revision===project.revision&&!this.pending;
+    };
+    const seekAt=({left,right})=>{
+      const next=Math.min(last,this.frameAt(Math.max(left,Math.min(right,x-offset))));
+      if(next===frame)return;
+      frame=next;
+      if(selecting){
+        anchor??=frame;
+        const band=root.querySelector('.tl-range-draft');
+        band.hidden=anchor===frame;
+        band.style.left=this.px(Math.min(anchor,frame))+'px';
+        band.style.width=this.px(Math.abs(frame-anchor))+'px';
+      }else this.seek(next);
+    };
+    const finish=()=>{
+      listeners.abort();
+      if(raf!=null)cancelAnimationFrame(raf);
+      this.scrubbing=false;
+      if(root.hasPointerCapture(pointer))root.releasePointerCapture(pointer);
+      if(selecting)root.querySelector('.tl-range-draft').hidden=true;
+      else if(current())this.rememberCursor();
+    };
+    const tick=now=>{
+      raf=null;
+      const area=viewport();
+      if(!current()||!area){finish();return;}
+      const {scroll,left,right}=area;
+      const margin=Math.min(40,(right-left)/3);
+      const pressure=x<left+margin?(x-left-margin)/margin:x>right-margin?(x-right+margin)/margin:0;
+      const step=Math.round(Math.max(-1,Math.min(1,pressure))*.75*Math.max(0,Math.min(32,now-previous)));
+      previous=now;
+      scroll.scrollLeft+=step;
+      seekAt(area);
+      const canScroll=pressure<0?scroll.scrollLeft>0:pressure>0&&scroll.scrollLeft<scroll.scrollWidth-scroll.clientWidth;
+      if(canScroll)raf=requestAnimationFrame(tick);
+    };
+    this.scrubbing=true;
+    // The first seek can rebuild the ruler when opening the montage.
+    root.setPointerCapture(pointer);
+    root.addEventListener('pointermove',e=>{
+      if(e.pointerId!==pointer)return;
+      x=e.clientX;
+      if(raf==null){previous=performance.now();raf=requestAnimationFrame(tick);}
+    },options);
+    root.addEventListener('pointerup',e=>{
+      if(e.pointerId!==pointer)return;
+      x=e.clientX;
+      const area=viewport();
+      const valid=current()&&area;
+      if(valid)seekAt(area);
+      finish();
+      if(valid&&selecting&&anchor!==frame)this.onRepeatRange(Math.min(anchor,frame),Math.max(anchor,frame));
+    },options);
+    for(const type of ['pointercancel','lostpointercapture']){
+      root.addEventListener(type,e=>{if(e.pointerId===pointer)finish();},options);
+    }
+    this.onEditStart?.();
+    const area=viewport();
+    if(area)seekAt(area);else finish();
+  }
   seek(frame){
-    this.cursor=Math.max(0,Math.round(frame));localStorage.setItem('studio-cursor-'+this.project().id,this.cursor);
+    this.setCursor(frame);if(!this.scrubbing)this.rememberCursor();
     const clip=this.data().clips.find(c=>this.cursor>=c.start_frame&&this.cursor<frameEnd(c));
-    this.render();if(clip)this.onClip(clip,(clip.source_in_frame+(this.cursor-clip.start_frame)*clipSpeed(clip))/this.data().fps);
+    if(clip)this.onClip(clip,(clip.source_in_frame+(this.cursor-clip.start_frame)*clipSpeed(clip))/this.data().fps);
   }
   choose(kind,id){
-    this.selection={kind,id};this.root.querySelectorAll('[data-kind]').forEach(e=>e.classList.toggle('selected',e.dataset.kind===kind&&e.dataset.id===id));this.properties();this.syncLayoutControls();
+    this.selection={kind,id};
+    this.root.querySelectorAll('[data-kind]').forEach(e=>e.classList.toggle('selected',e.dataset.kind===kind&&e.dataset.id===id));
+    this.refreshProperties();
+    this.onSelection?.();
+    this.refreshNavigation(this.data());
   }
   async write(action,payload,{expectedRevision=null,throwErrors=false}={}){
     if(this.pending){if(throwErrors)throw new Error('Дождитесь сохранения монтажа.');return;}
-    this.pending=true;const pid=this.project().id;this.root.classList.add('pending');
+    this.pending=true;const pid=this.project().id;this.root.classList.add('pending');this.refreshProperties();
     try{
       // A block-save conflict has its own resolution UI. Do not replace its
       // unsaved draft with a fresh timeline response or mask that dialog.
@@ -177,7 +364,7 @@ export class TimelineView {
   }
   newSegment(){
     const t=this.data(),start=Math.max(0,...t.segments.map(frameEnd));
-    this.dialog('Новый монтажный сегмент',`<label class="field"><span>Название</span><input name="name" value="Сегмент ${t.segments.length+1}" required maxlength="160"></label><label class="field"><span>Начало, с</span><input name="start" type="number" min="0" step="0.001" value="${seconds(start,t.fps)}" required></label><label class="field"><span>Длительность, с</span><input name="duration" type="number" min="${1/t.fps}" step="any" value="8" required></label>`,form=>this.write('add_segment',{name:form.get('name'),start_frame:toFrame(form.get('start'),t.fps),duration_frames:toFrame(form.get('duration'),t.fps)}));
+    this.dialog('Новый монтажный сегмент',`<label class="field"><span>Название</span><input name="name" value="Сегмент ${t.segments.length+1}" required maxlength="160"></label><label class="field"><span>Тип сегмента</span><select name="segment_type">${segmentTypeOptions()}</select></label><label class="field"><span>Начало, с</span><input name="start" type="number" min="0" step="0.001" value="${seconds(start,t.fps)}" required></label><label class="field"><span>Длительность, с</span><input name="duration" type="number" min="${1/t.fps}" step="any" value="8" required></label>`,form=>this.write('add_segment',{name:form.get('name'),segment_type:form.get('segment_type')||null,start_frame:toFrame(form.get('start'),t.fps),duration_frames:toFrame(form.get('duration'),t.fps)}));
   }
   newMarker(){
     const fps=this.data().fps;
@@ -207,7 +394,33 @@ export class TimelineView {
   }
   targets(kind,id){
     const t=this.data(),ownClips=kind==='segment'?t.clips.filter(c=>c.segment_id===id).map(c=>c.id):[id];
-    return [0,this.cursor,...t.markers.filter(m=>!(kind==='marker'&&m.id===id)).map(m=>m.frame),...t.segments.filter(s=>!(kind==='segment'&&s.id===id)).flatMap(s=>[s.start_frame,frameEnd(s)]),...t.clips.filter(c=>!ownClips.includes(c.id)).flatMap(c=>[c.start_frame,frameEnd(c)])];
+    const bounds=(item,name)=>[{frame:item.start_frame,label:'Начало «'+name+'»'},{frame:frameEnd(item),label:'Конец «'+name+'»'}];
+    return [
+      ...t.markers.filter(m=>!(kind==='marker'&&m.id===id)).map(m=>({frame:m.frame,label:m.name})),
+      {frame:0,label:'Начало проекта'},{frame:this.cursor,label:'Курсор'},
+      ...t.segments.filter(s=>!(kind==='segment'&&s.id===id)).flatMap(s=>bounds(s,s.name)),
+      ...t.clips.filter(c=>!ownClips.includes(c.id)).flatMap(c=>bounds(c,c.story_title??'Блок'))
+    ];
+  }
+  dragSnap(raw,drag,event,fps){
+    if(!this.snapping||event.altKey)return {frame:Math.max(0,Math.round(raw)),target:null,offset:0};
+    return snapPosition(raw,drag.item.duration_frames??0,drag.targets,8/this.zoom*fps,drag.edge?'edge':'move');
+  }
+  showDragFeedback(event,drag,item,snap,fps){
+    const guide=this.root.querySelector('.tl-snap-guide'),feedback=this.root.querySelector('.tl-drag-feedback');
+    const right=drag.edge==='right'||drag.edge==='segment-right';
+    const frame=drag.kind==='marker'?item.frame:right?frameEnd(item):item.start_frame+snap.offset;
+    guide.hidden=!snap.target;
+    if(snap.target)guide.style.left=this.px(snap.target.frame)+'px';
+    const name=snap.target?(frame===snap.target.frame?'Привязка · ':'Цель · ')+snap.target.label+' · '+frameCode(snap.target.frame,fps):'';
+    const timing=frameCode(item.frame??item.start_frame,fps)+(item.duration_frames?' · '+seconds(item.duration_frames,fps)+' с':'');
+    const message=[name,drag.error||drag.warning||timing].filter(Boolean).join('  |  ');
+    feedback.textContent=message;
+    feedback.classList.toggle('invalid',!!(drag.error||drag.warning));
+    feedback.hidden=false;
+    feedback.style.left=Math.max(8,Math.min(event.clientX+14,innerWidth-feedback.offsetWidth-8))+'px';
+    feedback.style.top=Math.max(8,Math.min(event.clientY+14,innerHeight-feedback.offsetHeight-8))+'px';
+    this.root.querySelector('#tlStatus').textContent=message;
   }
   startLibraryDrag(event,blockId){
     if(event.button!==0||this.pending)return;
@@ -234,19 +447,36 @@ export class TimelineView {
     source.onpointercancel=clear;
   }
   startDrag(event,el){
-    if(event.button!==0||this.pending)return;event.preventDefault();event.stopPropagation();
-    const kind=el.dataset.kind,id=el.dataset.id,item=this.lookup(kind,id);
+    if(event.button!==0||this.pending||this.drag||this.scrubbing)return;event.preventDefault();event.stopPropagation();
+    const kind=el.dataset.kind,id=el.dataset.id,item=this.lookup(kind,id),project=this.project();
+    if(!item)return;
     this.choose(kind,id);el.focus({preventScroll:true});
-    this.drag={kind,id,item:{...item},edge:event.target.dataset.edge??'',x:event.clientX,scroll:this.root.querySelector('.tl-scroll').scrollLeft,moved:false,el,patch:{},error:''};
+    const scenario=kind==='clip'&&project.timeline?.scenario?scenarioView(project).segments.find(s=>s.id===item.segment_id):null;
+    this.drag={kind,id,item:{...item},edge:event.target.dataset.edge??'',x:event.clientX,scroll:this.root.querySelector('.tl-scroll').scrollLeft,moved:false,el,patch:{},error:'',
+      scenario,targets:this.targets(kind,id),projectId:project.id,revision:project.revision};
     el.setPointerCapture(event.pointerId);
-    el.onpointermove=e=>this.moveDrag(e);el.onpointerup=e=>this.endDrag(e);el.onpointercancel=()=>{this.drag=null;this.lastSignature='';this.render();};
+    const pointer=event.pointerId,active=e=>this.drag?.el===el&&e.pointerId===pointer;
+    el.onpointermove=e=>{if(active(e))this.moveDrag(e);};
+    el.onpointerup=e=>{if(active(e))this.endDrag(e);};
+    el.onpointercancel=el.onlostpointercapture=e=>{
+      if(!active(e))return;
+      this.drag=null;this.lastSignature='';this.render();
+    };
+  }
+  dragDelta(event,drag,fps){
+    const scroll=this.root.querySelector('.tl-scroll'),bounds=scroll.getBoundingClientRect();
+    if(event.clientX<bounds.left+100)scroll.scrollLeft-=12;else if(event.clientX>bounds.right-28)scroll.scrollLeft+=12;
+    const dx=event.clientX-drag.x+scroll.scrollLeft-drag.scroll;
+    if(Math.abs(dx)>3)drag.moved=true;
+    return Math.round(dx/this.zoom*fps);
   }
   moveDrag(event){
-    const d=this.drag;if(!d)return;const t=this.data(),scroll=this.root.querySelector('.tl-scroll'),bounds=scroll.getBoundingClientRect();
-    if(event.clientX<bounds.left+100)scroll.scrollLeft-=12;else if(event.clientX>bounds.right-28)scroll.scrollLeft+=12;
-    const dx=event.clientX-d.x+scroll.scrollLeft-d.scroll,delta=Math.round(dx/this.zoom*t.fps);
-    if(Math.abs(dx)>3)d.moved=true;if(!d.moved)return;
-    const targets=this.targets(d.kind,d.id),snap=raw=>this.snapping&&!event.altKey?snapFrame(raw,d.edge?0:d.item.duration_frames??0,targets,8/this.zoom*t.fps,d.edge?'edge':'move'):Math.max(0,Math.round(raw));
+    const d=this.drag,project=this.project();
+    if(!d||project.id!==d.projectId||project.revision!==d.revision)return;
+    const t=this.data(),delta=this.dragDelta(event,d,t.fps);
+    if(!d.moved)return;
+    let position;
+    const snap=raw=>{position=this.dragSnap(raw,d,event,t.fps);return position.frame;};
     let kind=d.kind;
     if(d.kind==='marker'){d.patch={frame:snap(d.item.frame+delta)};d.error='';}
     else if(d.kind==='segment'){
@@ -264,24 +494,50 @@ export class TimelineView {
       }
       d.error=this.project().timeline?.scenario?'':placementError(this.project(),t,'clip',d.id,d.patch);
     }
-    d.el.classList.toggle('invalid',!!d.error);const updated={...d.item,...d.patch};
+    let updated={...d.item,...d.patch};
+    if(d.scenario){
+      const preview=previewScenarioClip(this.project(),d.scenario,d.item,d.patch);
+      d.error=preview.error??'';
+      d.warning=preview.warning??'';
+      const projected=new Map(preview.clips?.map(clip=>[clip.id,clip]));
+      updated=projected.get(d.id)??d.item;
+      for(const clip of t.clips.filter(clip=>clip.segment_id===d.scenario.id&&clip.id!==d.id)){
+        const el=this.root.querySelector(`[data-id="${clip.id}"]`);
+        if(!el)continue;
+        const start=projected.get(clip.id)?.start_frame??clip.start_frame;
+        el.style.left=this.px(start)+'px';
+        el.classList.toggle('tl-preview-shift',start!==clip.start_frame);
+      }
+    }
+    d.el.classList.toggle('invalid',!!(d.error||d.warning));
     d.el.style.left=this.px(d.kind==='marker'?updated.frame:updated.start_frame)+'px';
     if(d.kind!=='marker')d.el.style.width=this.px(updated.duration_frames)+'px';
     if(d.kind==='segment'&&!d.edge){for(const c of t.clips.filter(c=>c.segment_id===d.id)){const el=this.root.querySelector(`[data-id="${c.id}"]`);if(el)el.style.left=this.px(c.start_frame+updated.start_frame-d.item.start_frame)+'px';}}
     if(d.kind==='segment')this.root.querySelectorAll(`[data-boundary="${d.id}"]`).forEach(el=>el.style.left=this.px(el.dataset.end==='1'?frameEnd(updated):updated.start_frame)+'px');
-    this.root.querySelector('#tlStatus').textContent=d.error||`${frameCode(updated.frame??updated.start_frame,t.fps)}${updated.duration_frames?' · '+seconds(updated.duration_frames,t.fps)+' с':''}`;
+    this.showDragFeedback(event,d,updated,position,t.fps);
   }
   endDrag(event){
     const d=this.drag;if(!d)return;this.drag=null;
     if(d.el.hasPointerCapture(event.pointerId))d.el.releasePointerCapture(event.pointerId);
     d.el.onpointermove=null;d.el.onpointerup=null;
-    if(d.moved&&!d.error){this.write(d.kind==='marker'?'update_marker':d.kind==='segment'?(d.edge?'resize_segment':'move_segment'):d.kind==='music'?'update_music':'update_clip',{id:d.id,...d.patch});}
-    else{
-      this.lastSignature='';this.render();if(d.error)this.onError(new Error(d.error));
-      if(!d.moved&&d.kind==='clip')this.onClip(d.item,d.item.source_in_frame/this.data().fps);
-      if(!d.moved&&d.kind==='marker')this.seek(d.item.frame);
-      if(!d.moved&&d.kind==='music')this.seek(this.frameAt(event.clientX));
-    }
+    this.root.querySelector('.tl-snap-guide').hidden=true;
+    this.root.querySelector('.tl-drag-feedback').hidden=true;
+    const project=this.project();
+    if(project.id!==d.projectId||project.revision!==d.revision){this.lastSignature='';this.render();return;}
+    const operation=d.moved&&!d.error?this.dragOperation(d):null;
+    if(operation){this.write(operation.action,operation.payload);return;}
+    this.lastSignature='';this.render();
+    if(d.error)this.onError(new Error(d.error));
+    if(!d.moved)this.clickDrag(d,event);
+  }
+  dragOperation(d){
+    const action=d.kind==='marker'?'update_marker':d.kind==='segment'?(d.edge?'resize_segment':'move_segment'):d.kind==='music'?'update_music':'update_clip';
+    return {action,payload:{id:d.id,...d.patch}};
+  }
+  clickDrag(d,event){
+    if(d.kind==='clip')this.onClip(d.item,d.item.source_in_frame/this.data().fps);
+    if(d.kind==='marker')this.seek(d.item.frame,{allowBeyondEnd:true});
+    if(d.kind==='music')this.seek(this.frameAt(event.clientX));
   }
   key(event,el){
     const kind=el.dataset.kind,id=el.dataset.id,item=this.lookup(kind,id);
@@ -296,21 +552,22 @@ export class TimelineView {
     if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();this.write('remove_'+kind,{id});}
   }
   openContextMenu(event,element){this.contextMenu??=new TimelineMenu(this);this.contextMenu.open(event,element);}
-  properties(){
-    const target=this.root.querySelector('#tlProperties'),item=this.item(),t=this.data(),kind=this.selection?.kind;
+  properties(target){
+    const item=this.item(),t=this.data(),kind=this.selection?.kind;
     if(!item){target.innerHTML=`<span class="tl-selection-hint">${t.segments.length} сегм. · ${t.clips.length} клипов · ${t.markers.length} маркеров</span><span class="muted">Выберите элемент, чтобы задать точное время. ← → — кадр, Shift — секунда.</span>`;return;}
     const timeField=(name,label,value)=>`<label><span>${label}</span><input name="${name}" type="number" min="0" step="0.001" value="${seconds(value,t.fps)}" required></label>`;
     const b=kind==='clip'?this.project().blocks.find(b=>b.id===item.block_id):null;
-    target.innerHTML=`<form id="tlEdit"><span class="tl-item-kind">${kind==='clip'?esc(b?.label??'Клип'):kind==='segment'?'СЕГМЕНТ':'МАРКЕР'}</span>${kind==='clip'?`<button id="tlSourceEdit" type="button" class="button small" ${item.take_id?'':'disabled'}>Участок и скорость</button><button id="tlSplit" type="button" class="button subtle small" ${this.cursor>item.start_frame&&this.cursor<frameEnd(item)?'':'disabled'}>Разрезать</button><label class="tl-snap"><input id="tlAnchor" type="checkbox" ${item.anchor_frame!=null?'checked':''}> Закрепить начало</label><label class="tl-snap"><input id="tlProtectGap" type="checkbox" ${item.gap_protected?'checked':''}> Защитить паузу</label>`:kind==='segment'?'<button id="tlCompact" type="button" class="button small">Убрать промежутки</button>':''}
+    target.innerHTML=`<form id="tlEdit"><span class="tl-item-kind">${kind==='clip'?esc(item.story_title??b?.label??'Клип'):kind==='segment'?'СЕГМЕНТ':'МАРКЕР'}</span>${kind==='clip'?`<button id="tlSourceEdit" type="button" class="button small" ${item.take_id?'':'disabled'}>Участок и скорость</button><button id="tlSplit" type="button" class="button subtle small" ${this.cursor>item.start_frame&&this.cursor<frameEnd(item)?'':'disabled'}>Разрезать</button><button id="tlReplaceTake" type="button" class="button small tl-take-field" ${b?.takes.some(take=>take.id!==item.take_id)?'':'disabled'}>Сравнить и заменить</button><label class="tl-snap"><input id="tlAnchor" type="checkbox" ${item.anchor_frame!=null?'checked':''}> Закрепить начало</label><label class="tl-snap"><input id="tlProtectGap" type="checkbox" ${item.gap_protected?'checked':''}> Защитить паузу</label>`:kind==='segment'?'<button id="tlCompact" type="button" class="button small">Убрать промежутки</button>':''}
       ${kind!=='clip'?`<label class="tl-name-field"><span>Название</span><input name="name" value="${esc(item.name)}" maxlength="160" required></label>`:''}
       ${timeField('start',kind==='marker'?'Позиция, с':'Начало, с',kind==='marker'?item.frame:item.start_frame)}
       ${kind!=='marker'?timeField('duration','Длина, с',item.duration_frames):''}
-      ${kind==='clip'?`${timeField('source','Вход в дубль, с',item.source_in_frame)}<label><span>Сегмент</span><select name="segment">${t.segments.map(s=>`<option value="${s.id}" ${s.id===item.segment_id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label><label class="tl-take-field"><span>Дубль</span><select name="take"><option value="">Заглушка</option>${b.takes.map(x=>`<option value="${x.id}" ${x.id===item.take_id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>`:''}
-      ${kind==='segment'?`<label><span>Цвет</span><select name="color">${colors.map((c,i)=>`<option value="${c}" ${c===item.color?'selected':''}>${['Мята','Синий','Сирень','Янтарь','Роза','Бирюза'][i]}</option>`).join('')}</select></label>`:''}
-      <button class="button small" type="submit" ${this.pending?'disabled':''}>Применить</button><button id="tlRemove" type="button" class="button subtle small" title="Убрать из монтажа. Исходные файлы сохраняются.">Убрать</button></form>`;
+      ${kind==='clip'?`${timeField('source','Вход в дубль, с',item.source_in_frame)}<label><span>Сегмент</span><select name="segment">${t.segments.map(s=>`<option value="${s.id}" ${s.id===item.segment_id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label><label class="tl-take-field"><span>Дубль</span><select name="take"><option value="">Заглушка</option>${(b?.takes??[]).map(x=>`<option value="${x.id}" ${x.id===item.take_id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>`:''}
+      ${kind==='segment'?`<label><span>Тип сегмента</span><select name="segment_type">${segmentTypeOptions(item.segment_type)}</select></label><label><span>Цвет</span><select name="color">${colors.map((c,i)=>`<option value="${c}" ${c===item.color?'selected':''}>${['Мята','Синий','Сирень','Янтарь','Роза','Бирюза'][i]}</option>`).join('')}</select></label>`:''}
+      <button class="button small" type="submit">Применить</button><button id="tlRemove" type="button" class="button subtle small" title="Убрать из монтажа. Исходные файлы сохраняются.">Убрать</button></form>`;
     target.querySelector('#tlRemove').onclick=()=>this.write('remove_'+kind,{id:item.id});
     if(kind==='clip'){
       target.querySelector('#tlSourceEdit').onclick=()=>this.editSource?.(item);
+      target.querySelector('#tlReplaceTake').onclick=()=>this.replaceTake?.(item);
       target.querySelector('#tlSplit').onclick=()=>this.write('split_clip',{id:item.id,frame:this.cursor});
       target.querySelector('#tlAnchor').onchange=e=>this.write('set_clip_anchor',{id:item.id,enabled:e.target.checked});
       target.querySelector('#tlProtectGap').onchange=e=>this.write('set_gap_protected',{id:item.id,enabled:e.target.checked});
@@ -321,7 +578,7 @@ export class TimelineView {
       else if(kind==='marker')this.write('update_marker',{id:item.id,name:form.get('name'),frame:start});
       else{
         // One atomic edit moves the group and changes its window/name/color.
-        this.write('edit_segment',{id:item.id,name:form.get('name'),color:form.get('color'),start_frame:start,duration_frames:toFrame(form.get('duration'),t.fps)});
+        this.write('edit_segment',{id:item.id,name:form.get('name'),color:form.get('color'),segment_type:form.get('segment_type')||null,start_frame:start,duration_frames:toFrame(form.get('duration'),t.fps)});
       }
     };
   }

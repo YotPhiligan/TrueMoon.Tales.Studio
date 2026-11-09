@@ -89,6 +89,26 @@ class SoundEventTests(SoundFixture):
         self.op('undo');self.assertEqual([e], sound.events(self.current()['timeline']))
         self.assertEqual(70, sound.placed(self.current()['timeline'])[0]['start_frame']);self.assert_no_generation()
 
+    def test_block_sound_moves_splits_and_restores_with_its_placement(self):
+        self.activate()
+        event = self.add(clip_id='c2', segment_id='s2', offset_frames=4, source_in_frame=8, duration_frames=24)
+        self.assertEqual('s1', event['segment_id'])
+        self.op('update_clip', id='c1', duration_frames=30)
+        p = self.current()
+        self.assertEqual([(58, 20)], [(e['start_frame'], e['duration_frames']) for e in sound.placed(p['timeline'])])
+        self.op('update_clip', id='c2', mute_native_audio=True)
+        p = self.op('split_clip', id='c2', frame=66)
+        first, second = sound.placed(p['timeline'])
+        self.assertEqual([(58, 8, 8), (66, 12, 16)],
+                         [(e['start_frame'], e['duration_frames'], e['source_in_frame']) for e in [first, second]])
+        right = next(c for c in p['timeline']['clips'] if c['id'] == second['clip_id'])
+        self.assertTrue(right['mute_native_audio'])
+        self.op('remove_clip', id=right['id'])
+        self.assertEqual([first['id']], [e['id'] for e in sound.events(self.current()['timeline'])])
+        self.op('undo')
+        self.assertEqual([first, second], sound.placed(self.current()['timeline']))
+        self.assert_no_generation()
+
     def test_source_boundaries_validation_stream_types_and_revision_failures_are_atomic(self):
         e = self.add(source_in_frame=24, duration_frames=24)
         for changes in [{'source_in_frame': 25}, {'duration_frames': 0}, {'offset_frames': -1}, {'offset_frames': .5},
@@ -239,7 +259,12 @@ class SoundMediaTests(ScenarioFixture):
                    'sounds': [event, {**event, 'stream': 0, 'start_frame': 0, 'muted': True}, {**event, 'start_frame': 0, 'gain': 0}]}
         atomic(folder / 'Request.json', request);hashes = {p: digest(p) for p in [source, music]}
         result = DraftRenderer(folder).run();self.assertEqual((16, 8, 2), tuple(result['video_info'][k] for k in ['frames', 'fps', 'seconds']))
-        with av.open(str(folder / 'Draft.mp4')) as out:values = np.concatenate([f.to_ndarray() for f in out.decode(audio=0)], axis=1)[0]
+        with av.open(str(folder / 'Draft.mp4')) as out:
+            self.assertEqual(2, out.streams.audio[0].duration * out.streams.audio[0].time_base)
+            frames = list(out.decode(audio=0))
+        self.assertEqual(0, frames[0].pts)
+        values = np.concatenate([f.to_ndarray() for f in frames], axis=1)[0]
+        self.assertGreaterEqual(values.size, 96000)
         mean = lambda start, end: float(np.mean(values[round(start * 48000):round(end * 48000)]))
         self.assertGreater(mean(.2, .8), .014);self.assertLess(mean(.2, .8), .022)
         self.assertGreater(mean(1.1, 1.4), .175);self.assertLess(mean(1.1, 1.4), .21)

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {timelineJoins,transitionWindows,transitionLevel,transitionIssue} from '../static/transitions-logic.js';
-import {segmentPlayback,criticalSignature} from '../static/playback-logic.js';
+import {segmentPlayback,joinPlayback,criticalSignature} from '../static/playback-logic.js';
 import {MontagePlayer} from '../static/montage-player.js';
 import {TransitionsDesk} from '../static/transitions-ui.js';
 import {timelineCommands} from '../static/timeline-menu.js';
@@ -21,6 +21,16 @@ test('global join windows and midpoint envelope match exact Python oracles and d
   assert.deepEqual([-1,3,4,5,6,7,8,9,10,11,12,18].map(f=>transitionLevel(t,f)),[1,1,.75,.25,0,0,0,0,.25,.75,1,1]);
   assert.equal(transitionLevel(t,4.8),.75);assert.equal(transitionLevel(t,5.99),.25);
   assert.deepEqual(t,before);assert.deepEqual(timelineJoins({clips:[]}),[]);assert.equal(transitionLevel({clips:[]},0),1);
+});
+
+test('join scope keeps the entire transition on the absolute montage clock',()=>{
+  const p=project(),before=structuredClone(p);
+  const withTransition=joinPlayback(p,'b');
+  assert.deepEqual(withTransition.range,{id:'b',kind:'join',name:'Source → Source',start:0,end:18/8});
+  assert.deepEqual(withTransition.project.timeline,p.timeline);
+  assert.deepEqual(joinPlayback(p,'c').range,{id:'c',kind:'join',name:'Source → Source',start:10/8,end:28/8});
+  assert.throws(()=>joinPlayback(p,'a'),/Стык/);
+  assert.deepEqual(p,before);
 });
 
 test('transition issue accepts exact gap budget and touching envelopes but refuses adjacent violations',()=>{
@@ -124,12 +134,12 @@ test('transition form remove uses right stable id and ignores stale project join
   env.pending[1].resolve({...env.p,id:'p1'});await pending;assert.equal(env.form,replacement);assert.equal(env.closed,0);
 });
 
-test('join menu dispatches only transition remove or seek and keyboard never drags or selects clips',async()=>{
+test('join menu dispatches loop, transition, remove and seek and keyboard never drags or selects clips',async()=>{
   const t=project().timeline,join=timelineJoins(t)[0],calls=[];
-  const view={pending:false,editTransition:j=>calls.push(['edit',j.left.id,j.right.id]),write:(...args)=>calls.push(['write',...args]),onSeek:frame=>calls.push(['seek',frame])};
-  const commands=timelineCommands(view,'join',join,{frame:4,revision:7});assert.deepEqual(commands.map(c=>c.id),['transition','remove','jump']);
+  const view={pending:false,previewJoin:id=>calls.push(['loop',id]),editTransition:j=>calls.push(['edit',j.left.id,j.right.id]),write:(...args)=>calls.push(['write',...args]),onSeek:frame=>calls.push(['seek',frame])};
+  const commands=timelineCommands(view,'join',join,{frame:4,revision:7});assert.deepEqual(commands.map(c=>c.id),['loop','transition','remove','jump']);
   for(const command of commands)await command.run();
-  assert.deepEqual(calls,[['edit','a','b'],['write','remove_transition',{right_clip_id:'b'},{expectedRevision:7}],['seek',10]]);
+  assert.deepEqual(calls,[['loop','b'],['edit','a','b'],['write','remove_transition',{right_clip_id:'b'},{expectedRevision:7}],['seek',10]]);
   assert.equal(timelineCommands(view,'join',{...join,transition:null},{revision:7}).find(c=>c.id==='remove').disabled,true);
   view.pending=true;assert.equal(timelineCommands(view,'join',join,{revision:7}).every(c=>c.disabled),true);
   const keyView={lookup:()=>join,openContextMenu:()=>calls.push(['menu']),choose:()=>assert.fail('join selected as clip'),write:()=>assert.fail('join geometry edited')};

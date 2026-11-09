@@ -96,6 +96,7 @@ def source_documents(store, project, block):
 
 
 COMPONENTS = ('description', 'references', 'guides', 'prompt', 'settings')
+BREAKDOWN_INTENT = 'breakdown_segment'
 
 
 def scenario_target(project, sid, iid=None):
@@ -114,9 +115,13 @@ def request_scope(project, scope):
     if not isinstance(scope, dict) or set(scope) - {'segment_id', 'item_id', 'intent', 'draft', 'components'}:
         raise StudioError('Некорректная область сценарного задания.', 422)
     intent = scope.get('intent')
-    if intent not in ['prepare_block', 'improve_block']:
-        raise StudioError('Выберите подготовку нового блока или улучшение существующего.', 422)
+    if intent not in ['prepare_block', 'improve_block', BREAKDOWN_INTENT]:
+        raise StudioError('Выберите подготовку, улучшение блока или разбивку сегмента.', 422)
     segment, item = scenario_target(project, scope.get('segment_id'), scope.get('item_id'))
+    if intent == BREAKDOWN_INTENT:
+        if item is not None or scope.get('draft') is not None or scope.get('components', []) != []:
+            raise StudioError('Разбивка относится ко всему сегменту.', 422)
+        return {'segment_id': segment['id'], 'segment_name': segment['name'], 'item_id': None, 'intent': intent, 'components': []}
     components = scope.get('components', list(COMPONENTS))
     if (not isinstance(components, list) or not components or any(not isinstance(c, str) or c not in COMPONENTS for c in components)
             or len(set(components)) != len(components)):
@@ -216,7 +221,9 @@ def context(store, pid, bid=None, sid=None, iid=None):
             result['scenario_item'] = copy.deepcopy(story_item)
             result['source_usage_count'] = sum(i['block_id'] == block['id'] for s in result['scenario']['segments'] for i in s['items']) if block else 0
             result['contract']['scenario'] = ('Keep the segment window, neighboring uses, music and source takes. '
-                'Descriptions and generation prompts are separate. A library source can be shared: inspect source_usage_count before editing it. '
+                'Descriptions and generation prompts are separate. The item sound_notes and continuity_notes describe intended sound and the outgoing cut. '
+                'Edit these notes via the scenario API. Audio events and transitions are separate montage operations. '
+                'A library source can be shared: inspect source_usage_count before editing it. '
                 'Change only requested components; never silently alter other uses of a shared source. '
                 'For apply/prepare_block create one new scenario item via the scenario API, then prepare requested materials; '
                 'for propose do not create or edit it. Do not run GPU. Finish an applied preparation with result_target={segment_id,item_id}.')
@@ -230,7 +237,7 @@ def context(store, pid, bid=None, sid=None, iid=None):
 def request_path(store, pid, rid):
     if not isinstance(rid, str) or not re.fullmatch(r'req-[0-9a-f]{16}', rid):
         raise StudioError('Некорректный ID задания для ИИ.', 422)
-    return store.safe(store.location(pid).parent / 'AgentRequests' / (rid + '.json'), False)
+    return store.safe(store.production_dir(pid) / 'AgentRequests' / (rid + '.json'), False)
 
 
 def get_request(store, pid, rid):
@@ -246,12 +253,13 @@ def get_request(store, pid, rid):
 
 def list_requests(store, pid):
     with store.lock:
-        folder = store.location(pid).parent / 'AgentRequests'
+        folder = store.production_dir(pid) / 'AgentRequests'
         rows = [get_request(store, pid, path.stem) for path in folder.glob('req-*.json')]
         rows.sort(key=lambda row: (row['updated_at'], row['id']), reverse=True)
         keys = ['id', 'project_id', 'block_id', 'block_label', 'goal', 'mode', 'state', 'revision', 'base_project_revision',
                 'created_at', 'updated_at', 'actor', 'owner', 'result', 'completed_project_revision']
-        return [{**{key: row[key] for key in keys}, **{key: row[key] for key in ['scope', 'result_target'] if key in row}} for row in rows[:200]]
+        return [{**{key: row[key] for key in keys}, **{key: row[key] for key in ['scope', 'result_target'] if key in row},
+                 **({'has_proposal': True} if row.get('proposal') else {})} for row in rows[:200]]
 
 
 def create_request(store, pid, revision, goal, mode='propose', bid=None, actor='author', scope=None, client_key=None):
@@ -265,7 +273,7 @@ def create_request(store, pid, revision, goal, mode='propose', bid=None, actor='
         if client_key is not None:
             if not isinstance(client_key, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{16,80}', client_key):
                 raise StudioError('Некорректный ключ повторной отправки.', 422)
-            for path in (store.location(pid).parent / 'AgentRequests').glob('req-*.json'):
+            for path in (store.production_dir(pid) / 'AgentRequests').glob('req-*.json'):
                 old = read(path)
                 if old.get('client_key') == client_key:
                     if old.get('submission') != submission:
@@ -274,6 +282,8 @@ def create_request(store, pid, revision, goal, mode='propose', bid=None, actor='
         check_project_revision(project, revision)
         target = request_scope(project, scope) if scope is not None else None
         if target:
+            if target['intent'] == BREAKDOWN_INTENT and mode != 'propose':
+                raise StudioError('Разбивка создаётся в режиме предложения.', 422)
             target_bid = target.get('block_id')
             if bid is not None and bid != target_bid:
                 raise StudioError('Источник не соответствует области задания.', 422)
@@ -282,6 +292,10 @@ def create_request(store, pid, revision, goal, mode='propose', bid=None, actor='
         snapshot = context(store, pid, block['id'] if block else None, target['segment_id'] if target else None, target['item_id'] if target else None)
         if target:
             snapshot['request_scope'] = copy.deepcopy(target)
+            if target['intent'] == BREAKDOWN_INTENT:
+                snapshot['contract']['scenario'] = ('Propose ordered new blocks for the free tail of this segment. '
+                    'Use integral project frames for durations and any gaps. Finish the task with a structured proposal. '
+                    'Keep existing items and timing. The author reviews the budget and applies the proposal in Studio.')
             items = snapshot['scenario_segment']['items']
             index = next((n for n, i in enumerate(items) if i['id'] == target['item_id']), len(items))
             if target['intent'] == 'prepare_block' and target['draft']['after_item_id'] is not None:
@@ -308,7 +322,58 @@ def create_request(store, pid, revision, goal, mode='propose', bid=None, actor='
         return value
 
 
-def update_request(store, pid, rid, expected_revision, action, actor, result='', result_target=None):
+
+def normalize_breakdown(proposal):
+    from .scenario import ITEM_NOTE_FIELDS, number
+
+    if not isinstance(proposal, list) or not 1 <= len(proposal) <= 24:
+        raise StudioError('Предложите от 1 до 24 блоков.', 422)
+    fields = {'title', 'description', 'duration_frames', 'gap_before_frames', *ITEM_NOTE_FIELDS}
+    rows = []
+    for row in proposal:
+        if not isinstance(row, dict) or set(row) - fields:
+            raise StudioError('Некорректные поля предложенного блока.', 422)
+        rows.append({'title': text(row.get('title'), 'Название блока', 160, True).strip(),
+                     'description': text(row.get('description'), 'Действие блока', required=True),
+                     'duration_frames': number(row.get('duration_frames'), 'Длительность блока', 1),
+                     'gap_before_frames': number(row.get('gap_before_frames', 0), 'Пауза перед блоком'),
+                     **{key: text(row[key], key) for key in ITEM_NOTE_FIELDS if key in row}})
+    return rows
+
+
+def breakdown_task(store, pid, rid):
+    task = get_request(store, pid, rid)
+    if task.get('scope', {}).get('intent') != BREAKDOWN_INTENT or task['state'] != 'completed' or not task.get('proposal'):
+        raise StudioError('Предложение по разбивке ещё не готово.', 409)
+    return task
+
+
+def preview_breakdown(store, pid, rid):
+    from .scenario import breakdown_plan
+
+    with store.lock:
+        task = breakdown_task(store, pid, rid)
+        return breakdown_plan(store.get(pid), task['scope']['segment_id'], task['proposal'], rid)
+
+
+def apply_breakdown(store, pid, rid, revision, actor):
+    from .scenario import append_breakdown, breakdown_plan
+
+    with store.lock:
+        project = store.get(pid)
+        check_project_revision(project, revision)
+        task = breakdown_task(store, pid, rid)
+        sid = task['scope']['segment_id']
+        plan = breakdown_plan(project, sid, task['proposal'], rid)
+        if plan['status'] == 'applied':
+            raise StudioError('Эта разбивка уже применялась.', 409)
+        if plan['status'] != 'ready':
+            raise StudioError(' '.join(plan['issues']), 422)
+        updated = append_breakdown(store, project, sid, task['proposal'], rid)
+        return store.commit(updated, revision, actor_name(actor), 'Сценарий: применена разбивка ' + rid)
+
+
+def update_request(store, pid, rid, expected_revision, action, actor, result='', result_target=None, proposal=None):
     with store.lock:
         value = get_request(store, pid, rid)
         if type(expected_revision) is not int or value['revision'] != expected_revision:
@@ -317,6 +382,9 @@ def update_request(store, pid, rid, expected_revision, action, actor, result='',
         text(result, 'Результат', RESULT_LIMIT, action in ['finish', 'fail'])
         if value['state'] in TERMINAL:
             raise StudioError('Задание уже завершено; создайте новое для следующей правки.', 409)
+        breakdown = value.get('scope', {}).get('intent') == BREAKDOWN_INTENT
+        if proposal is not None and (not breakdown or action != 'finish'):
+            raise StudioError('Разбивку можно передать только при завершении соответствующего задания.', 422)
         if action == 'finish' and value['mode'] == 'apply' and value.get('scope', {}).get('intent') == 'prepare_block' and result_target is None:
             raise StudioError('Укажите result_target созданного блока; незавершённую подготовку завершайте как fail.', 422)
         if result_target is not None:
@@ -337,6 +405,8 @@ def update_request(store, pid, rid, expected_revision, action, actor, result='',
         elif action == 'cancel':
             value.update(state='cancelled', result=result)
         elif action in ['finish', 'fail'] and value['state'] == 'running' and value['owner'] == owner:
+            if action == 'finish' and breakdown:
+                value['proposal'] = normalize_breakdown(proposal)
             value.update(state='completed' if action == 'finish' else 'failed', result=result,
                          completed_project_revision=store.get(pid)['revision'])
         else:

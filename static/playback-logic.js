@@ -2,7 +2,7 @@ import {timelineOf,frameEnd} from './timeline-logic.js';
 import {scenarioView} from './scenario-logic.js';
 import {clipSpeed,sourceOut} from './clip-edit-logic.js';
 import {placedSounds} from './sound-logic.js';
-import {transitionWindows} from './transitions-logic.js';
+import {timelineJoins,transitionWindows} from './transitions-logic.js';
 
 export function segmentPlayback(project,id){
   const view=scenarioView(project),segment=view.segments.find(s=>s.id===id);
@@ -12,8 +12,45 @@ export function segmentPlayback(project,id){
   const start=segment.start_frame/project.fps,end=(segment.start_frame+segment.duration_frames)/project.fps;
   if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)throw new Error('Для просмотра нужно задать окно сегмента.');
   const t=view.active?view.timeline:timelineOf(project);
-  return {project:{...project,timeline:{...t,segments:t.segments.filter(s=>s.id===id),clips:t.clips.filter(c=>c.segment_id===id),...(t.sound_events?{sound_events:t.sound_events.filter(e=>e.segment_id===id)}:{}),...(t.transitions?.length?{transition_windows:transitionWindows(t)}:{}),...(t.titles?{title_signature:t.titles,titles:t.titles.filter(r=>r.start_frame<end*t.fps&&r.start_frame+r.duration_frames>start*t.fps)}:{})}},
-    range:{id,name:segment.name,start,end}};
+  const clips=t.clips.filter(c=>c.segment_id===id),clipIds=new Set(clips.map(c=>c.id));
+  return {project:{...project,timeline:{...t,segments:t.segments.filter(s=>s.id===id),clips,...(t.sound_events?{sound_events:t.sound_events.filter(e=>e.clip_id?clipIds.has(e.clip_id):e.segment_id===id)}:{}),...(t.transitions?.length?{transition_windows:transitionWindows(t)}:{}),...(t.titles?{title_signature:t.titles,titles:t.titles.filter(r=>r.start_frame<end*t.fps&&r.start_frame+r.duration_frames>start*t.fps)}:{})}},
+    range:{id,name:segment.name,start,end},items:segment.items};
+}
+
+export function animaticFrame(item,block){
+  const first=block?.guides?.find(guide=>guide.frame===0);
+  return item?.animatic_asset_id??block?.references?.find(ref=>ref.id===first?.reference_id)?.asset_id??null;
+}
+
+export function joinPlayback(project,id){
+  const view=scenarioView(project);
+  if(view.issues.length)throw new Error('Исправьте неопределённое время и конфликты сценария перед просмотром стыка.');
+  const t=view.active?view.timeline:timelineOf(project),join=timelineJoins(t).find(j=>j.id===id);
+  if(!join)throw new Error('Стык для просмотра не найден.');
+  const {left,right}=join,fps=t.fps;
+  const transition=transitionWindows(t).find(window=>window.right_clip_id===right.id);
+  const start=Math.max(left.start_frame,(transition?.out_start_frame??frameEnd(left))-fps)/fps;
+  const end=Math.min(frameEnd(right),(transition?.in_end_frame??right.start_frame)+fps)/fps;
+  const name=clip=>clip.story_title??project.blocks.find(b=>b.id===clip.block_id)?.label??'Блок';
+  return {project:{...project,timeline:t},range:{id,kind:'join',name:name(left)+' → '+name(right),start,end}};
+}
+
+export function rangePlayback(project,selection){
+  const view=scenarioView(project);
+  const timeline=view.active?view.timeline:timelineOf(project),fps=timeline.fps;
+  const limit=Math.round(timelineDuration(timeline)*fps);
+  const startFrame=selection.startFrame,endFrame=Math.min(selection.endFrame,limit);
+  if(!Number.isInteger(startFrame)||!Number.isInteger(selection.endFrame)||startFrame<0||endFrame<=startFrame)
+    throw new Error('Выберите диапазон хотя бы в один кадр.');
+  const intersecting=new Set(view.segments.filter(segment=>segment.start_frame!=null&&segment.start_frame<endFrame&&
+    (segment.duration_frames==null||frameEnd(segment)>startFrame)).map(segment=>segment.id));
+  for(const clip of timeline.clips){
+    if(clip.start_frame<endFrame&&frameEnd(clip)>startFrame)intersecting.add(clip.segment_id);
+  }
+  if(view.issues.some(issue=>intersecting.has(issue.segment_id)))
+    throw new Error('Исправьте неопределённое время или конфликт сценария в выбранном диапазоне.');
+  const range={id:'selection',kind:'range',name:'Выбранный диапазон',start:startFrame/fps,end:endFrame/fps};
+  return {project:{...project,timeline},range};
 }
 
 export function timelineDuration(t){return Math.max(0,...t.segments.map(frameEnd),...t.clips.map(frameEnd),...placedSounds(t).map(frameEnd),...(t.titles??[]).map(frameEnd),t.music?frameEnd(t.music):0)/t.fps;}

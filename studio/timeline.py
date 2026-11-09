@@ -3,21 +3,36 @@ from __future__ import annotations
 import copy,math,re,uuid
 from . import clip_edit as ce
 
-EDIT_FIELDS = ('speed', 'source_out_frame', 'anchor_frame', 'gap_protected')
+EDIT_FIELDS = ('speed', 'source_out_frame', 'anchor_frame', 'gap_protected', 'mute_native_audio')
 
 def edit_fields(item): return {key: copy.deepcopy(item[key]) for key in EDIT_FIELDS if key in item}
 
 def validate_edit_fields(item):
     if 'anchor_frame' in item and item['anchor_frame'] is not None: integer(item['anchor_frame'], 'Закреплённое начало')
     if 'gap_protected' in item and type(item['gap_protected']) is not bool: raise TimelineError('Защита паузы задаётся переключателем.')
+    if 'mute_native_audio' in item and type(item['mute_native_audio']) is not bool: raise TimelineError('Родной звук блока задаётся переключателем.')
     try: ce.speed(item)
     except ce.ClipEditError as error: raise TimelineError(str(error)) from error
 
 MAX_FRAME=24*60*60*6
 COLORS=['mint','blue','violet','amber','rose','teal']
 HISTORY_LIMIT=30
+SEGMENT_TYPES={'dialogue','narration','visual','action','montage','titles','transition','other'}
 
 class TimelineError(ValueError):pass
+
+def validate_segment_type(value):
+    if value is not None and (not isinstance(value,str) or value not in SEGMENT_TYPES):
+        raise TimelineError('Неизвестный тип сегмента.')
+
+
+def set_segment_type(segment,payload):
+    if 'segment_type' not in payload:return
+    value=payload['segment_type']
+    validate_segment_type(value)
+    if value is None:segment.pop('segment_type',None)
+    else:segment['segment_type']=value
+
 
 def identifier(prefix):return prefix+uuid.uuid4().hex[:16]
 
@@ -75,6 +90,7 @@ def validate(project,timeline):
         text(s.get('name'),'название сегмента');integer(s.get('start_frame'),'Начало сегмента');integer(s.get('duration_frames'),'Длина сегмента',1)
         if end(s)>MAX_FRAME:raise TimelineError('Сегмент выходит за пределы таймлайна.')
         if s.get('color') not in COLORS:raise TimelineError('Неизвестный цвет сегмента.')
+        validate_segment_type(s.get('segment_type'))
     ordered=sorted(timeline['segments'],key=lambda x:x['start_frame'])
     for a,b in zip(ordered,ordered[1:]):
         if end(a)>b['start_frame']:raise TimelineError('Сегменты пересекаются. Выберите свободный интервал.')
@@ -147,11 +163,14 @@ def apply(project,action,payload):
         t['segments'].append({'id':identifier('tseg-'),'name':text(payload.get('name'),'название сегмента'),
             'start_frame':integer(payload.get('start_frame'),'Начало сегмента'),'duration_frames':integer(payload.get('duration_frames'),'Длина сегмента',1),
             'color':payload.get('color',COLORS[len(t['segments'])%len(COLORS)])})
+        set_segment_type(t['segments'][-1],payload)
     elif action in ['update_segment','move_segment','resize_segment','edit_segment','remove_segment']:
         s=find(t['segments'],payload.get('id'),'Монтажный сегмент')
+        if action in ['update_segment','edit_segment']:set_segment_type(s,payload)
         if action=='remove_segment':
+            from .sound import remove_placements
+            remove_placements(t,{c['id'] for c in t['clips'] if c['segment_id']==s['id']},s['id'])
             t['segments'].remove(s);t['clips']=[c for c in t['clips'] if c['segment_id']!=s['id']]
-            if 'sound_events' in t:t['sound_events']=[e for e in t['sound_events'] if e['segment_id']!=s['id']]
         elif action in ['move_segment','edit_segment']:
             target=integer(payload.get('start_frame'),'Начало сегмента');delta=target-s['start_frame'];s['start_frame']=target
             for c in t['clips']:
@@ -173,7 +192,9 @@ def apply(project,action,payload):
             'take_id':payload.get('take_id'),'start_frame':payload.get('start_frame'),'duration_frames':payload.get('duration_frames'),'source_in_frame':payload.get('source_in_frame',0),**edit_fields(payload)})
     elif action in ['update_clip','remove_clip']:
         c=find(t['clips'],payload.get('id'),'Клип')
-        if action=='remove_clip':t['clips'].remove(c)
+        if action=='remove_clip':
+            from .sound import remove_placements
+            remove_placements(t,{c['id']});t['clips'].remove(c)
         else:
             previous=copy.deepcopy(c)
             for key in ['segment_id','take_id','start_frame','duration_frames','source_in_frame',*EDIT_FIELDS]:

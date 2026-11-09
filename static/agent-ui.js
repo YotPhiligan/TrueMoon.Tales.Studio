@@ -2,7 +2,7 @@ import {escapeHtml as esc} from './logic.js';
 
 const briefFields=[['synopsis','Замысел и цель ролика'],['visual_style','Визуальный стиль'],['continuity_rules','Что сохранять: образ, география, музыкальные опоры'],['agent_notes','Рабочие указания агенту']];
 const states={pending:'Ожидает агента',running:'В работе',completed:'Завершено',failed:'Ошибка',cancelled:'Отменено'};
-export function requestSummary(row){const scope=row.scope;return `${states[row.state]??row.state} · ${scope?(scope.intent==='prepare_block'?'Новый блок: '+scope.draft.title:row.block_label)+' · '+scope.segment_name:row.block_label??'Весь проект'} · ${row.mode==='apply'?(scope?scope.intent==='prepare_block'?'Подготовить':'Улучшить':'Исправить'):'Предложить'}`;}
+export function requestSummary(row){const scope=row.scope;if(scope?.intent==='breakdown_segment')return `${states[row.state]??row.state} · Разбивка · ${scope.segment_name}`;return `${states[row.state]??row.state} · ${scope?(scope.intent==='prepare_block'?'Новый блок: '+scope.draft.title:row.block_label)+' · '+scope.segment_name:row.block_label??'Весь проект'} · ${row.mode==='apply'?(scope?scope.intent==='prepare_block'?'Подготовить':'Улучшить':'Исправить'):'Предложить'}`;}
 export function shouldRefreshEditor(state,remoteRevision){return remoteRevision!==state.project?.revision&&!state.dirty&&!state.savePromise&&!state.conflict&&!state.timelinePending&&!state.drag;}
 
 export class AgentDesk {

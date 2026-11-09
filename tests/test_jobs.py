@@ -177,16 +177,96 @@ class JobTests(Fixture):
         with patch.object(self.jobs,'command') as command,self.assertRaises(StudioError) as caught:self.jobs.finish(self.pid,job['id'])
         self.assertEqual(409,caught.exception.status);command.assert_not_called();self.assertEqual([],self.block()['takes'])
 
-    def test_successful_collect_is_idempotent_and_does_not_select_take(self):
-        job=self.prepared();run=Path(job['run_dir']);run.mkdir();atomic(run/'Cleanup.json',{'stopped':True})
-        raw=run/'raw.mp4';raw.write_bytes(b'raw');new=run/'new.mp4';new.write_bytes(b'new')
-        image=run/'last.png';image.write_bytes(self.images[0].read_bytes());av=run/'native.safetensors';av.write_bytes(b'native')
-        result={'outputs':{k:{'path':str(p)} for k,p in [('92.0',raw),('207.0',new),('202.0',image),('200.0',av)]},
-                'videos':{'92':{'frames':56},'207':{'frames':34}},'server_wall_seconds':40.25,'device_gpu_peak_GiB':15.1,'rss_peak_GiB':16.2}
+    def collected_job(self,context=False):
+        job=self.prepared()
+        run=Path(job['run_dir'])
+        run.mkdir()
+        atomic(run/'Cleanup.json',{'stopped':True})
+        atomic(run/'History.json',{'status':{'status_str':'success'}})
+        files={'92.0':'raw.mp4','202.0':'last.png','200.0':'native.safetensors'}
+        if context:files['207.0']='new.mp4'
+        outputs={}
+        for key,name in files.items():
+            path=run/name
+            path.write_bytes(name.encode())
+            outputs[key]={'path':str(path),'sha256':digest(path)}
+        videos={'92':{'frames':56,'path':outputs['92.0']['path']}}
+        if context:videos['207']={'frames':34,'path':outputs['207.0']['path']}
+        result={'outputs':outputs,'videos':videos,'server_wall_seconds':40.25,'device_gpu_peak_GiB':15.1,'rss_peak_GiB':16.2}
         atomic(run/'Result.json',result)
+        return job,result
+
+    def test_successful_collect_is_idempotent_and_does_not_select_take(self):
+        job,result=self.collected_job(context=True)
         with patch.object(self.jobs,'command') as command:
-            self.jobs.finish(self.pid,job['id']);first=self.current();self.jobs.finish(self.pid,job['id'])
-        self.assertEqual(first,self.current());takes=self.block()['takes'];self.assertEqual(1,len(takes));self.assertEqual('unreviewed',takes[0]['review_state'])
-        self.assertIsNone(self.block()['selected_take_id']);self.assertEqual('success',takes[0]['technical_status']);self.assertEqual(34,takes[0]['video_info']['frames'])
-        self.assertEqual(new.resolve(),self.store.resolve_asset(self.current(),takes[0]['video_asset_id']));self.assertEqual('completed',self.jobs.get(self.pid,job['id'])['state'])
-        self.assertEqual(2,command.call_count);self.assertTrue(all(call.args[0][0]==self.core/'collect.py' for call in command.call_args_list))
+            self.jobs.finish(self.pid,job['id'])
+            first=self.current()
+            self.jobs.finish(self.pid,job['id'])
+        self.assertEqual(first,self.current())
+        take,=self.block()['takes']
+        self.assertEqual('unreviewed',take['review_state'])
+        self.assertIsNone(self.block()['selected_take_id'])
+        self.assertEqual('success',take['technical_status'])
+        self.assertEqual(34,take['video_info']['frames'])
+        self.assertEqual(1,take['take_number'])
+        self.assertEqual('CL-T01 · Дубль 01',take['name'])
+        video=self.store.project_dir(self.pid)/'video/STUDIO.CL-T01.Run01.mp4'
+        self.assertEqual(video,self.store.resolve_asset(first,take['video_asset_id']))
+        self.assertEqual(video,Path(take['video_info']['path']))
+        self.assertEqual(result['outputs']['207.0']['sha256'],digest(video))
+        for field,key in [('raw_asset_id','92.0'),('last_frame_asset_id','202.0'),('native_av_asset_id','200.0')]:
+            self.assertEqual(Path(result['outputs'][key]['path']),self.store.resolve_asset(first,take[field]))
+        self.assertEqual(result,read(Path(job['run_dir'])/'Result.json'))
+        state=self.jobs.get(self.pid,job['id'])
+        self.assertEqual('completed',state['state'])
+        self.assertEqual(1,state['take_number'])
+        self.assertEqual(take['id'],state['take_id'])
+        command.assert_called_once()
+        self.assertEqual(self.core/'collect.py',command.call_args.args[0][0])
+
+    def test_collect_numbers_after_legacy_take_and_keeps_occupied_file(self):
+        self.add_take()
+        video=self.store.project_dir(self.pid)/'video'
+        video.mkdir(exist_ok=True)
+        occupied=video/'STUDIO.CL-T01.Run02.mp4'
+        occupied.write_bytes(b'existing clip')
+        for _ in range(2):
+            job,result=self.collected_job()
+            with patch.object(self.jobs,'command'):
+                self.jobs.finish(self.pid,job['id'])
+        p=self.current()
+        legacy,first,second=self.block(p)['takes']
+        self.assertNotIn('take_number',legacy)
+        self.assertEqual([3,4],[first['take_number'],second['take_number']])
+        self.assertEqual(b'existing clip',occupied.read_bytes())
+        for take in (first,second):
+            expected=video/f"STUDIO.CL-T01.Run{take['take_number']:02d}.mp4"
+            self.assertEqual(expected,self.store.resolve_asset(p,take['video_asset_id']))
+            self.assertEqual(result['outputs']['92.0']['sha256'],digest(expected))
+
+    def test_recovery_reuses_video_published_before_project_commit(self):
+        job,result=self.collected_job()
+        with patch.object(self.jobs,'command'),patch.object(self.store,'commit',side_effect=StudioError('commit interrupted',409)):
+            with self.assertRaisesRegex(StudioError,'commit interrupted'):
+                self.jobs.finish(self.pid,job['id'])
+        self.assertEqual([],self.block()['takes'])
+        video=self.store.project_dir(self.pid)/'video/STUDIO.CL-T01.Run01.mp4'
+        self.assertEqual(result['outputs']['92.0']['sha256'],digest(video))
+        restarted=Jobs(self.store,python=self.jobs.python,core=self.core)
+        with patch.object(restarted,'command'),patch('studio.jobs.shutil.copyfileobj') as copy_video:
+            restarted.recover()
+        copy_video.assert_not_called()
+        take,=self.block()['takes']
+        self.assertEqual(1,take['take_number'])
+        self.assertEqual(video,self.store.resolve_asset(self.current(),take['video_asset_id']))
+        self.assertEqual('completed',restarted.get(self.pid,job['id'])['state'])
+        self.assertEqual([video],list(video.parent.iterdir()))
+
+    def test_collect_does_not_publish_mismatched_video(self):
+        job,result=self.collected_job()
+        Path(result['outputs']['92.0']['path']).write_bytes(b'changed after collect')
+        with patch.object(self.jobs,'command'):
+            with self.assertRaisesRegex(StudioError,'Контрольная сумма'):
+                self.jobs.finish(self.pid,job['id'])
+        self.assertEqual([],self.block()['takes'])
+        self.assertEqual([],list((self.store.project_dir(self.pid)/'video').iterdir()))

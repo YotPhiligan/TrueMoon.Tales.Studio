@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {segmentPlayback,musicSchedule,placementAt} from '../static/playback-logic.js';
+import {segmentPlayback,rangePlayback,musicSchedule,placementAt} from '../static/playback-logic.js';
 import {segmentProject} from './segment_fixtures.mjs';
 
 test('segment preview uses valid selected planned clips despite foreign issues and keeps global music',()=>{
@@ -42,4 +42,15 @@ test('music scheduling clamps to preview end while keeping absolute source offse
   assert.equal(musicSchedule(t,0,20,2),null);
   assert.equal(musicSchedule(t,4,20,3),null);
   assert.deepEqual(musicSchedule(t,4,20),{delay:0,offset:3,duration:4,gain:.8});
+});
+
+test('arbitrary range keeps the absolute audio clock and isolates unrelated unfinished windows',()=>{
+  const p=segmentProject(true),before=structuredClone(p);
+  const {project,range}=rangePlayback(p,{startFrame:60,endFrame:90});
+  assert.deepEqual([range.kind,range.start,range.end],['range',2.5,3.75]);
+  assert.deepEqual(musicSchedule(project.timeline,range.start,20,range.end),{delay:0,offset:3,duration:1.25,gain:.8});
+  assert.equal(placementAt(project,range.start).source_seconds,1);
+  assert.throws(()=>rangePlayback(p,{startFrame:60,endFrame:60}),/один кадр/);
+  assert.throws(()=>rangePlayback(p,{startFrame:192,endFrame:210}),/конфликт сценария/);
+  assert.deepEqual(p,before);
 });

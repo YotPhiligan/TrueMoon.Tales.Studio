@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {scenarioView,windowFromEdit} from '../static/scenario-logic.js';
+import {scenarioView,windowFromEdit,previewScenarioClip} from '../static/scenario-logic.js';
 import {ScenarioDesk} from '../static/scenario-ui.js';
 
 function project(active=false){
@@ -113,4 +113,23 @@ test('scenario write propagates conflict and flush errors and always clears pend
   await assert.rejects(pending,e=>e===error);assert.deepEqual(env.applied,[]);assert.equal(env.desk.pending,false);
   env=desk();pending=env.desk.write('update_segment',{id:'s1'});env.flushed.reject(new Error('Save failed'));
   await assert.rejects(pending,/Save failed/);assert.deepEqual(env.calls,[]);assert.equal(env.desk.pending,false);
+});
+
+test('drag preview projects ripple with protected gaps and reports anchor conflicts without mutation',()=>{
+  const p=project(true),second=p.timeline.scenario.segments[0].items[1];
+  second.gap_protected=true;
+  const view=scenarioView(p),clip=view.timeline.clips[0],before=structuredClone(p);
+  const shifted=previewScenarioClip(p,view.segments[0],clip,{duration_frames:30});
+  assert.equal(shifted.clips[1].start_frame,78);
+  assert.equal(shifted.warning,'');
+  assert.deepEqual(p,before);
+
+  second.anchor_frame=78;
+  const anchored=scenarioView(p);
+  const fits=previewScenarioClip(p,anchored.segments[0],clip,{duration_frames:30});
+  assert.equal(fits.clips[1].start_frame,78);
+  assert.equal(fits.warning,'');
+  const conflicts=previewScenarioClip(p,anchored.segments[0],clip,{duration_frames:54});
+  assert.match(conflicts.warning,/закреплённым/);
+  assert.match(conflicts.warning,/в окне сегмента/);
 });

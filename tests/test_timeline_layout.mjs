@@ -43,21 +43,37 @@ test('view restores context preference and prevents inherited collapse from hidi
   v.setDensity('compact');assert.equal(v.collapsed,false);assert.equal(v.timelineLayout().compact,true);
   context('story');assert.equal(v.timelineLayout().compact,true);v.setDensity('full');assert.equal(v.timelineLayout().compact,false);
   context('editing');assert.equal(v.timelineLayout().compact,true);context('story');assert.equal(v.timelineLayout().compact,false);
-  v.compactProperties=true;context('editing');v.timelineLayout();assert.equal(v.compactProperties,false);
 });
 
 test('density change only alters UI and preserves cursor zoom selection and project',t=>{
   const {v,rows,focus}=view(t),project={revision:9,timeline:{clips:[{id:'one',duration_frames:48}],undo:[{state:'original'}]}};
-  v.project=()=>project;v.compactProperties=true;v.collapsed=true;const before=structuredClone(project),selection=v.selection;
+  v.project=()=>project;v.collapsed=true;const before=structuredClone(project),selection=v.selection;
   v.setDensity('full');assert.deepEqual(project,before);assert.equal(v.cursor,48);assert.equal(v.zoom,32);assert.equal(v.selection,selection);
-  assert.equal(v.compactProperties,false);assert.equal(v.collapsed,false);assert.equal(v.renders,1);assert.deepEqual(focus,['#tlDensity']);assert.equal(rows.get(densityKey('story')),'full');
+  assert.equal(v.collapsed,false);assert.equal(v.renders,1);assert.deepEqual(focus,['#tlDensity']);assert.equal(rows.get(densityKey('story')),'full');
 });
 
-test('compact properties controls follow selection and context without editing montage',t=>{
-  const {v}=view(t),button={attrs:{},setAttribute(k,value){this.attrs[k]=value;}},classes=[];let item=null;
-  v.root={querySelector:()=>button,classList:{toggle:(...a)=>classes.push(a)}};v.item=()=>item;
-  v.syncLayoutControls();assert.equal(button.disabled,true);assert.equal(button.attrs['aria-expanded'],'false');
-  item={id:'one'};v.compactProperties=true;v.syncLayoutControls();assert.equal(button.disabled,false);assert.equal(button.attrs['aria-expanded'],'true');assert.deepEqual(classes.at(-1),['compact-properties-open',true]);
+test('inspector keeps pending form values through timeline density and cursor updates',t=>{
+  const {v}=view(t),project={id:'p',revision:1},submit={disabled:false},target={scrollTop:0,querySelector:()=>submit};
+  const rendered=[];
+  Object.assign(v,{project:()=>project,propertiesRoot:target,properties:root=>rendered.push(root),refreshClipActions:()=>{}});
+  v.refreshProperties();
+  target.scrollTop=42;
+  v.cursor=55;
+  v.setDensity('full');
+  v.refreshProperties();
+  assert.deepEqual(rendered,[target]);
+  assert.equal(target.scrollTop,42);
+  v.pending=true;
+  v.refreshProperties();
+  assert.equal(submit.disabled,true);
+  v.pending=false;
+  v.refreshProperties();
+  assert.equal(submit.disabled,false);
+  assert.deepEqual(rendered,[target]);
+  v.selection={kind:'segment',id:'s'};
+  v.refreshProperties();
+  assert.deepEqual(rendered,[target,target]);
+  assert.equal(target.scrollTop,0);
 });
 
 test('music waveform stays visible and inside the canvas in both timeline densities',()=>{

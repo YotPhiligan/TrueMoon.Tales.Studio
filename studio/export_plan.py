@@ -1,5 +1,5 @@
 """Immutable CPU draft plan using the same absolute montage clock as preview."""
-import copy,math
+import copy
 from .model import StudioError
 from . import scenario,timeline
 from .clip_edit import speed,source_out
@@ -15,39 +15,111 @@ DRAFT_ENCODING = {
 FINAL_ENCODING = {**DRAFT_ENCODING, 'preset': 'medium', 'crf': 18, 'audio_bitrate_kbps': 320}
 
 
+def inspect_montage(store, project):
+    """Resolve the montage inputs without rendering titles or starting an export."""
+    view = scenario.get(project)
+    t = view['timeline'] if view['active'] else timeline.get(project)
+    if not view['issues']:
+        try:
+            timeline.validate(project, t)
+        except timeline.TimelineError as error:
+            raise StudioError(str(error), 422) from error
+
+    issues = []
+    segments = {row['id']: row for row in view['segments']}
+    for issue in view['issues']:
+        segment = segments[issue['segment_id']]
+        item = next((row for row in segment['items'] if row['id'] == issue['item_id']), None)
+        frame = item['start_frame'] if item else segment['start_frame']
+        issues.append({**issue, 'kind': 'scenario', 'frame': frame, 'location': segment['name']})
+
+    sounds = placed(t)
+    count = max([0] + [timeline.end(s) for s in t['segments']] +
+                [timeline.end(c) for c in t['clips']] + [timeline.end(e) for e in sounds] +
+                [timeline.end(r) for r in t.get('titles', [])] +
+                ([timeline.end(t['music'])] if t.get('music') else []))
+    if not count and not issues:
+        issues.append({'code': 'empty_timeline', 'message': 'Таймлайн пуст.'})
+    if count > MAX_SECONDS * project['fps']:
+        issues.append({'code': 'duration_limit', 'message': 'Экспорт поддерживает таймлайн до 10 минут.'})
+    size = project['output_size']
+    if not isinstance(size, list) or len(size) != 2 or any(type(n) is not int or n < 2 or n > 4096 for n in size):
+        issues.append({'code': 'invalid_size', 'message': 'Некорректный размер проекта.'})
+
+    assets = {}
+    asset_errors = {}
+
+    def resolve(aid, kinds, target):
+        key = (aid, kinds)
+        if key not in asset_errors:
+            asset = project['assets'].get(aid)
+            if not asset or asset['kind'] not in kinds:
+                asset_errors[key] = (422, 'Не найден материал экспорта.')
+            elif aid not in assets:
+                try:
+                    path = store.resolve_asset(project, aid)
+                    if not path.is_file():
+                        raise StudioError('Материал должен быть файлом.', 422)
+                    assets[aid] = {'id': aid, 'path': str(path), 'kind': asset['kind']}
+                except (StudioError, OSError) as error:
+                    name = asset.get('name') or aid
+                    asset_errors[key] = (getattr(error, 'status', 422), f'Недоступен файл «{name}».')
+        if key in asset_errors:
+            status, message = asset_errors[key]
+            issues.append({**target, 'code': 'unavailable_asset', 'status': status, 'message': message})
+
+    blocks = {row['id']: row for row in project['blocks']}
+    clip_assets = {}
+    for segment in view['segments']:
+        for item in segment['items']:
+            target = {'kind': 'clip', 'id': item['id'], 'item_id': item['id'], 'segment_id': segment['id'],
+                      'frame': item['start_frame'], 'location': f'{segment["name"]} / {item["title"]}'}
+            if not item['take_id']:
+                issues.append({**target, 'code': 'missing_take',
+                               'message': f'Назначьте дубль блоку «{item["title"]}».'})
+                continue
+            block = blocks[item['block_id']]
+            take = next(row for row in block['takes'] if row['id'] == item['take_id'])
+            aid = take['video_asset_id']
+            resolve(aid, ('video',), target)
+            clip_assets[item['id']] = aid
+
+    if music := t.get('music'):
+        resolve(music['asset_id'], ('audio',), {'kind': 'music', 'id': music.get('id', 'music'),
+                'frame': music['start_frame'], 'location': 'Музыка проекта'})
+    for event in sounds:
+        resolve(event['asset_id'], ('audio', 'video'), {'kind': 'sound', 'id': event['id'],
+                'segment_id': event['segment_id'], 'item_id': event.get('clip_id'),
+                'frame': event['start_frame'], 'location': event['name']})
+    return t, sounds, count, assets, clip_assets, issues
+
+
+def readiness(store, pid):
+    project = store.get(pid)
+    try:
+        _, _, frames, _, _, issues = inspect_montage(store, project)
+    except StudioError as error:
+        frames = None
+        issues = [{'code': 'invalid_timeline', 'message': str(error)}]
+    return {'project_id': pid, 'project_revision': project['revision'], 'fps': project['fps'],
+            'frames': frames, 'ready': not issues, 'issues': issues}
+
+
 def plan(store,pid,revision,profile='draft'):
     with store.lock:
         p=store.get(pid)
         if type(revision) is not int or revision!=p['revision']:raise StudioError('Монтаж изменился. Обновите проект перед экспортом.',409)
         if profile not in ('draft','project','final'):raise StudioError('Выберите профиль экспорта.',422)
-        view=scenario.get(p)
-        if view['issues']:raise StudioError('Исправьте неопределённое время и конфликты сценария перед экспортом.',422,view['issues'])
-        t=view['timeline'] if view['active'] else timeline.get(p)
-        try:timeline.validate(p,t)
-        except timeline.TimelineError as e:raise StudioError(str(e),422) from e
-        sounds=placed(t)
-        count=max([0]+[timeline.end(s) for s in t['segments']]+[timeline.end(c) for c in t['clips']]+[timeline.end(e) for e in sounds]+[timeline.end(r) for r in t.get('titles',[])]+([timeline.end(t['music'])] if t.get('music') else []))
-        if not count:raise StudioError('Таймлайн пуст.',422)
-        if count>MAX_SECONDS*p['fps']:raise StudioError('Черновой экспорт поддерживает таймлайн до 10 минут.',422)
+        t, sounds, count, assets, clip_assets, issues = inspect_montage(store, p)
+        if issues:
+            first = issues[0]
+            raise StudioError(first['message'], first.get('status', 422), issues)
         size=p['output_size']
-        if not isinstance(size,list) or len(size)!=2 or any(type(n) is not int or n<2 or n>4096 for n in size):raise StudioError('Некорректный размер проекта.',422)
         scale=min(1,896/max(size)) if profile=='draft' else 1
         size=[max(2,round(n*scale/2)*2) for n in size]
-        assets={}
-        def asset(aid,kind):
-            a=p['assets'].get(aid)
-            if not a or a['kind']!=kind:raise StudioError('Не найден материал экспорта.',422)
-            path=store.resolve_asset(p,aid)
-            assets[aid]={'id':aid,'path':str(path),'kind':kind}
-            return aid
-        clips=[]
-        for c in sorted(t['clips'],key=lambda c:c['start_frame']):
-            if not c['take_id']:raise StudioError('Назначьте дубль блоку перед экспортом: '+c.get('story_title',c['id']),422)
-            b=store.find_block(p,c['block_id']);take=next(x for x in b['takes'] if x['id']==c['take_id'])
-            clips.append({**copy.deepcopy(c),'asset_id':asset(take['video_asset_id'],'video'),'speed':speed(c),'source_out_frame':source_out(c)})
+        clips=[{**copy.deepcopy(c),'asset_id':clip_assets[c['id']],'speed':speed(c),'source_out_frame':source_out(c)}
+               for c in sorted(t['clips'],key=lambda c:c['start_frame'])]
         music=copy.deepcopy(t.get('music'))
-        if music:asset(music['asset_id'],'audio')
-        for e in sounds:asset(e['asset_id'],p['assets'][e['asset_id']]['kind'])
         title_layers=[]
         for layer in store.render_title_layers(p,t.get('titles',[])):
             aid='title-layer-'+layer['id']

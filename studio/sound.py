@@ -1,15 +1,45 @@
-"""Segment-relative sound events. Sources and native clip audio remain independent."""
+"""Sound events relative to a segment or an individual montage placement."""
 import copy,math,re,subprocess
 from . import timeline as tl
 
-FIELDS=('segment_id','name','lane','asset_id','stream','offset_frames','source_in_frame','duration_frames','gain','muted')
+FIELDS=('segment_id','clip_id','name','lane','asset_id','stream','offset_frames','source_in_frame','duration_frames','gain','muted')
 LANES={'voice','sfx','ambience'}
 
 def events(t):return t.get('sound_events',[])
 
 def placed(t):
     segments={s['id']:s for s in t['segments']}
-    return [{**e,'start_frame':segments[e['segment_id']]['start_frame']+e['offset_frames']} for e in events(t) if e['segment_id'] in segments]
+    clips={c['id']:c for c in t['clips']}
+    result=[]
+    for event in events(t):
+        clip_id=event.get('clip_id')
+        owner=clips.get(clip_id) if clip_id else segments.get(event['segment_id'])
+        if owner is None:continue
+        duration=event['duration_frames']
+        if clip_id:duration=min(duration,owner['duration_frames']-event['offset_frames'])
+        if duration>0:
+            result.append({**event,'start_frame':owner['start_frame']+event['offset_frames'],'duration_frames':duration,
+                           'segment_id':owner['segment_id'] if clip_id else event['segment_id']})
+    return result
+
+def remove_placements(t,clip_ids,segment_id=None):
+    if 'sound_events' in t:
+        t['sound_events']=[e for e in events(t) if e.get('clip_id') not in clip_ids
+                           and (e.get('clip_id') or e['segment_id']!=segment_id)]
+
+def split_placement(t,left_id,right_id,cut):
+    rows=events(t)
+    for event in list(rows):
+        if event.get('clip_id')!=left_id:continue
+        offset=event['offset_frames']
+        if offset>=cut:
+            event.update(clip_id=right_id,offset_frames=offset-cut)
+        elif offset+event['duration_frames']>cut:
+            head=cut-offset
+            rows.append({**event,'id':tl.identifier('sound-'),'clip_id':right_id,'offset_frames':0,
+                         'source_in_frame':event['source_in_frame']+head,'duration_frames':event['duration_frames']-head})
+            event['duration_frames']=head
+    if len(rows)>64:raise tl.TimelineError('Разрез увеличит число звуковых событий сверх 64.')
 
 def validate(project,t):
     rows=events(t)
@@ -19,7 +49,9 @@ def validate(project,t):
         if not isinstance(e,dict) or not isinstance(e.get('id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}',e['id']) or e['id'] in ids:raise tl.TimelineError('Некорректный ID звука.')
         ids.add(e['id']);tl.text(e.get('name'),'название звука')
         if not isinstance(e.get('lane'),str) or e['lane'] not in LANES:raise tl.TimelineError('Неизвестная звуковая дорожка.')
-        s=tl.find(t['segments'],e.get('segment_id'),'Сегмент звука')
+        clip_id=e.get('clip_id')
+        if clip_id is not None and not isinstance(clip_id,str):raise tl.TimelineError('Некорректный ID блока звука.')
+        owner=tl.find(t['clips'],clip_id,'Блок звука') if clip_id is not None else tl.find(t['segments'],e.get('segment_id'),'Сегмент звука')
         aid=e.get('asset_id');a=project['assets'].get(aid) if isinstance(aid,str) else None
         if not a or a.get('kind') not in ['audio','video']:raise tl.TimelineError('Выберите аудио или видео для звука.')
         if type(e.get('stream')) is not int or not 0<=e['stream']<64:raise tl.TimelineError('Некорректный звуковой поток.')
@@ -28,7 +60,7 @@ def validate(project,t):
         seconds=e.get('source_seconds')
         if type(seconds) not in [int,float] or not math.isfinite(seconds) or seconds<=0:raise tl.TimelineError('Неизвестна длина звука.')
         if e['source_in_frame']+e['duration_frames']>math.floor(seconds*t['fps']+1e-6):raise tl.TimelineError('Участок выходит за длину звука.')
-        if s['start_frame']+e['offset_frames']+e['duration_frames']>tl.MAX_FRAME:raise tl.TimelineError('Звук выходит за пределы таймлайна.')
+        if clip_id is None and owner['start_frame']+e['offset_frames']+e['duration_frames']>tl.MAX_FRAME:raise tl.TimelineError('Звук выходит за пределы таймлайна.')
         g=e.get('gain')
         if type(g) not in [int,float] or not math.isfinite(g) or not 0<=g<=1:raise tl.TimelineError('Громкость звука должна быть от 0 до 100%.')
         if type(e.get('muted')) is not bool:raise tl.TimelineError('Выключение звука задаётся переключателем.')
@@ -42,6 +74,9 @@ def apply(t,action,payload):
         e=tl.find(rows,payload.get('id'),'Звуковое событие')
         if action=='remove_sound':rows.remove(e)
         else:e.update({k:copy.deepcopy(v) for k,v in payload.items() if k in (*FIELDS,'source_seconds')})
+    if action!='remove_sound' and e.get('clip_id') is not None:
+        clip=tl.find(t['clips'],e['clip_id'],'Блок звука')
+        e['segment_id']=clip['segment_id']
 
 def streams(path):
     import av

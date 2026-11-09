@@ -3,7 +3,7 @@
 #segmentClock{margin-left:auto;font:11px Consolas,monospace;color:#bdd9d2}
 #segmentScrub{display:block;width:100%;margin-top:12px;accent-color:var(--mint)}
 .editor-view.segment-preview{grid-template-columns:minmax(0,1fr)}
-.segment-preview .inspector,.segment-preview .job-panel,.segment-preview .viewer-heading .button{display:none}
+.segment-preview .job-panel,.segment-preview .viewer-heading .button{display:none}
 .inspector-tabs{flex-wrap:wrap}
 .inspector-tabs button{font-size:10px;padding:11px 7px;white-space:nowrap}
 .material-use{display:block;color:#92b7a9;font-size:9px;line-height:1.7;margin-top:8px}
@@ -15,3 +15,7 @@
 .guide-preview{display:block;width:100%;max-height:190px;object-fit:contain;background:#090f13;border-radius:4px;cursor:zoom-in;margin-bottom:13px}
 .guide-card select,.guide-card input{width:100%;padding:8px;border:1px solid #40515b;border-radius:4px;background:#111a20;color:var(--text);font-size:11px}
 @media(max-width:720px){#segmentClock{margin-left:0;width:100%;font-size:10px}.segment-preview .viewer-column{min-height:510px}.segment-preview-controls .button{font-size:10px}}
+
+#previewLoop[aria-pressed=true]{border-color:var(--mint);color:var(--mint)}
+.tl-scope-window{position:absolute;top:0;bottom:0;z-index:1;border-inline:1px solid #8fbbad;background:#91d0b90c;pointer-events:none}
+.tl-scope-window.looping{border-inline:1px dashed var(--mint);background:#91d0b917}

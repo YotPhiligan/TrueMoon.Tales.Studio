@@ -5,3 +5,15 @@
 .scenario-agent-actions{display:flex;gap:10px;flex-wrap:wrap}#scenarioAgentError{font-size:12px;color:#e8b57f;line-height:1.6}
 .story-agent-tasks{border-top:1px solid var(--line);margin-top:24px;padding-top:15px}.scenario-agent-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.scenario-agent-list .agent-task{margin:0}.scenario-agent-list .agent-task p{white-space:pre-wrap;overflow-wrap:anywhere}
 .story-card-buttons [data-agent-improve]{color:var(--mint)}
+#scenarioBreakdown{display:grid;gap:12px}
+.scenario-breakdown-budget{display:flex;flex-wrap:wrap;gap:10px;margin:0}
+.scenario-breakdown-budget>div{padding:8px 12px;border:1px solid var(--line);border-radius:6px}
+.scenario-breakdown-budget dt,.scenario-breakdown-items small{font-size:11px;color:var(--muted)}
+.scenario-breakdown-budget dd{margin:4px 0 0;font-size:14px;font-variant-numeric:tabular-nums}
+.scenario-breakdown-status{font-weight:600;color:var(--mint)}
+.scenario-breakdown-status[data-status=blocked],.scenario-breakdown-issues{color:#e8b57f}
+.scenario-breakdown-issues{font-size:12px;margin:0}.scenario-breakdown-issues:empty{display:none}
+.scenario-breakdown-items{padding-left:24px;margin:0}
+.scenario-breakdown-items>li{padding:10px 0;border-top:1px solid var(--line)}
+.scenario-breakdown-items li>div{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.scenario-breakdown-items p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55;margin-top:5px}

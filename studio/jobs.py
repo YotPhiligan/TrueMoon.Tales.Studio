@@ -1,6 +1,6 @@
 """Explicit prepare -> one bounded launch -> collect, reusing the native AV core."""
 from __future__ import annotations
-import copy,json,os,re,shutil,subprocess,sys,threading,time
+import copy,json,os,re,shutil,subprocess,sys,tempfile,threading,time
 from pathlib import Path
 import psutil
 from .model import ACTIVE,StudioError,atomic,block_hash,digest,now,read,uid
@@ -12,7 +12,7 @@ class Jobs:
 
     def directory(self,pid,jid):
         if not re.fullmatch(r'job-[a-f0-9]{16}',jid):raise StudioError('Некорректный ID задания.')
-        return self.store.safe(self.store.location(pid).parent/'Jobs'/jid,False)
+        return self.store.safe(self.store.production_dir(pid)/'Jobs'/jid,False)
 
     def get(self,pid,jid):
         path=self.directory(pid,jid)/'Studio.job.json'
@@ -26,7 +26,7 @@ class Jobs:
     def all(self,pid=None):
         projects=[{'id':pid}] if pid else self.store.list_projects();rows=[]
         for p in projects:
-            folder=self.store.location(p['id']).parent/'Jobs'
+            folder=self.store.production_dir(p['id'])/'Jobs'
             for f in folder.glob('*/Studio.job.json'):
                 try:rows.append(read(f))
                 except (OSError,ValueError):continue
@@ -179,28 +179,82 @@ class Jobs:
                 lines.append(name+'\n'+text[-4000:])
         return '\n'.join(lines)[-10000:]
 
+    def publish_video(self,job,block,output):
+        root=self.store.project_dir(job['project_id'])
+        folder=self.store.writable(root/'video')
+        prefix=job['name'].rsplit('.',1)[0]
+        if folder!=root/'video' or not re.fullmatch(r'STUDIO\.[A-Za-z0-9._-]{1,32}',prefix):
+            raise StudioError('Некорректный путь для сохранения монтажного MP4.',409)
+        source=self.store.safe(output['path'])
+        try:
+            folder.mkdir(exist_ok=True)
+            number=job.get('take_number')
+            if number is None:
+                takes=block['takes']
+                highest=max((take.get('take_number',0) for take in takes),default=0)
+                number=max(len(takes),highest)+1
+                while True:
+                    target=folder/f'{prefix}.Run{number:02d}.mp4'
+                    if not target.is_symlink() and not target.exists():break
+                    number+=1
+                # Persist the reservation before copying so a restart can reuse a verified file.
+                job['take_number']=number
+                self.write(job)
+            target=folder/f'{prefix}.Run{number:02d}.mp4'
+            if target.is_symlink() or self.store.writable(target)!=target:
+                raise StudioError('Путь монтажного MP4 ведёт за пределы каталога video/.',409)
+            if target.exists():
+                if not target.is_file() or digest(target)!=output['sha256']:
+                    raise StudioError('Имя монтажного MP4 уже занято другим файлом.',409)
+                return target
+            pending=None
+            try:
+                with source.open('rb') as src,tempfile.NamedTemporaryFile(dir=folder,prefix='.studio-',suffix='.pending',delete=False) as dst:
+                    pending=Path(dst.name)
+                    shutil.copyfileobj(src,dst)
+                    dst.flush()
+                    os.fsync(dst.fileno())
+                if digest(pending)!=output['sha256']:
+                    raise StudioError('Контрольная сумма копии монтажного MP4 не совпадает.',422)
+                # Windows rename refuses an existing destination. POSIX rename replaces it.
+                if os.name=='nt':pending.rename(target)
+                else:os.link(pending,target)
+            finally:
+                if pending is not None:pending.unlink(missing_ok=True)
+            return target
+        except OSError as error:
+            raise StudioError('Не удалось сохранить монтажный MP4 в video/.',422,str(error)) from error
+
     def finish(self,pid,jid):
-        job=self.get(pid,jid);folder=self.store.writable(self.directory(pid,jid));run=folder/'Run'
-        if not (run/'Cleanup.json').exists() or not read(run/'Cleanup.json')['stopped']:raise StudioError('Сервер ещё не подтвердил завершение; результат пока не собран.',409)
-        job.update(state='collecting',phase='Проверка результата');self.write(job)
+        with self.lock:
+            job=self.get(pid,jid)
+            if job['state']=='completed':return
+            folder=self.store.writable(self.directory(pid,jid));run=folder/'Run'
+            if not (run/'Cleanup.json').exists() or not read(run/'Cleanup.json')['stopped']:raise StudioError('Сервер ещё не подтвердил завершение; результат пока не собран.',409)
+            job.update(state='collecting',phase='Проверка результата');self.write(job)
         self.command([self.core/'collect.py',run],folder,'Collect',90)
         result=read(run/'Result.json')
-        with self.store.lock:
+        with self.lock,self.store.lock:
+            job=self.get(pid,jid)
+            if job['state']=='completed':return
             p=self.store.get(pid);b=self.store.find_block(p,job['block_id'])
             existing=next((t for t in b['takes'] if t.get('job_id')==jid),None)
             if not existing:
                 outputs=result['outputs'];key='207' if '207.0' in outputs else '92'
-                take={'id':uid('take-'),'name':job['name'],'job_id':jid,'technical_status':'success','review_state':'unreviewed',
-                      'video_asset_id':self.store.asset(p,outputs[key+'.0']['path']),
+                video=self.publish_video(job,b,outputs[key+'.0'])
+                number=job['take_number']
+                name=f"{b['label']} · Дубль {number:02d}"
+                take={'id':uid('take-'),'name':name,'take_number':number,'job_id':jid,'technical_status':'success','review_state':'unreviewed',
+                      'video_asset_id':self.store.asset(p,video),
                       'raw_asset_id':self.store.asset(p,outputs['92.0']['path']),
                       'last_frame_asset_id':self.store.asset(p,outputs['202.0']['path']),
                       'native_av_asset_id':self.store.asset(p,outputs['200.0']['path']),
-                      'video_info':result['videos'][key],'notes':'Технически выполнено. Требует просмотра и отдельного отбора.',
+                      'video_info':{**result['videos'][key],'path':str(video)},'notes':'Технически выполнено. Требует просмотра и отдельного отбора.',
                       'settings_hash':job['block_hash'],'created_at':now(),'imported':False,
                       'metrics':{k:result[k] for k in ['server_wall_seconds','device_gpu_peak_GiB','rss_peak_GiB']}}
-                b['takes'].append(take);self.store.commit(p,p['revision'],'runner','Добавлен дубль '+job['name'])
+                b['takes'].append(take);self.store.commit(p,p['revision'],'runner','Добавлен дубль '+name)
                 existing=take
-        job.update(state='completed',phase='Готово · требуется просмотр',take_id=existing['id'],finished_at=now());self.write(job)
+            job.update(state='completed',phase='Готово · требуется просмотр',take_id=existing['id'],finished_at=now());self.write(job)
 
     def stop(self,pid,jid):
         with self.lock:

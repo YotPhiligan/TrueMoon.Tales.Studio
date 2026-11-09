@@ -81,7 +81,7 @@ class DraftRenderer:
         for index,part in enumerate(all_parts):
             self.progress('Звук клипов',75+15*index/max(1,len(all_parts)),True)
             clip=part['clip'];name=f'Audio-{index:04}.wav';files.append(name);target=round((part['start_frame']+part['duration_frames'])/self.fps*48000)-round(part['start_frame']/self.fps*48000)
-            path=self.request['assets'][clip['asset_id']]['path'] if clip else None
+            path=self.request['assets'][clip['asset_id']]['path'] if clip and not clip.get('mute_native_audio') else None
             has_audio=False
             if path:
                 with av.open(path) as source:has_audio=bool(source.streams.audio)
@@ -112,9 +112,11 @@ class DraftRenderer:
             label=f'event{i}'
             filters.append(f"[{input_index}:a:{e['stream']}]atrim=start={e['source_in_frame']/self.fps:.12f}:duration={e['duration_frames']/self.fps:.12f},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={e['gain']:.12g},adelay={round(e['start_frame']/self.fps*48000)}S:all=1,apad,atrim=end_sample={self.samples}[{label}]")
             labels.append(f'[{label}]');input_index+=1
-        if not labels:filters.append(f'anullsrc=r=48000:cl=stereo,atrim=end_sample={self.samples}[sound]')
-        elif len(labels)==1:filters.append(labels[0]+'anull[sound]')
-        else:filters.append(''.join(labels)+f'amix=inputs={len(labels)}:duration=longest:normalize=0[sound]')
+        if not labels:filters.append(f'anullsrc=r=48000:cl=stereo,atrim=end_sample={self.samples}[mixed]')
+        elif len(labels)==1:filters.append(labels[0]+'anull[mixed]')
+        else:filters.append(''.join(labels)+f'amix=inputs={len(labels)}:duration=longest:normalize=0[mixed]')
+        # The mix already contains all delays and padding. Timestamp its PCM samples continuously.
+        filters.append('[mixed]asetpts=N/SR/TB[sound]')
         self.command([*args,'-filter_complex_threads','1','-filter_complex',';'.join(filters),'-map','0:v:0','-map','[sound]',
                       '-c:v','copy','-c:a',self.encoding['audio_codec'],'-b:a',f"{self.encoding['audio_bitrate_kbps']}k",'-ar','48000','-ac','2','-t',f'{self.frames/self.fps:.12f}',
                       '-movflags','+faststart','-n',str(self.folder/'Draft.mp4')])

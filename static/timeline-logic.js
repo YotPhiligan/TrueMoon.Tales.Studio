@@ -18,16 +18,19 @@ export function takeCapacity(take,fps=24){
 }
 export function extentFrames(t){return Math.min(518400+4*t.fps,Math.max(20*t.fps,...t.segments.map(frameEnd).map(n=>n+4*t.fps),...(t.clips??[]).map(frameEnd).map(n=>n+4*t.fps),...placedSounds(t).map(frameEnd).map(n=>n+4*t.fps),...(t.titles??[]).map(frameEnd).map(n=>n+4*t.fps),...t.markers.map(m=>m.frame+4*t.fps),t.music?frameEnd(t.music)+4*t.fps:0));}
 export function rulerStep(zoom,fps=24){return Math.round(([.1,.25,.5,1,2,5,10,15,30,60,120,300].find(s=>s*zoom>=65)??600)*fps);}
-export function snapFrame(raw,duration,targets,threshold,edge='move'){
-  const frame=Math.max(0,Math.round(raw));let answer=frame,distance=threshold+1e-8;
+export function snapPosition(raw,duration,targets,threshold,edge='move'){
+  const frame=Math.max(0,Math.round(raw));
+  let best={frame,target:null,offset:0},distance=threshold+1e-8;
   for(const target of targets){
+    const position=typeof target==='number'?target:target.frame;
     for(const offset of edge==='move'?[0,duration]:[0]){
-      const candidate=target-offset,d=Math.abs(candidate-frame);
-      if(candidate>=0&&d<distance){answer=candidate;distance=d;}
+      const candidate=position-offset,d=Math.abs(candidate-frame);
+      if(candidate>=0&&d<distance){best={frame:Math.round(candidate),target,offset};distance=d;}
     }
   }
-  return Math.max(0,Math.round(answer));
+  return best;
 }
+export function snapFrame(...args){return snapPosition(...args).frame;}
 export function trimClip(clip,edge,frame,capacity=Infinity){
   if(clip.take_id&&('speed' in clip||'source_out_frame' in clip))return trimRetimed(clip,edge,frame,capacity);
   if(edge==='left'){
