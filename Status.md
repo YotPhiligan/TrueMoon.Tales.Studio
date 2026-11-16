@@ -32,10 +32,18 @@ source in/out, speed, take, ID и окно сохраняются. No-op и от
   max MAE=5.8259491 < 8. JSON, окна/связи/история и SHA исходных MP4 сохранены.
   Все три собственные QA-сессии остановлены по ID, tool sessions завершены.
 
-Физическое перетаскивание в настоящем окне, keyboard/DPI, длинная шкала и latency
-не принимались; старые native/device результаты не переносятся на этот этап.
+Основная приёмка ограничивалась routed input/HTTP/CPU; дополнительная native QA
+описана ниже. Полные keyboard/DPI, длинная шкала и latency остаются открытыми;
+старые native/device результаты не переносятся на этот этап.
 Авторские проекты, GPU/ComfyUI и код TrueMoon не затронуты. Далее — длинный
 таймлайн и физический ввод, затем выбранный backend/IPC с одним владельцем записи.
+Дополнение native QA после push 871e451: mouse drag в настоящем Release-окне
+прошёл, 6 → 7, одна запись/undo/history и точные прежние байты. Обратный drag
+сохранил 8. После ручной попытки Escape JSON/SHA, revision=8, history и POST не
+изменились. Escape остановил Computer Use и мог вызвать FocusLost, поэтому
+изолированная native-приёмка Escape не заявляется. QA остановлена, процессы/порт
+освобождены. [Подробности](src/Verification/ClipMove.md#проверка-настоящего-окна--16112026).
+
 [План](Plan.md#clip-move-within-segment) · [проверки и границы](src/Verification/ClipMove.md).
 
 <a id="dotnet11-framework-refresh"></a>

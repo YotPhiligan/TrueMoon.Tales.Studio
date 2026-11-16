@@ -547,7 +547,9 @@ backend, Enerit/Mithril, новые монтажные команды и GPU н�
 57 новых deterministic cases, D/R по 247 passed/0 failed/5 skipped; отдельный
 HTTP case 1 passed. CPU MP4 24 кадра, сохранность JSON/медиа/точной истории.
 [Результат, команды и границы](src/Verification/ClipMove.md).
-Полная физическая mouse/keyboard/DPI-приёмка, длинная шкала и задержки остаются
+Mouse drag в настоящем Release-окне принят отдельной QA после push 871e451.
+Отмена без записи подтверждена, но Escape/FocusLost не изолированы из-за остановки
+Computer Use физическим Escape. Полная keyboard/DPI-приёмка, native Escape, длинная шкала и задержки остаются
 следующими задачами; межсегментный перенос и schema-2/backend/IPC не входят в этап.
 
 ## Ближайшая очередь
