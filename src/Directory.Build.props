@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version Condition="'$(Version)' == ''">0.1.0.1-alpha</Version>
+    <Version Condition="'$(Version)' == ''">1.2611.16.1-alpha</Version>
     <Authors>yotphiligan</Authors>
     <Company>TrueMoon</Company>
     <Product>TrueMoon.Tales.Studio</Product>
@@ -8,6 +8,7 @@
     <Copyright>Copyright © yotphiligan 2026</Copyright>
 
     <LangVersion>latest</LangVersion>
+    <Features>$(Features);runtime-async=on</Features>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>
     
@@ -16,8 +17,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
-    <TF>net10.0</TF>
-    <TestsTF>net10.0</TestsTF>
+    <TF>net11.0</TF>
+    <TestsTF>net11.0</TestsTF>
   </PropertyGroup>
 
 </Project>

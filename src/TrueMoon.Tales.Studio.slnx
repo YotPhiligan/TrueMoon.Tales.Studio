@@ -1,6 +1,9 @@
 <Solution>
   <Folder Name="/Items/">
     <File Path="README.md" />
+    <File Path="../ProjectModel.md" />
+    <File Path="ProjectContracts.md" />
+    <File Path="ProjectStore.md" />
     <File Path="WindowDesign.md" />
     <File Path="WindowMenus.md" />
     <File Path="TimelineDrag.md" />
@@ -14,5 +17,7 @@
     <File Path="Update-TrueMoonPackages.ps1" />
   </Folder>
   <Project Path="TrueMoon.Tales.Studio/TrueMoon.Tales.Studio.csproj" />
+  <Project Path="TrueMoon.Tales.Studio.Contracts/TrueMoon.Tales.Studio.Contracts.csproj" />
+  <Project Path="TrueMoon.Tales.Studio.Persistence/TrueMoon.Tales.Studio.Persistence.csproj" />
   <Project Path="TrueMoon.Tales.Studio.Tests/TrueMoon.Tales.Studio.Tests.csproj" />
 </Solution>

@@ -9,6 +9,7 @@ from studio.paths import WorkspacePaths
 from studio.jobs import Jobs
 from studio.server import LocalServer,handler_for
 from studio.exports import Exports
+from studio.version import VERSION
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8787)
@@ -28,7 +29,7 @@ def main():
         jobs=Jobs(store);jobs.recover()
         exports=Exports(store);exports.recover()
         server.RequestHandlerClass=handler_for(store,jobs,ROOT/'static',exports)
-        print(f'True Moon Studio 0.15\nLocal: http://127.0.0.1:{server.server_address[1]}\nConfig: {a.config.resolve()}\nGeneration starts only from explicit launch.',flush=True)
+        print(f'True Moon Studio {VERSION}\nLocal: http://127.0.0.1:{server.server_address[1]}\nConfig: {a.config.resolve()}\nGeneration starts only from explicit launch.',flush=True)
         if a.open_browser:
             opener=threading.Timer(.4,lambda:webbrowser.open(f'http://127.0.0.1:{server.server_address[1]}'));opener.daemon=True;opener.start()
         server.serve_forever(poll_interval=.3)

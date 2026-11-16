@@ -11,5 +11,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <ProjectReference Include="../TrueMoon.Tales.Studio/TrueMoon.Tales.Studio.csproj" />
+    <ProjectReference Include="../TrueMoon.Tales.Studio.Contracts/TrueMoon.Tales.Studio.Contracts.csproj" />
+    <ProjectReference Include="../TrueMoon.Tales.Studio.Persistence/TrueMoon.Tales.Studio.Persistence.csproj" />
   </ItemGroup>
 </Project>

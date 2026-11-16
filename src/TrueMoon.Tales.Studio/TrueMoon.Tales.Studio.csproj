@@ -7,6 +7,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <ProjectReference Include="../TrueMoon.Tales.Studio.Contracts/TrueMoon.Tales.Studio.Contracts.csproj" />
+        <ProjectReference Include="../TrueMoon.Tales.Studio.Persistence/TrueMoon.Tales.Studio.Persistence.csproj" />
         <InternalsVisibleTo Include="TrueMoon.Tales.Studio.Tests" />
         <PackageReference Include="TrueMoon" />
         <PackageReference Include="TrueMoon.Alloy.Hosting" />

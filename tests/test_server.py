@@ -1,4 +1,6 @@
 import http.client,json,threading
+from pathlib import Path
+from xml.etree import ElementTree
 from unittest.mock import patch
 from fixtures import Fixture
 from studio.server import LocalServer,handler_for,byte_range
@@ -28,6 +30,21 @@ class HttpTests(Fixture):
             health=self.request('GET','/api/health');context=self.request('GET',f'/api/projects/{self.pid}/context?block={self.bid}')
         self.assertEqual(200,health[0]);self.assertEqual(0,json.loads(health[2])['gpu_jobs_started_by_health'])
         data=json.loads(context[2]);self.assertEqual(200,context[0]);self.assertEqual(self.current()['revision'],data['project']['revision']);self.assertEqual(3,len(data['assets']))
+        prepare.assert_not_called();launch.assert_not_called()
+
+    def test_product_version_matches_build_bootstrap_health_and_server_header(self):
+        props=Path(__file__).resolve().parents[1]/'src/Directory.Build.props'
+        expected=ElementTree.parse(props).getroot().findtext('PropertyGroup/Version')
+        self.assertRegex(expected, r'^[1-9]\d*\.\d{4}\.[1-9]\d?\.[1-9]\d*(?:-(?:alpha|beta|rc))?$')
+        before=self.current()
+        with patch.object(self.jobs,'prepare') as prepare,patch.object(self.jobs,'launch') as launch:
+            for route in ('/api/bootstrap','/api/health'):
+                with self.subTest(route=route):
+                    status,headers,body=self.request('GET',route)
+                    self.assertEqual(200,status)
+                    self.assertEqual(expected,json.loads(body)['version'])
+                    self.assertEqual('TrueMoonStudio/'+expected,headers['Server'].split()[0])
+        self.assertEqual(before,self.current())
         prepare.assert_not_called();launch.assert_not_called()
 
     def test_valid_patch_requires_token_and_conflicting_revision_is_409(self):

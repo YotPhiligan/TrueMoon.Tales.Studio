@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(TF)</TargetFramework>
+    <EnableCobaltGenerator>false</EnableCobaltGenerator>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../TrueMoon.Tales.Studio.Contracts/TrueMoon.Tales.Studio.Contracts.csproj" />
+  </ItemGroup>
+</Project>

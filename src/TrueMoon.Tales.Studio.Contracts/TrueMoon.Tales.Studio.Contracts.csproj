@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(TF)</TargetFramework>
+    <EnableCobaltGenerator>false</EnableCobaltGenerator>
+  </PropertyGroup>
+</Project>

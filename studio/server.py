@@ -4,6 +4,7 @@ import json,mimetypes,re,secrets,socket,urllib.parse
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from .model import AUDIO,IMAGES,MEDIA,VIDEOS,StudioError,atomic,now,read,uid
+from .version import VERSION
 from . import agent
 from . import scenario
 
@@ -35,7 +36,7 @@ def handler_for(store,jobs,static,exports=None):
     token=secrets.token_urlsafe(32);static=Path(static).resolve()
     class Handler(BaseHTTPRequestHandler):
         protocol_version='HTTP/1.1'
-        server_version='TrueMoonStudio/0.15'
+        server_version=f'TrueMoonStudio/{VERSION}'
         def setup(self):super().setup();self.connection.settimeout(30)
 
         def guard(self,write=False):
@@ -92,7 +93,7 @@ def handler_for(store,jobs,static,exports=None):
             arg=lambda name,default=None:q.get(name,[default])[0]
             if self.command in ['GET','HEAD']:
                 if path=='/api/bootstrap':
-                    return self.respond({'version':'0.15.0','token':token,'projects':store.list_projects(),
+                    return self.respond({'version':VERSION,'token':token,'projects':store.list_projects(),
                         'profile':{'name':'Omni NVFP4 QAD','core':'Omni.v1.1','sizes':[[896,512],[1280,736]],'fps':24,'frame_grid':17,'frame_offset':5,'context_frames':22,'audio_context_frames':18},
                         'generation_available':jobs.python.is_file() and (jobs.core/'run.ps1').is_file(),
                         'agent':{'context_version':2,'brief':True,'requests':True,'automatic_dispatch':False}})
@@ -101,7 +102,7 @@ def handler_for(store,jobs,static,exports=None):
                     from .titles import catalog
                     return self.respond(catalog())
                 if path=='/api/workspace':return self.respond({'configured':not store.paths.legacy_mode,'legacy_read_enabled':store.paths.legacy_read_enabled,'projects_root':str(store.paths.projects_root),'state_root':str(store.state),'mounts':{k:str(v) for k,v in store.paths.mounts.items()},'policy':store.paths.export_policy()})
-                if path=='/api/health':return self.respond({'ok':True,'app':'true-moon-studio','version':'0.15.0','gpu_jobs_started_by_health':0})
+                if path=='/api/health':return self.respond({'ok':True,'app':'true-moon-studio','version':VERSION,'gpu_jobs_started_by_health':0})
                 if path=='/api/media':
                     p=store.get(arg('project'));f=store.resolve_asset(p,arg('asset'))
                     if f.suffix.lower() not in MEDIA:raise StudioError('Материал недоступен как медиа.',403)

@@ -1,6 +1,6 @@
 # Десктопный прототип Studio
 
-C# / net10.0, Argentis поверх действующего Python HTTP API. Рабочий веб-интерфейс
+C# / net11.0, Argentis поверх действующего Python HTTP API. Рабочий веб-интерфейс
 и сервер находятся в корне Studio. [План перехода](../Plan.md#исследование-архитектуры-studio)
 и [проверенная сцена](../Verification/Argentis.Prototype.md) описывают границы прототипа.
 Первое окно оформлено по [общему дизайн-коду TrueMoon](../../TrueMoon/src/docs/alloy/DESIGN.md).
@@ -11,7 +11,29 @@ C# / net10.0, Argentis поверх действующего Python HTTP API. Р
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
+Текущая версия Studio — **1.2611.16.1-alpha**. SDK **11.0.100**,
+`runtime-async=on`, TrueMoon **1.2611.16.1-alpha**, SkiaSharp **4.156.1**.
+[Переход, команды и результаты](Verification/DotNet11.md). Старые датированные
+проверки ниже относятся к своим версиям.
+
+## Модель проекта
+
+Нормативная [модель действий, источников и монтажа](../ProjectModel.md) согласована
+09.11.2026. Одно действие допускает несколько источников и клипов; источник
+переиспользуется, монтажное окно ссылается на смысловой сегмент. Текущий
+C#-прототип использует прежний Python HTTP-контракт. Новый формат и миграция
+входят в [план](../Plan.md#переход-к-модели-действий-и-источников).
+
 ## Структура C#-решения
+
+`TrueMoon.Tales.Studio.Persistence/` — адаптер записи schema 2 и ProjectStore:
+явная миграция, expected_revision/SHA, история, атомарная замена и recovery.
+[API, права, формат и проверки на копии](ProjectStore.md).
+
+`TrueMoon.Tales.Studio.Contracts/` — общие DTO действий, источников и клипов,
+JSON-кодек транспорта и read-only адаптер старого `schema_version=1`.
+Это DLL; Studio сохраняет один исполняемый проект.
+[Контракты, совместимость и границы первого этапа](ProjectContracts.md).
 
 ```text
 TrueMoon.Tales.Studio/
@@ -152,6 +174,22 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 [Playback.md](Playback.md) повторно не запускалась.
 
 ## Пакеты TrueMoon
+
+Текущий набор — девять пакетов **1.2611.16.1-alpha** из проверенной поставки
+ENG7B3. Для нового клона передать архивы с manifest и выполнить из `src`:
+
+```powershell
+./Update-TrueMoonPackages.ps1 -PackageManifest ../../TrueMoon/src/docs/engine/ENG7B3_BASELINE.json
+```
+
+Импорт сверяет полный набор, SHA-256 и nuspec до публикации в локальный feed;
+совпадающие архивы можно принять повторно, отличающиеся не перезаписываются.
+NuGet.Config сохраняет source mapping. Более новый framework checkout не следует
+пересобирать под старым номером: режим `-FrameworkRoot` требует точного совпадения
+версий. [Профиль, native SHA и приёмка](Verification/DotNet11.md).
+
+### История приёмки 07–09.11.2026
+
 
 Версия `0.2.5.2-alpha` закреплена общей `StudioTrueMoonVersion` в
 [Directory.Packages.props](Directory.Packages.props). Все девять пакетов TrueMoon,
