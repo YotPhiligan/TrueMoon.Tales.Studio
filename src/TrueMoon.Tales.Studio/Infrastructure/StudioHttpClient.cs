@@ -87,6 +87,22 @@ internal sealed class StudioHttpClient : IDisposable
         return info;
     }
 
+    public async Task<SceneSnapshot> MoveAsync(SceneSnapshot scene, int requestedStart, CancellationToken cancellationToken)
+    {
+        using var bootstrap = new HttpRequestMessage(HttpMethod.Get, "api/bootstrap");
+        var session = await SendAsync<StudioSession>(bootstrap, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{_projectPath}/timeline")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                expected_revision = scene.Revision, actor = "studio:argentis", action = "update_clip",
+                payload = new { id = scene.Clip.Id, start_frame = requestedStart }
+            }), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("X-Studio-Token", session.Token);
+        return await ReadSceneAsync(request, scene.Clip.Id, cancellationToken);
+    }
+
     private async Task<SceneSnapshot> ReadSceneAsync(HttpRequestMessage request, string? clipId, CancellationToken cancellationToken)
     {
         using (request)
@@ -115,8 +131,15 @@ internal sealed class StudioHttpClient : IDisposable
                 throw new InvalidDataException("Выбранный монтажный клип недоступен. Нужен клип с назначенным видеодублем.");
             var audio = AudioTimeline.Build(selected.Clip, selected.Takes.First(take => take.Id == selected.Clip.TakeId).VideoAssetId,
                 project.Fps, project.Timeline.Clips, project.Timeline.Segments, project.Timeline.ClipAudio, project.Timeline.Music, project.Timeline.SoundEvents);
+            var story = project.Timeline.Scenario;
+            var active = story is not null;
+            var consistent = !active || story!.Version == 1 && story.Segments is { } segments && segments.Length == project.Timeline.Segments.Length &&
+                segments.All(segment => project.Timeline.Segments.FirstOrDefault(window => window.Id == segment.Id) is { } window &&
+                    segment.StartFrame == window.StartFrame && segment.DurationFrames == window.DurationFrames && segment.Items is not null &&
+                    TimelineMove.Matches(window, segment.Items, project.Timeline.Clips.Where(clip => clip.SegmentId == window.Id).ToArray()));
             return new(project.Name, project.Revision, project.Fps, selected.Segment, selected.Clip,
-                selected.Title, selected.Takes, choices.ToArray(), project.Timeline.Clips.Where(row => row.SegmentId == selected.Segment.Id).ToArray(), audio);
+                selected.Title, selected.Takes, choices.ToArray(), project.Timeline.Clips.Where(row => row.SegmentId == selected.Segment.Id).ToArray(), audio,
+                story?.Segments?.FirstOrDefault(segment => segment.Id == selected.Segment.Id)?.Items, active, consistent);
         }
     }
 
@@ -136,7 +159,9 @@ internal sealed class StudioHttpClient : IDisposable
     private sealed record StudioFailure(string Error);
     private sealed record Project(string Name, int Revision, double Fps, Block[] Blocks, Timeline? Timeline);
     private sealed record Block(string Id, string? Title, string Label, Take[] Takes);
-    private sealed record Timeline(Segment[] Segments, Clip[] Clips, bool ClipAudio = false, AudioMusic? Music = null, AudioEvent[]? SoundEvents = null);
+    private sealed record Timeline(Segment[] Segments, Clip[] Clips, bool ClipAudio = false, AudioMusic? Music = null, AudioEvent[]? SoundEvents = null, Story? Scenario = null);
+    private sealed record Story(int Version, StorySegment[]? Segments);
+    private sealed record StorySegment(string Id, int? StartFrame, int? DurationFrames, ScenarioPlacement[]? Items);
 
     public void Dispose() => _http.Dispose();
 }

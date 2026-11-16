@@ -20,8 +20,9 @@ internal sealed class InteractionFixture : IDisposable
     private readonly StudioHttpClient _api;
     public SceneViewModel Model { get; }
 
-    public InteractionFixture(IPreviewMedia? preview = null)
+    public InteractionFixture(IPreviewMedia? preview = null, Action<FakeStudio>? configure = null)
     {
+        configure?.Invoke(Server);
         _api = new(new StudioOptions(new("http://127.0.0.1:12345/"), "qa", "unused-ffmpeg"), Server);
         Model = new(_api, Frames, preview);
         Model.Open();
@@ -57,6 +58,10 @@ internal sealed class FakeStudio : HttpMessageHandler
     public Clip Current = new("clip-A", "segment", "block", "take-A", "Клип A", 0, 8, 0, 8, 1);
     public int Revision = 5;
     public HttpStatusCode? RejectWrite;
+    public Clip[] OtherClips = [];
+    public Segment Window = new("segment", "Тест", 0, 12);
+    public ScenarioPlacement[]? ScenarioItems;
+    public TaskCompletionSource<HttpResponseMessage>? PendingWrite;
     public readonly List<JsonObject> Posts = [];
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -64,14 +69,15 @@ internal sealed class FakeStudio : HttpMessageHandler
         {
             var body = JsonNode.Parse(request.Content!.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult())!.AsObject();
             Posts.Add(body);
+            if (PendingWrite is { } pending) return pending.Task.WaitAsync(cancellationToken);
             if (RejectWrite is { } rejected) return Reply(new { error = "Тестовый отказ" }, rejected);
             if (body["expected_revision"]!.GetValue<int>() != Revision) return Reply(new { error = "Ревизия" }, HttpStatusCode.Conflict);
             if (!request.Headers.TryGetValues("X-Studio-Token", out var tokens) || tokens.Single() != "qa-session")
                 return Reply(new { error = "Токен" }, HttpStatusCode.Forbidden);
             var payload = body["payload"]!;
-            var start = payload["source_in_frame"]!.GetValue<double>();
-            var end = payload["source_out_frame"]!.GetValue<double>();
-            Current = Current with { SourceInFrame = start, SourceOutFrame = end,
+            var start = payload["source_in_frame"]?.GetValue<double>() ?? Current.SourceInFrame;
+            var end = payload["source_out_frame"]?.GetValue<double>() ?? Current.SourceEnd;
+            Current = Current with { SourceInFrame = start, SourceOutFrame = payload["source_out_frame"] is null ? Current.SourceOutFrame : end,
                 StartFrame = payload["start_frame"]?.GetValue<int>() ?? Current.StartFrame,
                 DurationFrames = TimelineTrim.Duration(start, end, Current.Speed ?? 1) };
             Revision++;
@@ -83,7 +89,9 @@ internal sealed class FakeStudio : HttpMessageHandler
         {
             name = "QA", revision = Revision, fps = 24,
             blocks = new[] { new { id = "block", title = "Клип A", label = "QA-01", takes = new[] { takeA, takeB } } },
-            timeline = new { segments = new[] { new Segment("segment", "Тест", 0, 12) }, clips = new[] { Current } }
+            timeline = new { segments = new[] { Window }, clips = new[] { Current }.Concat(OtherClips).ToArray(),
+                scenario = ScenarioItems is null ? null : new { version = 1, segments = new[] { new { id = Window.Id,
+                    start_frame = Window.StartFrame, duration_frames = Window.DurationFrames, items = ScenarioItems } } } }
         });
     }
     private static Task<HttpResponseMessage> Reply(object value, HttpStatusCode status = HttpStatusCode.OK) => Task.FromResult(new HttpResponseMessage(status)

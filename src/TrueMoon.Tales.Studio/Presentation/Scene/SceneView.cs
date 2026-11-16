@@ -72,7 +72,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 Text.Plain("Выход · не включается").WithRole(MutedRole), ValueBox(_sourceEnd), Command("Конец после кадра", StudioCommand.SetEnd),
                 Text.Plain("Длина на шкале").WithRole(MutedRole), _duration)),
             Stack(SaveButton, Command("Отменить черновик", StudioCommand.Cancel))));
-        _strip = new(model, Refresh);
+        _strip = new(model, Refresh) { AccessibleName = "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена" };
         Timeline = new TimelineLayout(_timelineCaption.WithRole(CaptionRole), _strip);
         Footer = new StudioHeading(_status, _revision);
         CloseNotice = Border.Create().Content(Stack(Text.Plain("Есть черновик обрезки. Сохранить перед закрытием?"),
@@ -268,7 +268,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _frame.Value = _model.FrameLabel;
         _play.Value = _model.PlayLabel;
         _play.AccessibleName = _model.Playing ? "Приостановить просмотр · Пробел" : "Воспроизвести монтажный клип · Пробел";
-        _timelineCaption.Value = "МОНТАЖ · " + (_model.MediaStatus.Length == 0 ? "КУРСОР И ОБРЕЗКА КРАЯМИ" : _model.MediaStatus);
+        _timelineCaption.Value = "МОНТАЖ · ЛИНЕЙКА: КУРСОР · КЛИП: ПЕРЕНОС · КРАЯ: ОБРЕЗКА";
         _timelineCaption.AccessibleName = _model.MediaStatus;
         _take.Value = _model.TakeLabel;
         _mode.Value = _model.Assigned ? "Монтажный дубль" : "Просмотр дубля";

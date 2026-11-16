@@ -21,7 +21,7 @@ internal sealed partial class SceneViewModel
     public string PlayLabel => _playing ? "Пауза" : _audioPreparation is not null ? "Звук…" : "Старт";
     public string MediaStatus { get; private set; } = "";
     public float[]? AudioPeaks => !Modified ? _audio?.Peaks : null;
-    public bool CanPlay => _playing || Loaded && _pending is null && _seekTask is null && !Modified && !Trimming && !_stale && _audio is not null;
+    public bool CanPlay => _playing || Loaded && _pending is null && _seekTask is null && !Modified && !Trimming && !Moving && !_stale && _audio is not null;
 
     private void PreparePlayback(SceneSnapshot scene)
     {

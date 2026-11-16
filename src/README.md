@@ -11,9 +11,9 @@ C# / net11.0, Argentis поверх действующего Python HTTP API. Р
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.16.1-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.16.2-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.16.1-alpha**, SkiaSharp **4.156.1**.
-[Переход, команды и результаты](Verification/DotNet11.md). Старые датированные
+[Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
 
 ## Модель проекта
