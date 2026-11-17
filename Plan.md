@@ -5,11 +5,101 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-Дата плана — 29.10.2026. Последняя сверка — 16.11.2026 (STUDIO-NET11; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
+Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND2; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
 
 Область — общий инструмент для опенинга, AMV Клэр и будущих видеопроектов цикла «Сказки истинной луны». План находится вне каталогов отдельных роликов. Связь с [общим планом](../TrueMoon.Tales.Videos/Plan.md): R-08 — управление и интерфейс, R-09 — обработка изображения, R-10 — звук и сборка. Текущая техническая очередь исследований моделей и управления движением сохраняется отдельно.
 
 Дополнение 29.10.2026: включить режим пониженного разрешения для быстрой проверки блока. Будущий целевой сценарий автора — видеоадаптации текста глав ориентировочно по **3–5 минут**; это направление для проектирования, а не жёсткая длительность каждой главы. Набор функций адаптации согласован автором и включён в реализацию этапов UI-06–UI-11. Выбор конкретных технологий и интеграций остаётся задачей проектирования и проверок.
+
+<a id="ui-testing-guidance"></a>
+## STUDIO-UIQA-DOC — переиспользуемая инструкция UI-проверок
+
+Документация выполнена 16.11.2026: [прикладная инструкция](src/UITesting.md),
+[общая инструкция Alloy/Argentis](../TrueMoon/src/docs/alloy/UI_TESTING.md), ссылки из
+AGENTS/README/QA. Описаны уровни UiSession, CPU raster, тестового window host,
+сквозной IPC и native-проверки с границами вывода.
+
+- [x] Зафиксировать текущие public seams, ownership, ввод/Escape, шрифты/эталоны,
+  evidence и cleanup; существующий GOLDEN_TESTS остаётся источником pixel policy.
+- [x] Прикладная raster fixture с фиксированными шрифтами/PNG и тестовый host —
+  [STUDIO-UIQA1](#ui-raster-harness), выполнено 17.11.2026.
+- [x] Сквозное соединение raster-host с настоящим Enerit/Mithril/ProjectStore — [STUDIO-BACKEND2](#backend-move-ipc).
+
+Это фиксация методики, не новая реализация стенда или UI acceptance. Версия
+1.2611.16.3-alpha сохраняется; новых build/test/native прогонов нет.
+
+<a id="ui-raster-harness"></a>
+## STUDIO-UIQA1 — CPU raster и тестовое окружение окна
+
+Выполнено 17.11.2026. [Реализация, матрица и evidence](src/Verification/UIRaster.md).
+Версия **1.2611.16.3-alpha** сохранена: только тесты/тестовые assets и документация;
+56 production-входов backend-этапа совпали по SHA.
+
+- [x] Настоящие SceneView/ProjectWindow из Cobalt/IFactory, UiSession и CPU Skia;
+  фиксированные лицензированные Noto-шрифты с SHA, PNG/manifest, без native окон.
+- [x] Logical scale 1/1.5/2, кириллица, loading/error/reload, resize; routed drag,
+  отдельные Escape/focus/resize, отсутствие записи до release, одна команда
+  с expected_revision и сохранение конфликтного черновика.
+- [x] Тестовый IWindowController: focus/minimize/restore, async close/veto/error,
+  отмена ожидания, failed startup, disposal и безопасная очистка temp evidence.
+- [x] Debug/Release build и полный regression: каждый 304 passed, 0 failed,
+  5 прежних skipped; 18 новых checks. Прежние 20 generated warnings Enerit.
+- [x] Соединить raster-host с настоящим backend/IPC на изолированном проекте — [STUDIO-BACKEND2](#backend-move-ipc).
+- [ ] Принять межверсионные golden images и расширить типографику/длинные состояния.
+  Сейчас проверяются пиксели/геометрия и повторяемость внутри прогона; некоторые
+  символы default test font не покрыты. Native/physical/DPI остаются открытыми.
+
+Продолжение этого этапа — STUDIO-BACKEND2 ниже: общий прикладной сервис и одна
+команда переноса с передачей writer; расширять raster-проверки по его контракту.
+
+<a id="backend-move-ipc"></a>
+## STUDIO-BACKEND2 — перенос через Enerit и единственный writer
+
+Выполнено 17.11.2026, Studio **1.2611.17.1-alpha**. Первая поставка новой UTC-даты;
+main 3fb891a и рабочая 1.2611.16.3-alpha сверены до выбора версии.
+[Контракт, команды, тесты и границы](src/Verification/BackendMove.md).
+
+- [x] Protocol2: AcquireWriter/MoveClip/MigrateProject/RecoverProject с capability,
+  ожидаемой ревизией и exact-byte fingerprint, без выбора путей через IPC.
+- [x] Только явный writer-mode и directory grants доверенного config; общий OS lease
+  с Python commit, schema2 barrier для старого Python writer, cleanup/crash release.
+- [x] Та же раскладка TimelineMove: plain bounds/overlap и scenario reorder/reflow,
+  одна атомарная Save/history, no-op/отмена без записи, конфликтный draft без replay.
+- [x] Общий ISceneService и move-only SceneView через Cobalt; --edit-project,
+  отдельные --migrate-project/--recover-project. Медиа/trim/export ещё не подключены.
+- [x] Сквозной production View + CPU raster + owned EXE/Mithril/Enerit/ProjectStore:
+  scale1/1.5/2, Escape, commit/conflict, lost reply/reload, serialized concurrent calls.
+- [x] 34 новых cases; финальные Debug/Release по 338 passed/0 failed/5 skipped,
+  Python288 OK, published EXE16/16. Builds0 errors, 24 generated warnings Enerit.
+- [ ] HTTP/CLI-адаптер общего сервиса и полноценный backend media resolver/preview/export.
+  Пока Python обслуживает schema1 и возвращает 409 для schema2; проверять передачу на копии.
+- [ ] Native/physical Escape, keyboard/DPI и CPU MP4 parity для будущего media-пути.
+
+<a id="backend-readonly"></a>
+## STUDIO-BACKEND1 — служебная роль и чтение через IPC
+
+Выполнено 16.11.2026, Studio **1.2611.16.3-alpha**. [Контракт, запуск и приёмка](src/Verification/BackendReadOnly.md).
+
+- [x] Один EXE, UI/inspection и backend без окна; Cobalt в каждой роли.
+- [x] App/AddUnit и ChildProcessUnitHandle Mithril: уникальный launch, bounded ready/stop,
+  смерть владельца, cleanup при старте/ошибке, чужой одноимённый процесс сохраняется.
+- [x] Enerit Hello/OpenProject: роль, продукт/версии контрактов, owned PID и capability;
+  read-only ProjectStore schema 1/2 без миграции, recovery, lock или истории.
+- [x] Доверенные amv/projects read roots, protected/disabled legacy/reparse deny,
+  пустые write grants; IPC не выбирает путь. Окно показывает снимок и перечитывает его.
+- [x] D/R и publish, реальные owned child/IPC/reconnect/deadline, routed окно,
+  изолированная копия Клэр и QA lifecycle. [Ограничения проверки](src/Verification/BackendReadOnly.md#проверки-и-evidence).
+- [ ] Отдельно завершить визуальную native-приёмку: Computer Use видел окно,
+  но не смог активировать его; готовность изображения не заявлена.
+- [x] STUDIO-BACKEND2: команда переноса, expected_revision/ProjectStore, явные
+  migration/recovery, передача writer и SceneViewModel через ISceneService —
+  [выполнено 17.11.2026](#backend-move-ipc).
+- [ ] Следом подключить HTTP для CLI/агентов как адаптер тех же операций без второго writer.
+
+Запись, медиа-resolver/aliases и генерация не переносятся этим этапом.
+20 generated warnings Enerit сохранены без подавления: XML docs —
+[заявка владельцу](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md),
+CS8669 — [существующий backlog](../TrueMoon/src/docs/enerit/PLAN.md).
 
 ## Назначение и основа
 
@@ -554,11 +644,11 @@ Computer Use физическим Escape. Полная keyboard/DPI-приёмк
 
 ## Ближайшая очередь
 
-[STUDIO-NET11](#dotnet11-framework-refresh) выполнен 16.11.2026; перенос клипа [STUDIO-MOVE](#clip-move-within-segment) также выполнен; далее — функциональная очередь ниже.
+[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 выполнен 17.11.2026; далее — адаптеры общего сервиса и медиа-путь.
 
 [Текущий статус и результаты проверок](Status.md).
 
-1. **Десктопная Studio — пакеты и дизайн TrueMoon.** Профиль SDK 11.0.100 / net11.0 / runtime-async=on и TrueMoon `1.2611.16.1-alpha` принят в STUDIO-NET11; Studio 1.2611.16.2-alpha; DI — Cobalt; Debug/Release — по 247 passed, 5 ожидаемых skipped; новый HTTP case отдельно прошёл. Панели и меню UI-UX05, Shift+F10, drag/trim, просмотр выбранного клипа и звуковая волна реализованы; полная физическая приёмка остаётся открытой. Причина единичного native AV остаётся открытой ([диагностика](src/NativeCrash.md)). Перемещение целого клипа внутри сегмента реализовано в [STUDIO-MOVE](#clip-move-within-segment). Следом проверить длинный таймлайн и физический ввод. Полная медиаприёмка и клавиатура/DPI остаются в критериях этапа. После HTTP — backend-экземпляр того же `TrueMoon.Tales.Studio.exe` через Enerit IPC. [Последний результат](src/Playback.md) · [Порядок перехода](#прототипы-и-порядок-перехода).
+1. **Backend — адаптеры и медиапуть после STUDIO-BACKEND2.** Studio 1.2611.17.1-alpha, TrueMoon1.2611.16.1-alpha; полный D/R по338 passed/5 skipped, Python288 OK, published16 passed. Перенос через Enerit, expected_revision, shared writer и сквозной raster/IPC выполнены. Следом — HTTP/CLI как адаптер того же сервиса без возврата второго writer, затем allowlisted media resolver/aliases и preview/export. До этого schema2-переход проверять на изолированной копии. Длинный таймлайн, physical Escape/keyboard/DPI и полная медиаприёмка остаются отдельными задачами; прежний native AV открыт ([диагностика](src/NativeCrash.md)). [STUDIO-BACKEND2](#backend-move-ipc) · [проверки](src/Verification/BackendMove.md).
 
 2. **UI-05 — рабочая сборка Клэр.** Назначить `CL-000A` заглушке доклада и определить роль `Test1` в монтаже. На готовом фрагменте сверить предпросмотр и MP4 по времени, участкам дублей, звуку, титрам и музыкальному акценту. Затем проверить полный монтаж Клэр и повторить проход на собранном сценарии опенинга.
 3. **Проверка стыков и готовность.** Сопоставить граничные кадры после замены дубля и открыть повтор стыка из того же окна. Показать связь с прежним дублем Motion Context. Вынести список проблем готовности рядом с таймлайном. [Монтаж блока](ClipEditing.md) · [Экспорт](DraftExport.md).
@@ -643,7 +733,7 @@ C# UI продолжает работать через HTTP с Python-серви
 
 ### Пакеты TrueMoon и сборка прототипа
 
-Текущая поставка — Studio `1.2611.16.2-alpha`, TrueMoon `1.2611.16.1-alpha`, SDK 11.0.100 / net11.0 / runtime-async=on. [STUDIO-NET11](#dotnet11-framework-refresh) выполнен; [проверки](src/Verification/DotNet11.md). Следующие датированные записи описывают прежние этапы.
+Текущая поставка — Studio `1.2611.16.3-alpha`, TrueMoon `1.2611.16.1-alpha`, SDK 11.0.100 / net11.0 / runtime-async=on. [STUDIO-NET11](#dotnet11-framework-refresh) выполнен; [проверки](src/Verification/DotNet11.md). Следующие датированные записи описывают прежние этапы.
 
 
 07.11.2026 прототип переведён с `0.2.2.7-alpha.ui.20261107100039380` на
@@ -673,7 +763,7 @@ C# UI продолжает работать через HTTP с Python-серви
    - **Завершение этапа.** Связать сценарий, карточку сегмента, исходник с дублями и инспектор клипа; перенос целого клипа внутри сегмента выполнен. Просмотр и волна выбранного клипа выполнены; проверить непрерывный монтаж нескольких клипов, VFR, переходы/титры, звук при разных скоростях и AV-задержку. На короткой сцене и длинной шкале сравнить задержку от действия до кадра, прокрутку и масштабирование в Argentis и веб-версии на одинаковых данных. [План Alloy/Argentis](../TrueMoon/src/docs/alloy/PLAN.md) · [Статус модуля](../TrueMoon/src/docs/alloy/STATUS.md) · [Редактор Aether](../TrueMoon/src/TrueMoon.Aether.Editor/README.md).
    - **Контракт данных.** Перед переносом записи в backend определить контракт [действий, источников и клипов](#переход-к-модели-действий-и-источников) и адаптер существующих проектов.
 
-2. **Два экземпляра одного EXE и запись через IPC.** Подключить UI к backend-экземпляру `TrueMoon.Tales.Studio.exe` через Enerit; все backend-сервисы работают в одном служебном экземпляре.
+2. **Два экземпляра одного EXE и запись через IPC.** Первый read-only срез [STUDIO-BACKEND1](#backend-readonly) выполнен; далее — команды и единственный владелец записи. Подключить UI к backend-экземпляру `TrueMoon.Tales.Studio.exe` через Enerit; все backend-сервисы работают в одном служебном экземпляре.
 
    - Разделить fluent-конфигурацию UI/backend-ролей и их Cobalt-сервисы при общей минимальной точке входа Program. Backend запускается без окна, отдельный EXE/исполняемый проект не создаётся.
    - Проверить запуск средствами фреймворка того же физического EXE, роль, готовность IPC и версию контрактов. Воспроизвести ошибку старта, разрыв канала, переподключение, управляемую остановку, аварийное завершение и повторный запуск; завершать только принадлежащие Studio экземпляры.

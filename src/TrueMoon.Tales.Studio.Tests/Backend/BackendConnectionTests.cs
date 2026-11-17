@@ -1,0 +1,90 @@
+using TrueMoon.Tales.Studio.Backend;
+using TrueMoon;
+using TrueMoon.Dependencies;
+using TrueMoon.Diagnostics;
+using TrueMoon.Mithril;
+using Xunit;
+
+namespace TrueMoon.Tales.Studio.Tests.Backend;
+
+public sealed class BackendConnectionTests
+{
+    internal static BackendIdentity Identity() => new()
+    {
+        Role = "backend", ProtocolVersion = StudioBackendService.ProtocolVersion, ProjectContractVersion = 1, ProductVersion = StudioBackendService.ProductVersion,
+        ProcessId = 12345, ParentProcessId = Environment.ProcessId
+    };
+
+    [Theory]
+    [InlineData("role")]
+    [InlineData("protocol")]
+    [InlineData("contract")]
+    [InlineData("product")]
+    [InlineData("parent")]
+    [InlineData("unowned")]
+    public void Handshake_RejectsWrongRoleVersionParentAndUnownedProcess(string field)
+    {
+        var identity = Identity();
+        switch (field)
+        {
+            case "role": identity.Role = "ui"; break;
+            case "protocol": identity.ProtocolVersion++; break;
+            case "contract": identity.ProjectContractVersion++; break;
+            case "product": identity.ProductVersion = "another-build"; break;
+            case "parent": identity.ParentProcessId++; break;
+        }
+        Assert.Throws<InvalidDataException>(() => BackendConnection.ValidateIdentity(identity, field != "unowned"));
+    }
+
+    [Fact]
+    public async Task Decode_ValidatesSnapshotInsteadOfTrustingStorageOrMalformedEnvelope()
+    {
+        using var fixture = new BackendFixture();
+        var reply = await fixture.Service().OpenProjectAsync(fixture.Options.SessionKey);
+        BackendConnection.ValidateIdentity(Identity(), true);
+        var opened = BackendConnection.Decode(Identity(), reply);
+        Assert.Equal("project-synthetic", opened.Project.Id);
+        Assert.Equal(11, opened.Project.Revision);
+        reply.SchemaVersion = 999;
+        Assert.Throws<InvalidDataException>(() => BackendConnection.Decode(Identity(), reply));
+        reply.SchemaVersion = 1;
+        reply.Fingerprint = new('z', 64);
+        Assert.Throws<InvalidDataException>(() => BackendConnection.Decode(Identity(), reply));
+        reply.Fingerprint = new('a', 64);
+        reply.ProjectJson = "{\"schema_version\":1}";
+        Assert.Throws<System.Text.Json.JsonException>(() => BackendConnection.Decode(Identity(), reply));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Open_UnresponsiveBackendHonorsDeadlineAndCallerCancellation_WithoutOpeningProject(bool callerCancelled)
+    {
+        using var fixture = new BackendFixture();
+        using var app = App.Build(context => context.UseDiagnostics());
+        var service = new UnresponsiveService();
+        var factory = new BackendProcessFactory(fixture.Options, app.Services.Resolve<IEventsSource<UnitsController>>()!);
+        var connection = new BackendConnection(service, fixture.Options, factory);
+        using var cancellation = new CancellationTokenSource();
+        if (callerCancelled) cancellation.Cancel();
+        var pending = connection.OpenAsync(cancellation.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(20)));
+        Assert.True(pending.IsCanceled);
+        Assert.Equal(callerCancelled ? 0 : 1, service.HelloCalls);
+        Assert.Equal(0, service.OpenCalls);
+        Assert.Equal(fixture.Files.InitialBytes, File.ReadAllBytes(fixture.Files.ProjectPath));
+    }
+
+    private sealed class UnresponsiveService : IStudioBackend
+    {
+        public Task<BackendProjectReply> AcquireWriterAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendProjectReply> MigrateProjectAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendProjectReply> MoveClipAsync(string key, string id, int start, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendProjectReply> RecoverProjectAsync(string key, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal int HelloCalls, OpenCalls;
+        public async Task<BackendIdentity> HelloAsync(string sessionKey, CancellationToken cancellationToken = default)
+        { HelloCalls++; await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return Identity(); }
+        public Task<BackendProjectReply> OpenProjectAsync(string sessionKey, CancellationToken cancellationToken = default)
+        { OpenCalls++; throw new InvalidOperationException("Opening is forbidden before readiness."); }
+    }
+}

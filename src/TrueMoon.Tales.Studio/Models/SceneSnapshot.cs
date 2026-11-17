@@ -2,7 +2,7 @@ namespace TrueMoon.Tales.Studio.Models;
 
 internal sealed record SceneSnapshot(string ProjectName, int Revision, double Fps, Segment Segment, Clip Clip,
     string ClipTitle, Take[] Takes, ClipChoice[] Choices, Clip[]? SegmentClips = null, AudioSlice[]? Audio = null,
-    ScenarioPlacement[]? ScenarioItems = null, bool ScenarioActive = false, bool ScenarioConsistent = true);
+    ScenarioPlacement[]? ScenarioItems = null, bool ScenarioActive = false, bool ScenarioConsistent = true, string? Fingerprint = null);
 internal sealed record ClipChoice(Clip Clip, Segment Segment, string Title, Take[] Takes);
 internal sealed record Segment(string Id, string Name, int StartFrame, int DurationFrames);
 internal sealed record Clip(string Id, string SegmentId, string BlockId, string? TakeId, string? StoryTitle,

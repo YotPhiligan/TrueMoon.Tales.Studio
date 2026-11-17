@@ -7,7 +7,18 @@ using TrueMoon.Tales.Studio.Models;
 
 namespace TrueMoon.Tales.Studio.Infrastructure;
 
-internal sealed class StudioHttpClient : IDisposable
+internal interface ISceneService
+{
+    bool SupportsPreview => true;
+    Uri Media(string assetId);
+    Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken);
+    Task<bool> HasAudioAsync(string assetId, int stream, CancellationToken token);
+    Task<SceneSnapshot> TrimAsync(SceneSnapshot scene, double start, double end, CancellationToken cancellationToken, int? timelineStart = null);
+    Task<MediaInfo> MediaInfoAsync(Take take, CancellationToken cancellationToken);
+    Task<SceneSnapshot> MoveAsync(SceneSnapshot scene, int requestedStart, CancellationToken cancellationToken);
+}
+
+internal sealed class StudioHttpClient : IDisposable, ISceneService
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     private readonly HttpClient _http;

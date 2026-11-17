@@ -9,7 +9,7 @@ using TrueMoon.Tales.Studio.Models;
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
 // App-owned state. Async results are applied only when the window polls on its UI owner thread.
-internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder decoder, IPreviewMedia? playback = null) : IDisposable
+internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder decoder, IPreviewMedia? playback = null) : IDisposable
 {
     private readonly IPreviewMedia? _playback = playback;
     private readonly CancellationTokenSource _closing = new();
@@ -45,9 +45,9 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
     public bool Trimming => _trim is not null;
     public bool Moving => _moving;
     public Clip[] PreviewClips => _moveDraft?.Clips ?? Scene?.SegmentClips ?? [];
-    public bool CanSeek => Loaded && _pending is null;
-    public bool CanBeginTrim => Editable && !Modified && !Trimming && !Moving;
-    public bool CanBeginMove => CanBeginTrim && Idle && Scene is { } scene && new TimelineMove(scene).CanMove;
+    public bool CanSeek => api.SupportsPreview && Loaded && _pending is null;
+    public bool CanBeginTrim => api.SupportsPreview && Editable && !Modified && !Trimming && !Moving;
+    public bool CanBeginMove => Editable && !Modified && !Trimming && !Moving && Idle && Scene is { } scene && new TimelineMove(scene).CanMove;
     public int TimelineStart => _timelineStart;
     public int TimelineDuration => Scene is { } scene ? TimelineTrim.Duration(_start, _end, scene.Clip.Speed ?? 1) : 0;
     public double TimelineCursor => _playCursor ? _timelineStart + _playFrame : Scene is { } scene ? _timelineStart + (DesiredSourceFrame - _start) / (scene.Clip.Speed ?? 1) : 0;
@@ -57,13 +57,13 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
     public double Start => _start;
     public double End => _end;
     public double CurrentSourceFrame => Loaded ? Boundary(_frameIndex) : 0;
-    public bool CanPrevious => Loaded && _pending is null && _seekTask is null && !Moving && _frameIndex > 0;
-    public bool CanNext => Loaded && _pending is null && _seekTask is null && !Moving && _frameIndex + 1 < _media!.FrameCount;
+    public bool CanPrevious => CanSeek && _seekTask is null && !Moving && _frameIndex > 0;
+    public bool CanNext => CanSeek && _seekTask is null && !Moving && _frameIndex + 1 < _media!.FrameCount;
     public bool CanSave => Editable && Modified && !Trimming && !Moving && (_moveDraft is null || _moveDraft.Valid);
     private bool Editable => Loaded && _pending is null && Assigned && !_stale && !_playing;
-    public bool CanSetStart => Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex) >= Scene!.Clip.SourceInFrame && Boundary(_frameIndex) < _end;
-    public bool CanSetEnd => Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex + 1) > _start && Boundary(_frameIndex + 1) <= Scene!.Clip.SourceEnd;
-    public string FrameLabel => Loaded ? $"Кадр {_frameIndex:0000} / {_media!.FrameCount - 1:0000}   ·   {_media.Fps:0.###} кадр/с" : "Кадр —";
+    public bool CanSetStart => api.SupportsPreview && Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex) >= Scene!.Clip.SourceInFrame && Boundary(_frameIndex) < _end;
+    public bool CanSetEnd => api.SupportsPreview && Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex + 1) > _start && Boundary(_frameIndex + 1) <= Scene!.Clip.SourceEnd;
+    public string FrameLabel => !api.SupportsPreview ? "Только перенос клипа · медиапредпросмотр не подключён" : Loaded ? $"Кадр {_frameIndex:0000} / {_media!.FrameCount - 1:0000}   ·   {_media.Fps:0.###} кадр/с" : "Кадр —";
     public string TakeLabel => Loaded ? Scene!.Takes[_takeIndex].Name ?? $"Дубль {_takeIndex + 1}" : "Предпросмотр";
     public string EditLabel => _stale ? "Обновите ревизию" : Moving ? "Перенос · отпустите для сохранения" : Trimming ? "Обрезка · отпустите для сохранения" : _moveDraft is not null ? "Черновик переноса" : Modified ? "Черновик обрезки" : "Изменений нет";
 
@@ -151,13 +151,14 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
             var take = scene.Takes[index];
             var media = await api.MediaInfoAsync(take, token);
             var frame = Math.Clamp((int)Math.Floor(scene.Clip.SourceInFrame * media.Fps / scene.Fps), 0, media.FrameCount - 1);
-            var pixels = await decoder.ReadAsync(api.Media(take.VideoAssetId), frame, media.Fps, token);
+            var pixels = api.SupportsPreview ? await decoder.ReadAsync(api.Media(take.VideoAssetId), frame, media.Fps, token) : null;
             return () =>
             {
                 Present(pixels, index, frame, media);
                 _assignedMedia = media;
                 SetScene(scene);
                 Status = "Проект открыт";
+                if (!api.SupportsPreview) MediaStatus = "Перенос через backend · медиапредпросмотр не подключён";
             };
         });
     }
@@ -165,7 +166,7 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
     public void SelectTake(int index)
     {
         PausePlayback(); _playCursor = false;
-        if (Loaded && Idle && !Trimming && !Moving && index >= 0 && index < Scene!.Takes.Length) Preview(index, 0);
+        if (api.SupportsPreview && Loaded && Idle && !Trimming && !Moving && index >= 0 && index < Scene!.Takes.Length) Preview(index, 0);
     }
 
     public void Step(int delta)
@@ -267,7 +268,7 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
     private void PreviewClipSource(double source, bool lastIncluded = false)
     {
         PausePlayback(); _playCursor = false;
-        if (!Loaded || !Idle) return;
+        if (!api.SupportsPreview || !Loaded || !Idle) return;
         var scene = Scene!;
         var index = Array.FindIndex(scene.Takes, take => take.Id == scene.Clip.TakeId);
         var take = scene.Takes[index];
@@ -362,7 +363,7 @@ internal sealed partial class SceneViewModel(StudioHttpClient api, IFrameDecoder
         PreparePlayback(scene);
     }
 
-    private void Present(byte[] pixels, int index, int frame, MediaInfo media)
+    private void Present(byte[]? pixels, int index, int frame, MediaInfo media)
     {
         Pixels = pixels;
         (_takeIndex, _frameIndex, _media) = (index, frame, media);

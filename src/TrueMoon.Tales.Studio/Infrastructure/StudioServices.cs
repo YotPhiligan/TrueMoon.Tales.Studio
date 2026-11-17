@@ -14,6 +14,7 @@ internal static class StudioServices
         ArgumentNullException.ThrowIfNull(context);
         return context.Services(services => services
             .Singleton<StudioHttpClient>()
+            .Singleton<ISceneService>(resolver => resolver.Resolve<StudioHttpClient>())
             .Singleton<IFrameDecoder>(resolver => new FrameDecoder(resolver.Resolve<StudioOptions>().FfmpegPath))
             .Singleton<IPreviewMedia>(resolver => new FfmpegPreview(resolver.Resolve<StudioOptions>().FfmpegPath, resolver.Resolve<StudioHttpClient>()))
             .Singleton<SceneViewModel>()

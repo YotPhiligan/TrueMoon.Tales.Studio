@@ -12,6 +12,18 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
+17.11.2026: отдельный [backend protocol2](src/Verification/BackendMove.md)
+поддерживает AcquireWriter/MoveClip/MigrateProject/RecoverProject с launch
+capability. MoveClip получает clip ID/start, expected_revision и exact-byte SHA;
+возвращает ProjectContract v1. Пути и права задаёт trusted launcher/config.
+Сохраняются stable ошибки writer_required/write_not_enabled/writer_busy,
+revision_conflict/migration_required/recovery_required/recovery_conflict,
+invalid_move/access_denied. Отмена/no-op не пишут; неопределённый ответ требует
+явного перечитывания, без автоматического retry. Python commit использует общий
+writer lease, а schema2 get/commit возвращают HTTP409; эти HTTP-маршруты пока не
+являются адаптером schema2-команд. Новые CLI: --edit-project, --migrate-project,
+--recover-project с теми же --config/allowlist. Read-only --project сохранён.
+
 Базовый адрес `http://127.0.0.1:8787`. UI и внешние агенты используют общие операции. Область файлов задаётся зарегистрированными корнями конфигурации Studio: библиотеки доступны для чтения, запись разрешена только в явные рабочие каталоги. Защищённый TrueMoon недоступен. Это HTTP API; MCP-обёртка ещё не реализована.
 
 В 0.4 доступны карточка brief, расширенный `/agent/context` и долговечные `/agent/requests`. [Полный контракт, состояния и CLI](AgentIntegration.md). Legacy `/context` сохранён. Bootstrap объявляет возможности agent и automatic_dispatch=false. Ни чтение контекста, ни создание/claim задания генерацию не запускают.
@@ -19,6 +31,10 @@
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
 В 0.5 доступны GET/POST `/api/projects/{id}/scenario` и CLI scenario; [операции и правила времени](Scenario.md). Поле timeline.scenario хранит сценарные намерения, включая неизвестное время и конфликты; допустимая монтажная проекция обновляется атомарно. Пространственные правки активного сценария через прежний timeline API используют ту же последовательную укладку. `add_item`, `update_item` и `add_catalog_video` принимают необязательные сценарные заметки `sound_notes` и `continuity_notes` в `payload`. Пустая строка очищает заметку. Действие `set_animatic_frame` принимает `segment_id`, `id` сценарного использования и `asset_selection`. Выберите изображение по `asset_id` или по `file` из каталога, либо передайте `null` для снятия выбора. Выбранный `animatic_asset_id` хранится у сценарного использования и участвует в отмене.
+
+## Read-only IPC backend
+
+[STUDIO-BACKEND1](src/Verification/BackendReadOnly.md) добавляет отдельные типизированные Hello/OpenProject через Enerit. HTTP-маршруты ниже остаются прежними; смены writer и записи через IPC в этом этапе нет.
 
 ## Формат хранилища
 

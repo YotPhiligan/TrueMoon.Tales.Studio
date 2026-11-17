@@ -1,8 +1,107 @@
 # Статус разработки Studio
 
-Обновлено 16.11.2026 (STUDIO-MOVE; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
+Обновлено 17.11.2026 (STUDIO-BACKEND2; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
 
 После завершения этапа обновлять дату, отмечать доступные изменения, результаты проверок и оставшиеся ограничения. Приоритеты и критерии реализации вести в Plan.md.
+
+<a id="backend-move-ipc"></a>
+## STUDIO-BACKEND2 — перенос через Enerit и передача writer, 17.11.2026
+
+Studio **1.2611.17.1-alpha** (UTC17.11, rev1); TrueMoon1.2611.16.1-alpha,
+SDK11/net11/runtime-async сохранены. Version зафиксирована до финальных проверок.
+
+MoveClip принимает ID/start, expected_revision и exact-byte SHA; сервер использует
+ту же TimelineMove-раскладку, один ProjectStore.Save и immutable history. При scenario
+перестановка Actions и reflow клипов сохраняют материал, gaps/anchors и другие окна.
+No-op и отмена не пишут. Конфликт/потерянный ответ сохраняют draft без повторной отправки.
+
+- Явный --edit-project и grants каталога включают writer; read-only режим сохранён.
+  Backend удерживает OS lease; Python commit берёт тот же lease. После явного
+  --migrate-project старый Python get/commit отклоняет schema2 даже после release.
+  --recover-project восстанавливает durable intent один раз. Protocol2/Contract1.
+- ISceneService подключает прежний SceneView к Enerit в move-only режиме.
+  Медиа/trim/export ещё не подключены; Python HTTP/CLI работают со schema1.
+  Проверки используют изолированные синтетические копии, авторские данные не менялись.
+- 34 новых cases. Полные non-incremental D/R: по **338 passed, 0 failed, 5 skipped**;
+  Python **288 tests, OK**; published Release EXE **16 passed, 0 failed**.
+  Сборки0 errors, 24 generated warnings Enerit:19 CS1591/5 CS8669 (четыре новых
+  метода добавили четыре прежних XML-doc предупреждения, подавления нет).
+- Сквозной raster/IPC без Computer Use: настоящий EXE/Mithril/Enerit/ProjectStore,
+  Cobalt SceneView, scale1/1.5/2, Escape, одна запись, конфликт точных байтов,
+  lost reply и reload. Межъязыковой lease, concurrent commands и crash release прошли.
+  Native/physical/DPI и CPU MP4 media-путь этим не закрыты.
+- Все созданные UI fixtures/процессы освобождены; GPU/ComfyUI/native QA не запускались.
+  Исходники TrueMoon и его пакеты не менялись.
+
+Далее — адаптер HTTP/CLI общего сервиса и backend media resolver/preview/export.
+[План](Plan.md#backend-move-ipc) · [команды, evidence и границы](src/Verification/BackendMove.md).
+
+<a id="ui-raster-harness"></a>
+## STUDIO-UIQA1 — raster-стенд без Computer Use, 17.11.2026
+
+Добавлены тестовый RasterWindow/IWindowController, настоящие SceneView и ProjectWindow
+из Cobalt/IFactory, CPU Skia с фиксированными OFL-шрифтами и PNG/manifest evidence.
+Routed drag/Escape/focus/resize проверяются вместе с данными и командами;
+loading/error/reload, close/veto/error/cancel и disposal — отдельными сценариями.
+
+- 18 новых checks. Полные Debug/Release: каждый **304 passed, 0 failed, 5 skipped**.
+  Non-incremental builds: 0 errors, прежние 20 generated warnings Enerit;
+  новых предупреждений нет. Temp cleanup отдельно: 6 passed в Release.
+- На logical scale 1/1.5/2 создаются реальные PNG. Кириллица и Ё проверены;
+  draft меняет пиксели клипа, отмена возвращает их без записи, release отправляет
+  одну команду с expected_revision, конфликт сохраняет черновик.
+- Font/native SHA, версии и результаты освобождения дерева/session сохраняются
+  в manifest. PNG просмотрены; некоторые служебные символы не покрыты тестовым
+  default font, длинный inspector-текст обрезается. Межверсионные goldens и полная
+  visual acceptance не заявлены; native/physical/DPI и CPU MP4 остаются отдельно.
+- UI-сервисы здесь управляются doubles. Настоящий Enerit/backend проверен
+  существующими отдельными process tests; единый сквозной raster/IPC case впереди.
+  Новых native окон/QA-сессий, GPU/ComfyUI и авторских данных этот этап не использует.
+- 56 production-входов backend-этапа совпали по SHA. Studio **1.2611.16.3-alpha**
+  сохранена: только тесты/тестовые assets и документация.
+
+Далее — [STUDIO-BACKEND2](Plan.md#backend-readonly), общий сервис и передача writer.
+[Запуск, матрица и evidence](src/Verification/UIRaster.md) · [инструкция](src/UITesting.md).
+
+16.11.2026 — документация [STUDIO-UIQA-DOC](Plan.md#ui-testing-guidance):
+закреплены [правила UI-проверок](src/UITesting.md) и общая инструкция фреймворка,
+добавлены ссылки из AGENTS/README/QA. Сверены API, тестовые примеры и ссылки;
+новых запусков build/test/native нет. На дату этого документационного этапа raster fixture/тестовый host ещё
+предстояли (реализованы выше в STUDIO-UIQA1); ранее открытая visual/physical приёмка сохраняет свои границы.
+Версия Studio 1.2611.16.3-alpha не менялась (документация).
+
+<a id="backend-readonly"></a>
+## STUDIO-BACKEND1 — backend того же EXE и чтение через Enerit, 16.11.2026
+
+Studio **1.2611.16.3-alpha**; TrueMoon **1.2611.16.1-alpha**, SDK11/net11/runtime-async сохранены.
+Добавлены три exact-version пакета: Enerit, его generator и Mithril, SHA/nuspec
+из ENG7B3 сверены; полный локальный набор теперь 12 архивов.
+
+`--project <каталог> --config <workspace.json>` открывает read-only окно,
+`--inspect-project` читает без окна. Mithril запускает backend-экземпляр того же EXE;
+Enerit проверяет роль, версии, parent/owned PID и capability перед OpenProject.
+Корень выбирает доверенный launcher; protected/disabled legacy/reparse запрещены,
+write grants пусты. Schema 1/2 читается без миграции и recovery. HTTP-редактор
+и его существующее владение записью сохранены; новые монтажные команды ещё впереди.
+
+- Новые backend checks: Passed 39, Failed 0, Skipped 0. Полные Debug/Release:
+  каждый Passed 286, Failed 0, Skipped 5. Publish process/IPC: Passed 7, Failed 0.
+- Полные D/R builds: 0 errors, по 20 generated warnings Enerit (15 CS1591, 5 CS8669).
+  XML docs — [заявка владельцу](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md);
+  nullable context уже в backlog модуля. Предупреждения не подавлены.
+- Реальные own-child startup/stop, failure cleanup, owner exit/crash, сохранность
+  другого одноимённого процесса и reconnect с ревизией 11→12 прошли; deadline и отмена проверены.
+- Прежняя изолированная копия Клэр: schema1/revision55, 55 sources/62 takes/2 windows,
+  SHA неизменен. Авторский проект и медиа не затронуты.
+- Cobalt создаёт окно; UiSession/routed input подтверждают снимок и перечитывание.
+  Native QA 0abc7b377d504d60a4eaaebc11a5662c остановлена по ID, потомков нет.
+  Computer Use отказал в активации окна; визуальная native-приёмка остаётся открытой.
+  QA lifecycle: 13 Python checks, OK. GPU/ComfyUI не запускались.
+
+Далее — [STUDIO-BACKEND2](Plan.md#backend-readonly): одна прикладная команда с
+expected_revision и явная передача writer на копии. Длинный таймлайн, DPI/keyboard
+и изолированная аппаратная отмена Escape сохраняются отдельными пунктами.
+[Запуск, тесты и границы](src/Verification/BackendReadOnly.md).
 
 <a id="clip-move-within-segment"></a>
 ## STUDIO-MOVE — перенос целого клипа, 16.11.2026

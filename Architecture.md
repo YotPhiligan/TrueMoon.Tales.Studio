@@ -51,9 +51,14 @@ flowchart LR
   Prepare, launch и collect сохраняют раздельные операции без повторной отправки
   генерации при восстановлении.
 
-Это согласованное архитектурное решение, реализация запуска двух ролей ещё
-предстоит. Текущий C# UI работает через HTTP с Python-сервисом. Этапы и критерии
-перехода — в [Plan.md](Plan.md#прототипы-и-порядок-перехода).
+Первый read-only срез реализован 16.11.2026: backend того же EXE запускается
+через Mithril, открытие проекта и проверка роли/версий проходят через Enerit.
+Отдельное окно показывает снимок без записи; существующий монтажный C# UI
+сохраняет HTTP с Python. [Запуск и проверки](src/Verification/BackendReadOnly.md).
+17.11.2026 [STUDIO-BACKEND2](src/Verification/BackendMove.md) подключил MoveClip,
+общий ISceneService, явную миграцию/recovery и writer lease, общий с Python commit.
+Backend scene работает в move-only режиме; HTTP-адаптер и backend media resolver/
+preview/export остаются следующими шагами. Schema2 отклоняется прежним Python API.
 
 ## Целевая модель проекта
 
@@ -72,7 +77,8 @@ flowchart LR
 реализованы 10.11.2026 в отдельной DLL. JSON транспорта отделён от файла проекта;
 [адаптер записи, ProjectStore и миграция](src/ProjectStore.md) реализованы
 отдельной DLL Persistence: schema 2, revision/SHA, точная история и recovery.
-Подключение к backend/IPC и правам Workspace ещё предстоит. Текущий Python UI
+Read-only подключение к backend/IPC с конфигурационными read roots выполнено;
+явные write grants и передача writer реализованы в STUDIO-BACKEND2. Текущий Python UI
 и проекция `timeline.scenario` сохраняют прежнюю связь использования и клипа 1:1.
 [Критерии перехода](Plan.md#переход-к-модели-действий-и-источников).
 

@@ -1,5 +1,9 @@
 # Процессы проверок Studio
 
+Выбор между headless, raster и настоящим окном описан в [UITesting.md](UITesting.md).
+Этот документ задаёт управляемый запуск native/process QA; Computer Use для него
+не является обязательным способом проверки.
+
 Повтор native-падения, ProcDump и автоматический App lifecycle —
 [диагностический отчёт](NativeCrash.md). `--procdump <procdump64.exe>` запускает
 только заданный UI под отладчиком в той же Job; dump лежит внутри сессии.
@@ -40,6 +44,12 @@ tool sessions. `--stop-all` останавливает все зарегистр
 Нельзя останавливать процессы по одному имени `python` или номеру PID.
 
 ## Владение и завершение
+
+Для read-only backend-окна добавить к `WindowMenusQA.py --ui <exe>` флаг
+`--backend-ui`. Используется физический проект из disposable `copy/projects` и
+его Workspace config; UI открывает его через Mithril/Enerit. HTTP-сервер остаётся
+частью fixture harness, но не участвует в открытии проекта. Backend входит в тот
+же Windows Job Object вместе с UI. [Приёмка и ограничения](Verification/BackendReadOnly.md).
 
 [Контроллер](Verification/QASession.py) регистрирует PID, точное время создания,
 exe, запускающую оболочку, argv, команды, endpoint и состояние сессии.

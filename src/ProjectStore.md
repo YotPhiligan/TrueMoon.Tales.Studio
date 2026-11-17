@@ -4,6 +4,16 @@
 [контрактами проекта](ProjectContracts.md), без нового EXE и сторонних пакетов.
 Текущий Python UI/API не переключён на это хранилище.
 
+16.11.2026: [STUDIO-BACKEND1](Verification/BackendReadOnly.md) подключает только
+OpenAsync через Enerit к backend того же EXE. Запись, миграция и recovery через IPC
+ещё не включены; write grants этого режима пусты.
+
+17.11.2026: [STUDIO-BACKEND2](Verification/BackendMove.md) добавляет явный writer
+режим с AcquireWriter/MoveClip/MigrateProject/RecoverProject через Enerit.
+ProjectWriterLease удерживается backend-сессией; Python commit использует тот же
+OS lease, а schema 2 отклоняет старый Python-черновик после освобождения lease.
+Read-only режим и OpenAsync по-прежнему не выполняют миграцию или recovery.
+
 ## Формат и адаптер записи
 
 `ProjectFileCodec` читает UTF8 JSON с BOM или без него:
@@ -46,7 +56,7 @@ var saved = await store.SaveAsync(migrated, draft, migrated.Project.Revision, "a
 
 Каталоги должны поступать из доверенной конфигурации. Файловые разрешения
 существующей Studio.config нельзя автоматически расширять до разрешения всего
-каталога. Конфигурационный адаптер и подключение backend/IPC ещё предстоят.
+каталога. Адаптер чтения backend/IPC выполнен; выдача прав записи ещё предстоит.
 Store ограничивает операции выбранным корнем, проверяет allowlist, protected
 roots и reparse points. Символические ссылки/junction не разрешаются.
 

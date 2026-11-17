@@ -50,7 +50,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
             }
             return input.Kind is InputKind.PointerDown or InputKind.KeyDown or InputKind.KeyUp or InputKind.Text;
         }
-        if (input.Kind != InputKind.PointerDown || input.Button != 0 || !model.CanSeek ||
+        if (input.Kind != InputKind.PointerDown || input.Button != 0 || (!model.CanSeek && !model.CanBeginMove) ||
             !float.IsFinite(input.X) || !float.IsFinite(input.Y) || Bounds.Width <= 0 || !Bounds.Contains(input.X, input.Y)) return false;
         var bar = ClipBounds;
         var frame = FrameAt(input.X);

@@ -20,6 +20,23 @@ from QAProcesses import Job, identity, matches
 PYTHON = [sys.executable, "-s", "-B"]
 
 
+class BackendUiCommandTests(unittest.TestCase):
+    def test_backend_ui_selects_only_disposable_project_and_workspace_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            project = run / "copy/projects/qa"
+            project.mkdir(parents=True)
+            (project / "Studio.project.json").write_text("{}", encoding="utf-8")
+            config = run / "copy/Studio.config.json"
+            config.write_text(json.dumps({"projects_root": "projects"}), encoding="utf-8")
+            self.assertEqual(QASession.ui_command("Studio.exe", "http://unused", run, True),
+                             ["Studio.exe", "--project", str(project), "--config", str(config)])
+            (project.parent / "other").mkdir()
+            (project.parent / "other/Studio.project.json").write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                QASession.ui_command("Studio.exe", "http://unused", run, True)
+
+
 def wait_for(predicate, seconds=10):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:

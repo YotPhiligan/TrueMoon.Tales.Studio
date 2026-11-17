@@ -83,7 +83,10 @@ flowchart LR
 DTO транспорта представляют несколько источников и клипов у одного действия;
 старый документ читается с сохранением полного оригинала.
 [ProjectStore, схема хранения 2 и явная миграция](src/ProjectStore.md) реализованы
-отдельной DLL. Подключение к backend/UI и новые монтажные команды ещё предстоят.
+отдельной DLL. Read-only открытие реализовано в [STUDIO-BACKEND1](src/Verification/BackendReadOnly.md).
+[STUDIO-BACKEND2](src/Verification/BackendMove.md) добавляет перенос через Enerit,
+expected_revision и явную передачу writer на schema2-копии. Остальные команды,
+HTTP-адаптер и media-путь остаются следующими этапами.
 
 ## Совместимость с текущими проектами
 

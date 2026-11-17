@@ -22,7 +22,8 @@ $version = $versions.SelectSingleNode('/Project/PropertyGroup/StudioTrueMoonVers
 $packages = @(
     'TrueMoon.Contracts', 'TrueMoon.Core', 'TrueMoon.Argentis', 'TrueMoon.Cobalt',
     'TrueMoon', 'TrueMoon.Alloy',
-    'TrueMoon.Alloy.Platform.Silk', 'TrueMoon.Alloy.Rendering.Skia', 'TrueMoon.Alloy.Hosting'
+    'TrueMoon.Alloy.Platform.Silk', 'TrueMoon.Alloy.Rendering.Skia', 'TrueMoon.Alloy.Hosting',
+    'TrueMoon.Enerit', 'TrueMoon.Enerit.Generator', 'TrueMoon.Mithril'
 )
 
 if ($PSCmdlet.ParameterSetName -eq 'Archives') {
@@ -69,7 +70,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Archives') {
     foreach ($row in $verified) {
         if (!(Test-Path -LiteralPath $row.target)) { [IO.File]::Copy($row.staged, $row.target, $false) }
     }
-    $destinationManifest = Join-Path $feed "TrueMoon.$version.manifest.json"
+    $destinationManifest = Join-Path $feed "TrueMoon.$version.studio-backend.manifest.json"
     if (!(Test-Path -LiteralPath $destinationManifest)) {
         $summary = [ordered]@{
             sourceManifest = $manifestPath

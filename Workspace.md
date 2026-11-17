@@ -144,6 +144,9 @@ Aliases перенаправляют относительные и абсолю�
 [ProjectStore](src/ProjectStore.md) поддерживает обе локации и выполняет отдельный
 Migrate без перемещения файла. Python UI/API пока используют schema 1. Новый
 codec не разрешает пути медиа: физический корень и write/protected roots
-должны поступать от доверенного конфигурационного адаптера. Его подключение
-к backend/IPC и выдача прав остаются в Plan.md; расширять файловые разрешения
+должны поступать от доверенного конфигурационного адаптера.
+[Первый backend-адаптер чтения](src/Verification/BackendReadOnly.md) сохраняет пустые write grants.
+[STUDIO-BACKEND2](src/Verification/BackendMove.md) добавляет явный writer-mode,
+grants каталога копии, общий lease с Python и schema2 barrier; автоматической
+выдачи прав нет. Полный media resolver/aliases и HTTP-адаптер ещё впереди; расширять файловые разрешения
 до всего каталога автоматически нельзя.

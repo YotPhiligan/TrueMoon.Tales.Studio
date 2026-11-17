@@ -84,7 +84,20 @@ def debug_ui_command(command, run, procdump):
     return [str(procdump), "-accepteula", "-ma", "-e", "-g", "-x", str(dumps), *command]
 
 
-def run_session(*, ui=None, seconds=900, startup_seconds=45, fixture_script=None, procdump=None):
+def ui_command(ui, endpoint, run, backend_ui=False):
+    if backend_ui:
+        config = run / "copy/Studio.config.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        root = (config.parent / data["projects_root"]).resolve()
+        projects = list(root.rglob("Studio.project.json"))
+        if len(projects) != 1:
+            raise ValueError("Expected one project in the disposable QA projects root")
+        return [str(ui), "--project", str(projects[0].parent), "--config", str(config)]
+    import imageio_ffmpeg
+    return [str(ui), endpoint, "argentis-qa", imageio_ffmpeg.get_ffmpeg_exe()]
+
+
+def run_session(*, ui=None, seconds=900, startup_seconds=45, fixture_script=None, procdump=None, backend_ui=False):
     if procdump is not None and ui is None:
         raise ValueError("ProcDump requires a UI executable")
     SESSIONS.mkdir(parents=True, exist_ok=True)
@@ -122,8 +135,7 @@ def run_session(*, ui=None, seconds=900, startup_seconds=45, fixture_script=None
         data["endpoint"] = endpoint
         ui_process = None
         if ui:
-            import imageio_ffmpeg
-            command = [str(ui), endpoint, "argentis-qa", imageio_ffmpeg.get_ffmpeg_exe()]
+            command = ui_command(ui, endpoint, run, backend_ui)
             data["ui_application_command"] = command
             data["commands"]["ui"] = debug_ui_command(command, run, procdump)
             save(manifest, data)
@@ -236,6 +248,7 @@ def main(fixture_script=None):
     action.add_argument("--stop", metavar="SESSION_ID")
     action.add_argument("--stop-all", action="store_true")
     parser.add_argument("--ui", type=Path, help="Own this UI as well; closing it also stops the QA server")
+    parser.add_argument("--backend-ui", action="store_true", help="Open the disposable project through the same-EXE backend instead of HTTP")
     parser.add_argument("--procdump", type=Path, help="Optional local ProcDump executable; launch only this UI under its native debugger")
     parser.add_argument("--seconds", type=positive, default=900, help="Maximum total lifetime, including startup (default: 900)")
     parser.add_argument("--startup-seconds", type=positive, default=45)
@@ -249,10 +262,13 @@ def main(fixture_script=None):
         ui = args.ui.resolve() if args.ui else None
         if ui is not None and not ui.is_file():
             parser.error(f"UI executable does not exist: {ui}")
+        if args.backend_ui and ui is None:
+            parser.error("--backend-ui requires --ui")
         procdump = args.procdump.resolve() if args.procdump else None
         if procdump is not None and (ui is None or not procdump.is_file() or procdump.name.lower() != "procdump64.exe"):
             parser.error("--procdump requires --ui and an existing procdump64.exe")
-        return run_session(ui=ui, seconds=args.seconds, startup_seconds=args.startup_seconds, fixture_script=fixture_script, procdump=procdump)
+        return run_session(ui=ui, seconds=args.seconds, startup_seconds=args.startup_seconds, fixture_script=fixture_script,
+                           procdump=procdump, backend_ui=args.backend_ui)
     return 0
 
 

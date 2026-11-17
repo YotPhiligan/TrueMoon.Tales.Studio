@@ -1,16 +1,79 @@
+using System.Text.Json;
+using TrueMoon.Dependencies;
+using TrueMoon.Mithril;
+using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Infrastructure;
+using TrueMoon.Tales.Studio.Presentation;
+using TrueMoon.Tales.Studio.Presentation.Project;
+
 namespace TrueMoon.Tales.Studio.Configuration;
 
 internal static class StudioApplicationExtensions
 {
+    internal static IAppConfigurationContext UseStudioUi(this IAppConfigurationContext context, string[] args) =>
+        StudioOptions.TryParse(args, out _) ? context.UseStudioServices().UseStudioWindow() : context;
+
     public static async Task<int> RunStudioAsync(this IAppBuilder builder, string[] args, CancellationToken token = default)
     {
-        if (!StudioOptions.TryParse(args, out var options))
+        // Preserve the existing configurable HTTP runner, including exception propagation and ownership.
+        if (StudioOptions.TryParse(args, out var httpOptions) && Environment.GetEnvironmentVariable("-u") is null &&
+            Environment.GetEnvironmentVariable("-p") is null && Environment.GetEnvironmentVariable(UnitParentProcessEventsHandler.ControlPipeKey) is null)
         {
-            Console.Error.WriteLine(StudioOptions.Usage);
+            await builder.RunAsync(context => context.Services(services => services.Instance(httpOptions)), token);
+            return 0;
+        }
+        try
+        {
+            var launch = UnitBootstrap.Parse([], new Dictionary<string, string?>
+            {
+                ["-u"] = Environment.GetEnvironmentVariable("-u"),
+                ["-p"] = Environment.GetEnvironmentVariable("-p"),
+                [UnitParentProcessEventsHandler.ControlPipeKey] = Environment.GetEnvironmentVariable(UnitParentProcessEventsHandler.ControlPipeKey),
+                ["TRUEMOON_MITHRIL__DISABLED"] = Environment.GetEnvironmentVariable("TRUEMOON_MITHRIL__DISABLED")
+            });
+            if (BackendOptions.TryParse(args, launch, out var backendOptions, out var child, out var inspect))
+            {
+                builder.Setup(context => context.UseProjectBackend(backendOptions!, child));
+                if (!child && !inspect) builder.Setup(context =>
+                {
+                    if (backendOptions!.Action == "edit") context.UseBackendScene().UseStudioWindow();
+                    else context.UseProjectWindow();
+                });
+                await using var app = builder.Build();
+                try
+                {
+                    await app.StartAsync(token).ConfigureAwait(false);
+                    if (inspect)
+                    {
+                        var connection = app.Services.Resolve<BackendConnection>()!;
+                        var opened = backendOptions!.Action == "recover" ? await connection.RecoverAsync(token).ConfigureAwait(false)
+                            : await connection.OpenAsync(token).ConfigureAwait(false);
+                        if (backendOptions.Action == "migrate")
+                        {
+                            opened = await connection.AcquireWriterAsync(opened, token).ConfigureAwait(false);
+                            opened = await connection.MigrateAsync(opened, token).ConfigureAwait(false);
+                        }
+                        Console.WriteLine(JsonSerializer.Serialize(new
+                        {
+                            opened.Identity, opened.SchemaVersion, opened.Fingerprint, opened.Project
+                        }));
+                    }
+                    else await app.Services.Resolve<IAppLifetimeHandler>()!.WaitAsync(token).ConfigureAwait(false);
+                }
+                finally { await app.StopAsync().ConfigureAwait(false); }
+                return 0;
+            }
+            Console.Error.WriteLine(StudioOptions.Usage + Environment.NewLine +
+                "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
+                "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
+                "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>");
             return 2;
         }
-
-        await builder.RunAsync(app => app.Services(services => services.Instance(options)), token);
-        return 0;
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return 0; }
+        catch (Exception error)
+        {
+            Console.Error.WriteLine($"Studio: {error.Message}");
+            return 1;
+        }
     }
 }

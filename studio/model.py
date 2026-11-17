@@ -2,6 +2,8 @@
 from __future__ import annotations
 import copy,hashlib,json,math,mimetypes,os,re,struct,threading,time,uuid
 from pathlib import Path
+from contextlib import contextmanager
+from .writer_lease import writer_lease, WriterBusyError
 from datetime import datetime,timezone
 from .paths import WorkspacePaths,PathPolicyError
 
@@ -118,7 +120,11 @@ class Store:
         return result
 
     def get(self,project_id):
-        with self.lock:return read(self.location(project_id))
+        with self.lock:
+            value=read(self.location(project_id))
+            if value.get('schema_version')!=1:
+                raise StudioError('Проект передан backend writer (schema 2). Откройте его через --edit-project.',409)
+            return value
 
     def timeline_operation(self,pid,revision,action,payload,actor='author'):
         from .timeline import apply,capacity,TimelineError,get as get_timeline
@@ -257,9 +263,18 @@ class Store:
                 return {'frames':frames,'fps':fps,'seconds':seconds,'width':stream.width,'height':stream.height,'silent':not len(container.streams.audio),'metadata_source':'media_header'}
         except Exception as error:raise StudioError('Не удалось прочитать метаданные видео: '+type(error).__name__+'.',422)
 
+    @contextmanager
+    def writer(self,pid):
+        path=self.writable(self.project_dir(pid)/'.Studio.project.writer.lock',False)
+        try:
+            with writer_lease(path):yield
+        except WriterBusyError as error:raise StudioError(str(error),409) from error
+
     def commit(self,project,expected,actor,action):
-        with self.lock:
+        with self.lock,self.writer(project['id']):
             path=self.writable(self.location(project['id']));current=read(path)
+            if current.get('schema_version')!=1:
+                raise StudioError('Запись передана backend writer. Старый черновик не перезаписал schema 2.',409)
             if type(expected) is not int or current['revision']!=expected:
                 raise StudioError('Проект изменился в другой сессии. Сохранённые правки не перезаписаны.',409,{'current_revision':current['revision']})
             value=copy.deepcopy(project);value['revision']=expected+1;value['updated_at']=now()
