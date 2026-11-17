@@ -12,12 +12,13 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 [CPU raster-стенд, PNG и результаты STUDIO-UIQA1](Verification/UIRaster.md).
 [STUDIO-BACKEND2: перенос через Enerit и передача writer](Verification/BackendMove.md).
 [STUDIO-BACKEND3: HTTP/CLI и совместная сессия UI](Verification/BackendHttp.md).
+[STUDIO-REQUESTS1: пакеты и приёмка закрытых заявок](Verification/FrameworkRequests.md).
 [Shift+F10, перетаскивание курсора и краёв клипа](TimelineDrag.md).
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.17.2-alpha**. SDK **11.0.100**,
-`runtime-async=on`, TrueMoon **1.2611.16.1-alpha**, SkiaSharp **4.156.1**.
+Текущая версия Studio — **1.2611.17.3-alpha**. SDK **11.0.100**,
+`runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
 
@@ -195,18 +196,25 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 
 ## Пакеты TrueMoon
 
-Текущий набор — двенадцать пакетов **1.2611.16.1-alpha** из проверенной поставки
-ENG7B3. Для нового клона передать архивы с manifest и выполнить из `src`:
+Текущий набор — двенадцать пакетов **1.2611.17.1-alpha**, собранных из
+зафиксированного ENE6e commit22d7f11. [Источник, SHA, strict XML/IPC/raster и
+границы consumer-приёмки](Verification/FrameworkRequests.md). Пакеты локальные;
+публикация на внешнем feed не заявлена.
+
+Source-режим строит четыре root: TrueMoon, Alloy.Hosting, Enerit и Mithril, затем
+упаковывает полный набор. При новой подготовке использовать подтверждённый
+checkout/snapshot нужной версии, все build/pack outputs сохранять вне framework:
 
 ```powershell
-./Update-TrueMoonPackages.ps1 -PackageManifest ../../TrueMoon/src/docs/engine/ENG7B3_BASELINE.json
+./Update-TrueMoonPackages.ps1 -FrameworkRoot <подтверждённый-каталог-версии-1.2611.17.1-alpha>
 ```
 
-Импорт сверяет полный набор, SHA-256 и nuspec до публикации в локальный feed;
-совпадающие архивы можно принять повторно, отличающиеся не перезаписываются.
-NuGet.Config сохраняет source mapping. Более новый framework checkout не следует
-пересобирать под старым номером: режим `-FrameworkRoot` требует точного совпадения
-версий. [Профиль, native SHA и приёмка](Verification/DotNet11.md).
+Более новый рабочий checkout не пересобирать под старым номером: скрипт требует
+точного совпадения версий и отказывает при уже существующих архивах.
+Для передачи готового полного комплекта доступен режим -PackageManifest:
+проверяются12 ID/version/SHA и nuspec до импорта; отличающиеся архивы не
+перезаписываются. NuGet.Config сохраняет source mapping. Историческая поставка
+ENG7B3/1.2611.16.1-alpha и её manifest не являются новым комплектом ENE6e.
 
 ### История приёмки 07–09.11.2026
 

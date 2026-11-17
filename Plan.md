@@ -5,11 +5,29 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND3; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
+Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-REQUESTS1; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
 
 Область — общий инструмент для опенинга, AMV Клэр и будущих видеопроектов цикла «Сказки истинной луны». План находится вне каталогов отдельных роликов. Связь с [общим планом](../TrueMoon.Tales.Videos/Plan.md): R-08 — управление и интерфейс, R-09 — обработка изображения, R-10 — звук и сборка. Текущая техническая очередь исследований моделей и управления движением сохраняется отдельно.
 
 Дополнение 29.10.2026: включить режим пониженного разрешения для быстрой проверки блока. Будущий целевой сценарий автора — видеоадаптации текста глав ориентировочно по **3–5 минут**; это направление для проектирования, а не жёсткая длительность каждой главы. Набор функций адаптации согласован автором и включён в реализацию этапов UI-06–UI-11. Выбор конкретных технологий и интеграций остаётся задачей проектирования и проверок.
+
+<a id="framework-requests-acceptance"></a>
+## STUDIO-REQUESTS1 — приёмка закрытых заявок TrueMoon
+
+Выполнено 17.11.2026. Studio **1.2611.17.3-alpha**, TrueMoon **1.2611.17.1-alpha**.
+[Комплект, команды, проверки и границы](src/Verification/FrameworkRequests.md).
+
+- [x] Принять ENE6e из commit22d7f11: полный matching12-package комплект, отдельный
+  cache, SHA/nuspec/граф, native и bundled generators; рабочий TrueMoon не менять.
+- [x] Strict XML/emit Debug/Release с CS1591 как error, собственный negative control;
+  generated19CS1591 устранены, прежние5CS8669 остаются отдельным backlog.
+- [x] Повторить Cobalt graph/lifetime, SplitView layout/routed input, настоящий
+  Mithril/Enerit/writer и UI/CLI/raster. D/R по370passed/0failed/5skipped,
+  Python295OK, published37/37. PNG87D/R и36publish,87кадров совпали с BACKEND3.
+- [x] Исправить Source-режим Update-TrueMoonPackages.ps1: Enerit/Mithril входят
+  в build roots полного12-package набора. Immutable архивы не переписывать.
+- [ ] Отдельная native/physical/DPI приёмка разделителей и переноса остаётся
+  в UI-UX05/STUDIO-MOVE. CS8669 — существующий backlog Enerit, без новой заявки.
 
 <a id="ui-testing-guidance"></a>
 ## STUDIO-UIQA-DOC — переиспользуемая инструкция UI-проверок
@@ -550,9 +568,9 @@ Edge подтвердил привязку к метке, предварител
 - [x] **Drag/trim таймлайна — 07.11.2026.** Курсор и оба края выбранного клипа, захват указателя, кадровая сетка и учёт скорости, локальный черновик, отмена и одна запись с expected_revision при отпускании. Debug/Release: 23/23. На изолированной сцене проверены повторное открытие, история/SHA и соответствие короткому CPU MP4. [Проверки и границы](src/TimelineDrag.md).
 - [x] **Непрерывный просмотр и волна — 07.11.2026.** Выбранный CFR-клип, микс native/music/event, пауза/продолжение и последний кадр; ограниченная очередь видео и отмена медиа. Debug/Release: 67 passed, 1 опциональная интеграция прошла отдельно. Проверены настоящее окно, звуковое устройство, 0.5×/1×/2× для видео и соответствие микса при 1× короткому CPU MP4. Полная медиаприёмка остаётся открытой. [Результат и команды](src/Playback.md).
 - [x] **Общие разделители — готовность TrueMoon, 09.11.2026.** [Заявка Alloy](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Request.md) выполнена во framework/local-delivery scope: `SplitView` с горизонтальной/вертикальной осью, min/max, pointer capture/cancel и клавиатурой. [Decision и проверки владельца](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md), [API/ownership guide](../TrueMoon/src/docs/alloy/SPLIT_VIEW.md). Проверена локальная пакетная версия `0.2.5.2-splitview.20261109.1`; публикация обычной версии этим не подтверждается.
-- [ ] **Подключение разделителей в Studio.** Выбрать и подключить пакеты с `SplitView`, заменить временную адаптивную компоновку в `StudioLayout` для навигации/инспектора/таймлайна. Сохранять экземпляры controls/player, фокус, ввод, выделение, scroll, черновик и popup/capture policy; размеры оставить UI state вне `Studio.project.json`. Проверить actual consumer и физический ввод отдельно от framework proofs. Выполнение заявки во фреймворке не закрывает этот этап Studio.
+- [x] **Подключение разделителей в Studio (headless, 09.11.2026).** Штатные SplitView заменяют временную адаптивную компоновку StudioLayout; controls/player, фокус, выделение и черновик сохраняются, размеры — UI state вне Studio.project.json. Повторная приёмка нового комплекта — [STUDIO-REQUESTS1](#framework-requests-acceptance).
   - **Выполнено 09.11.2026 (headless):** пакеты `0.2.5.2-alpha` приняты; `StudioLayout` переведён на цепочку из трёх `SplitView` (навигация/инспектор/монтаж) с ограничениями min/max, русскими AccessibleName и восстановлением размеров в «Восстановить панели»; скрытие панелей переподключает цепочку без пересоздания контролов. `SplitViewLayoutTests`: Debug/Release — всего 96 passed, 0 предупреждений. [Результат и границы](src/WindowMenus.md#разделители-панелей--09112026).
-  - **Остаётся:** настоящий указатель/клавиатура и смена темы в реальном окне через QA-сессию, сверка скриншотов с Aether.
+- [ ] **Native-приёмка разделителей:** настоящий указатель/клавиатура и смена темы в реальном окне через QA-сессию, сверка скриншотов с Aether.
 
 - [ ] **Композиция экрана.** Подготовить макет на той же тестовой сцене: компактный
   заголовок и команды проекта, навигация по сценарию и ассетам, центральное превью,
@@ -667,11 +685,11 @@ Computer Use физическим Escape. Полная keyboard/DPI-приёмк
 
 ## Ближайшая очередь
 
-[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; далее — backend media-путь.
+[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; STUDIO-REQUESTS1 выполнен: закрытые заявки приняты на новом комплекте; далее — backend media-путь.
 
 [Текущий статус и результаты проверок](Status.md).
 
-1. **Backend — media resolver и предпросмотр после STUDIO-BACKEND3.** Studio1.2611.17.2-alpha, TrueMoon1.2611.16.1-alpha; полные D/R по370 passed/5 skipped, Python295 OK, published37 passed. HTTP/CLI и native UI теперь используют один backend/writer для чтения и переноса. Следом — allowlisted media resolver/aliases, кадры и звук, trim и экспорт с CPU MP4 parity. Backend-редактор пока move-only; legacy Web UI ещё schema1. Длинный таймлайн, physical Escape/keyboard/DPI и прежний native AV остаются отдельными задачами. [STUDIO-BACKEND3](#backend-http-cli) · [проверки](src/Verification/BackendHttp.md).
+1. **Backend — media resolver и предпросмотр после STUDIO-BACKEND3.** Studio1.2611.17.3-alpha, TrueMoon1.2611.17.1-alpha; полные D/R по370 passed/5 skipped, Python295 OK, published37 passed. HTTP/CLI и native UI теперь используют один backend/writer для чтения и переноса. Следом — allowlisted media resolver/aliases, кадры и звук, trim и экспорт с CPU MP4 parity. Backend-редактор пока move-only; legacy Web UI ещё schema1. Длинный таймлайн, physical Escape/keyboard/DPI и прежний native AV остаются отдельными задачами. [STUDIO-BACKEND3](#backend-http-cli) · [проверки](src/Verification/BackendHttp.md).
 
 2. **UI-05 — рабочая сборка Клэр.** Назначить `CL-000A` заглушке доклада и определить роль `Test1` в монтаже. На готовом фрагменте сверить предпросмотр и MP4 по времени, участкам дублей, звуку, титрам и музыкальному акценту. Затем проверить полный монтаж Клэр и повторить проход на собранном сценарии опенинга.
 3. **Проверка стыков и готовность.** Сопоставить граничные кадры после замены дубля и открыть повтор стыка из того же окна. Показать связь с прежним дублем Motion Context. Вынести список проблем готовности рядом с таймлайном. [Монтаж блока](ClipEditing.md) · [Экспорт](DraftExport.md).
@@ -842,7 +860,12 @@ C# UI продолжает работать через HTTP с Python-серви
 [TrueMoon/docs/requests](../TrueMoon/src/docs/requests/README.md). Запрос содержит
 consumer, пример, критерии и временное решение. Принятие и реализация принадлежат
 владельцу модуля через Claim/Decision; активную очередь другого агента Studio
-не переписывает. Текущие заявки: регулируемые панели UI-UX05; [ограниченные hint names Cobalt](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Request.md); [XML docs generated-регистрации](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Request.md).
+не переписывает. Все четыре заявки Studio выполнены владельцами: панели Alloy,
+две правки Cobalt и generated XML docs Enerit. Consumer-приёмка Cobalt и
+подключение SplitView выполнены ранее; ENE6e принят в [STUDIO-REQUESTS1](#framework-requests-acceptance).
+[Alloy Decision](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md) ·
+[Enerit Decision](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Decision.md).
+CS8669 остаётся отдельным backlog; native-приёмка панелей — задачей Studio.
 
 <a id="cobalt-generator-requests"></a>
 **Статус двух заявок Cobalt — 09.11.2026.** В TrueMoon обе заявки имеют

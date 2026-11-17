@@ -1,8 +1,37 @@
 # Статус разработки Studio
 
-Обновлено 17.11.2026 (STUDIO-BACKEND3; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
+Обновлено 17.11.2026 (STUDIO-REQUESTS1; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
 
 После завершения этапа обновлять дату, отмечать доступные изменения, результаты проверок и оставшиеся ограничения. Приоритеты и критерии реализации вести в Plan.md.
+
+<a id="framework-requests-acceptance"></a>
+## STUDIO-REQUESTS1 — приёмка заявок, 17.11.2026
+
+Studio **1.2611.17.3-alpha**, TrueMoon **1.2611.17.1-alpha**. STUDIO-BACKEND3
+закоммичен и отправлен в main как c78ab18 /1.2611.17.2-alpha; текущий набор —
+отдельное обновление зависимостей и Source-режима package bootstrap.
+
+Принят ENE6e: generated XML docs исправлены,19CS1591 исчезли. Остаются5CS8669
+из существующего nullable backlog; NoWarn не добавлен. Cobalt fixes и SplitView
+уже были приняты; их graph/lifecycle/layout/routed checks повторены. Список заявок
+актуализирован; подключение панелей отделено от их физической приёмки.
+
+- Полный комплект12packages собран из зафиксированного framework commit22d7f11
+  в изолированном каталоге Studio. Native SHA прежний; SHA/nuspec/dependency graph
+  и matching generators проверены. Параллельный TrueMoon checkout не изменялся,
+  внешняя публикация пакетов не заявлена.
+- Non-incremental strict XML/emit builds D/R:0errors/5warnings(CS8669).
+  Собственный undocumented public member даёт ожидаемый CS1591 в обоих negative controls.
+- Полные D/R: **по370 passed,0 failed,5 прежних skipped**; Python **295 tests,OK**;
+  published Release EXE **37 passed,0 failed,0 skipped**. Настоящие UI/CLI/HTTP/
+  Enerit/Mithril/writer и конфликты revision/SHA проверены.
+- PNG87D/R и36publish совпали;87Release-кадров совпали с BACKEND3 на прежнем
+  комплекте. Все raster root/session освобождены. Авторские данные/GPU/native
+  окна не использовались; физический ввод/DPI/media/MP4 остаются открытыми.
+
+[Команды/evidence/cleanup и границы](src/Verification/FrameworkRequests.md) ·
+[План](Plan.md#framework-requests-acceptance). Следующий функциональный этап —
+backend media resolver/aliases и предпросмотр; редактор остаётся move-only.
 
 <a id="backend-http-cli"></a>
 ## STUDIO-BACKEND3 — HTTP/CLI и одна сессия UI, 17.11.2026

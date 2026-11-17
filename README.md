@@ -1,7 +1,7 @@
 # True Moon Studio
 
-Текущая версия — **1.2611.17.2-alpha**; C#-прототип использует SDK 11.0.100 /
-net11.0 / runtime-async=on и TrueMoon 1.2611.16.1-alpha. Python/Web и CLI
+Текущая версия — **1.2611.17.3-alpha**; C#-прототип использует SDK 11.0.100 /
+net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 сохраняют действующие операции; продуктовые метки берутся из общего
 `src/Directory.Build.props`. [Приёмка перехода](src/Verification/DotNet11.md).
 [Перенос клипа внутри сегмента](src/Verification/ClipMove.md) реализован с черновиком, одной записью и обработкой конфликтов.
@@ -11,6 +11,7 @@ net11.0 / runtime-async=on и TrueMoon 1.2611.16.1-alpha. Python/Web и CLI
 [STUDIO-BACKEND3](src/Verification/BackendHttp.md) подключает HTTP/CLI к той же
 writer-сессии UI с expected_revision/SHA. C# EXE требует ASP.NET Core11 runtime.
 Backend-редактор пока поддерживает только перенос; media/trim/export впереди.
+[Приёмка закрытых заявок TrueMoon](src/Verification/FrameworkRequests.md): matching пакеты, strict XML и сквозные проверки.
 Исторические обозначения 0.15 ниже описывают прежние этапы.
 
 **M2–M4 выполнены: активный код находится в `E:/source/my/TrueMoon.Tales/TrueMoon.Tales.Studio`.**

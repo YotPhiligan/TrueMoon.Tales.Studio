@@ -146,7 +146,7 @@ function Invoke-PackageBuild([string] $operation, [string] $package, [string[]] 
 Push-Location $studioSource
 try {
     # Build each root once; referenced projects and the Cobalt generator share these artifacts.
-    foreach ($package in @('TrueMoon', 'TrueMoon.Alloy.Hosting')) {
+    foreach ($package in @('TrueMoon', 'TrueMoon.Alloy.Hosting', 'TrueMoon.Enerit', 'TrueMoon.Mithril')) {
         Invoke-PackageBuild 'build' $package @()
     }
     $stagingFeed = Join-Path $run 'feed'
