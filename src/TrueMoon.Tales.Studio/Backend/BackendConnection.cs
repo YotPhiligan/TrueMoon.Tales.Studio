@@ -42,6 +42,7 @@ internal sealed class BackendConnection(IStudioBackend service, BackendOptions o
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         // Opening is a single call. Reconnect is a new explicit read, never a replay of an operation.
         var reply = await TransportAsync(() => service.OpenProjectAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
         return Decode(identity, reply);
     }
 

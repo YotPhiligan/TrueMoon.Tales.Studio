@@ -1,6 +1,6 @@
 """Small standard-library CLI for an external local agent. Never retries writes."""
 from __future__ import annotations
-import argparse, json, sys
+import argparse, json, os, sys
 from pathlib import Path
 from urllib import error, parse, request
 
@@ -43,12 +43,61 @@ class StudioClient:
             raise ClientError('Нет ответа Studio. Запустите Start-Studio.cmd. Запись автоматически не повторяется; перед повтором проверьте состояние проекта/задания.') from exc
 
 
+class _NoBackendRedirect(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class BackendClient(StudioClient):
+    """Versioned schema2 adapter; a caller-supplied baseline is never refreshed for a write."""
+    def __init__(self, url, token):
+        super().__init__(url)
+        if parse.urlsplit(url).hostname != '127.0.0.1':
+            raise ClientError('Backend API требует literal 127.0.0.1.')
+        if not token or len(token) != 64 or any(c not in '0123456789abcdefABCDEF' for c in token):
+            raise ClientError('Укажите token сессии через --token или STUDIO_BACKEND_HTTP_TOKEN.')
+        self.token=token
+        self.opener=request.build_opener(request.ProxyHandler({}),_NoBackendRedirect())
+
+    def call(self, method, path, body=None):
+        headers={'X-Studio-Token':self.token}
+        data=None
+        if body is not None:
+            data=json.dumps(body,ensure_ascii=False,allow_nan=False).encode('utf-8')
+            headers['Content-Type']='application/json'
+        req=request.Request(self.url+path,data=data,headers=headers,method=method)
+        try:
+            with self.opener.open(req,timeout=15) as response:
+                encoded=response.read(2*1024*1024+1)
+                if len(encoded)>2*1024*1024:raise ClientError('Слишком большой ответ backend. Перечитайте проект перед следующей записью.')
+                snapshot=json.loads(encoded)
+            if not isinstance(snapshot,dict) or type(snapshot.get('api_version')) is not int or snapshot['api_version']!=1 or type(snapshot.get('schema_version')) is not int or snapshot['schema_version']!=2:
+                raise ValueError('Unsupported backend envelope')
+            project=snapshot.get('project'); fingerprint=snapshot.get('fingerprint')
+            if not isinstance(project,dict) or type(project.get('contract_version')) is not int or project['contract_version']!=1 or type(project.get('revision')) is not int or project['revision']<0 or not isinstance(project.get('id'),str):
+                raise ValueError('Invalid backend project')
+            if not isinstance(fingerprint,str) or len(fingerprint)!=64 or any(c not in '0123456789abcdefABCDEF' for c in fingerprint):
+                raise ValueError('Invalid backend fingerprint')
+            return snapshot
+        except error.HTTPError as exc:
+            try:message=json.loads(exc.read(4096)).get('error',str(exc))
+            except (ValueError,OSError,AttributeError):message=str(exc)
+            raise ClientError(message,exc.code) from exc
+        except (OSError,ValueError) as exc:
+            raise ClientError('Ответ backend не получен или недостоверен. Запись автоматически не повторяется; перечитайте проект для сверки результата.') from exc
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--url', default='http://127.0.0.1:8787')
     p.add_argument('--project', help='ID проекта из команды projects')
+    p.add_argument('--token', default=os.environ.get('STUDIO_BACKEND_HTTP_TOKEN'), help='Token versioned backend HTTP API')
     p.add_argument('--actor', default='agent:cli')
     commands = p.add_subparsers(dest='command', required=True)
+    commands.add_parser('backend-project')
+    sub=commands.add_parser('backend-move')
+    sub.add_argument('--clip',required=True);sub.add_argument('--start-frame',type=int,required=True)
+    sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
     for name in ['doctor', 'projects', 'requests', 'exports']:
         commands.add_parser(name)
     sub=commands.add_parser('export');sub.add_argument('--revision',type=int,required=True);sub.add_argument('--profile',choices=['draft','project','final'],default='draft');sub.add_argument('--client-key')
@@ -88,6 +137,13 @@ def task_summary(task):
 
 def execute(client, args):
     command = args.command
+    if command in ['backend-project','backend-move']:
+        if args.project:raise ClientError('Backend project выбирается владельцем --serve-project, без --project в запросе.')
+        if command=='backend-project':return client.call('GET','/api/backend/v1/project')
+        if args.revision<0 or len(args.sha256)!=64 or any(c not in '0123456789abcdefABCDEF' for c in args.sha256):
+            raise ClientError('Нужны observed --revision и 64 hex --sha256 из backend-project.')
+        return client.call('POST','/api/backend/v1/move-clip',{'clip_id':args.clip,'start_frame':args.start_frame,
+            'expected_revision':args.revision,'fingerprint':args.sha256})
     if command == 'doctor':
         health = client.call('GET', '/api/health')
         if health.get('app') != 'true-moon-studio':
@@ -160,7 +216,8 @@ def execute(client, args):
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        result = execute(StudioClient(args.url, args.actor), args)
+        client = BackendClient(args.url,args.token) if args.command.startswith('backend-') else StudioClient(args.url,args.actor)
+        result = execute(client, args)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ClientError, OSError, ValueError) as exc:

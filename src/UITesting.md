@@ -91,6 +91,11 @@ View заимствует App-owned ViewModel; snapshot изображения �
   и CPU raster; Escape, одна запись, конфликт точных байтов и явное перечитывание.
   Потеря ответа инъецируется после настоящего commit; остальная цепочка настоящая.
   [Матрица, запуск и evidence](Verification/BackendMove.md).
+- [BackendUiCliTests](TrueMoon.Tales.Studio.Tests/Raster/BackendUiCliTests.cs):
+  настоящий Python CLI через HTTP/Kestrel в сессии production SceneView и того же
+  owned Enerit backend. Проверяются общий writer, CLI commit во время drag,
+  конфликтный draft, Cancel/Reload, последующий UI commit и чтение/no-op CLI.
+  [STUDIO-BACKEND3](Verification/BackendHttp.md); STUDIO_TEST_PYTHON включает эти checks.
 
 Переиспользовать RasterWindow и RasterSceneFixture; запуск и evidence описаны в
 [отчёте](Verification/UIRaster.md#запуск). Не добавлять новый тестовый режим в

@@ -57,8 +57,11 @@ flowchart LR
 сохраняет HTTP с Python. [Запуск и проверки](src/Verification/BackendReadOnly.md).
 17.11.2026 [STUDIO-BACKEND2](src/Verification/BackendMove.md) подключил MoveClip,
 общий ISceneService, явную миграцию/recovery и writer lease, общий с Python commit.
-Backend scene работает в move-only режиме; HTTP-адаптер и backend media resolver/
-preview/export остаются следующими шагами. Schema2 отклоняется прежним Python API.
+[STUDIO-BACKEND3](src/Verification/BackendHttp.md) добавил loopback Kestrel в процессе
+владельца: HTTP/CLI и UI используют тот же BackendConnection и один writer.
+HTTP API v1 отделён от legacy схемы; пути/права не выбираются запросом. C# EXE
+требует ASP.NET Core11 shared runtime. Backend scene остаётся move-only;
+media resolver/preview/export впереди. Прежние Python-маршруты по-прежнему schema1.
 
 ## Целевая модель проекта
 

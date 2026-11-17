@@ -2,6 +2,7 @@ using System.Text.Json;
 using TrueMoon.Dependencies;
 using TrueMoon.Mithril;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Presentation;
 using TrueMoon.Tales.Studio.Presentation.Project;
@@ -36,13 +37,20 @@ internal static class StudioApplicationExtensions
                 builder.Setup(context => context.UseProjectBackend(backendOptions!, child));
                 if (!child && !inspect) builder.Setup(context =>
                 {
-                    if (backendOptions!.Action == "edit") context.UseBackendScene().UseStudioWindow();
-                    else context.UseProjectWindow();
+                    if (backendOptions!.Action == "edit" || backendOptions.Action == "serve" && backendOptions.HttpWithUi) context.UseBackendScene().UseStudioWindow();
+                    else if (backendOptions.Action != "serve") context.UseProjectWindow();
                 });
                 await using var app = builder.Build();
+                await using var http = !child && backendOptions!.Action == "serve"
+                    ? new BackendHttpServer(app.Services.Resolve<BackendConnection>()!, backendOptions.HttpPort) : null;
                 try
                 {
                     await app.StartAsync(token).ConfigureAwait(false);
+                    if (http is not null)
+                    {
+                        await http.StartAsync(token).ConfigureAwait(false);
+                        Console.WriteLine(JsonSerializer.Serialize(http.Ready));
+                    }
                     if (inspect)
                     {
                         var connection = app.Services.Resolve<BackendConnection>()!;
@@ -60,13 +68,18 @@ internal static class StudioApplicationExtensions
                     }
                     else await app.Services.Resolve<IAppLifetimeHandler>()!.WaitAsync(token).ConfigureAwait(false);
                 }
-                finally { await app.StopAsync().ConfigureAwait(false); }
+                finally
+                {
+                    try { if (http is not null) await http.DisposeAsync().ConfigureAwait(false); }
+                    finally { await app.StopAsync().ConfigureAwait(false); }
+                }
                 return 0;
             }
             Console.Error.WriteLine(StudioOptions.Usage + Environment.NewLine +
                 "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
-                "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>");
+                "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
+                "HTTP/CLI: --serve-project <каталог> --config <Studio.config.json> [--http-port <0..65535>] [--with-ui]");
             return 2;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return 0; }

@@ -148,5 +148,5 @@ codec не разрешает пути медиа: физический коре
 [Первый backend-адаптер чтения](src/Verification/BackendReadOnly.md) сохраняет пустые write grants.
 [STUDIO-BACKEND2](src/Verification/BackendMove.md) добавляет явный writer-mode,
 grants каталога копии, общий lease с Python и schema2 barrier; автоматической
-выдачи прав нет. Полный media resolver/aliases и HTTP-адаптер ещё впереди; расширять файловые разрешения
+выдачи прав нет. HTTP/CLI общего writer реализованы в [STUDIO-BACKEND3](src/Verification/BackendHttp.md); полный media resolver/aliases ещё впереди; расширять файловые разрешения
 до всего каталога автоматически нельзя.

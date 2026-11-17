@@ -24,6 +24,25 @@ writer lease, а schema2 get/commit возвращают HTTP409; эти HTTP-м
 являются адаптером schema2-команд. Новые CLI: --edit-project, --migrate-project,
 --recover-project с теми же --config/allowlist. Read-only --project сохранён.
 
+17.11.2026 [STUDIO-BACKEND3](src/Verification/BackendHttp.md): отдельный Kestrel API
+в процессе владельца с единственным backend writer, .NET11/ASP.NET Core11 runtime.
+--serve-project выбирает schema2-проект/config, порт0 по умолчанию; --with-ui
+использует ту же сессию. Ready JSON выдаёт URL и HTTP token. Token требуется в
+X-Studio-Token для GET/POST; bootstrap/выбор пути/смена проекта через этот API отсутствуют.
+
+- GET /api/backend/v1/project — api_version1/schema_version2/fingerprint/scenario_active/
+  project(ProjectContract v1). Fingerprint — SHA точных байтов хранилища.
+- POST /api/backend/v1/move-clip — строго clip_id, start_frame, expected_revision,
+  fingerprint; одна команда Enerit, ответ того же формата. No-op не пишет.
+- 409 для revision/SHA conflict и writer/migration/recovery refusal,422 invalid_move,
+  400 malformed/unknown/duplicate fields,403 authority,405 method,413 size,415 content,
+  503 backend unavailable,504 deadline,429 busy. Ошибка содержит error/message/
+  reconciliation_required. После неопределённого ответа перечитать явно, без retry.
+- CLI: studio_agent.py backend-project/backend-move с --url и --token либо
+  STUDIO_BACKEND_HTTP_TOKEN; для Move обязательны --clip/--start-frame/--revision/
+  --sha256. --project отвергается: проект закреплён владельцем. Actor в этом v1
+  фиксирован backend; формат legacy HTTP и старые CLI-команды не меняются.
+
 Базовый адрес `http://127.0.0.1:8787`. UI и внешние агенты используют общие операции. Область файлов задаётся зарегистрированными корнями конфигурации Studio: библиотеки доступны для чтения, запись разрешена только в явные рабочие каталоги. Защищённый TrueMoon недоступен. Это HTTP API; MCP-обёртка ещё не реализована.
 
 В 0.4 доступны карточка brief, расширенный `/agent/context` и долговечные `/agent/requests`. [Полный контракт, состояния и CLI](AgentIntegration.md). Legacy `/context` сохранён. Bootstrap объявляет возможности agent и automatic_dispatch=false. Ни чтение контекста, ни создание/claim задания генерацию не запускают.

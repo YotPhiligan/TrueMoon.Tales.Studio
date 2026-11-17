@@ -1,6 +1,6 @@
 # True Moon Studio
 
-Текущая версия — **1.2611.17.1-alpha**; C#-прототип использует SDK 11.0.100 /
+Текущая версия — **1.2611.17.2-alpha**; C#-прототип использует SDK 11.0.100 /
 net11.0 / runtime-async=on и TrueMoon 1.2611.16.1-alpha. Python/Web и CLI
 сохраняют действующие операции; продуктовые метки берутся из общего
 `src/Directory.Build.props`. [Приёмка перехода](src/Verification/DotNet11.md).
@@ -8,7 +8,9 @@ net11.0 / runtime-async=on и TrueMoon 1.2611.16.1-alpha. Python/Web и CLI
 [Backend того же EXE и чтение через Enerit](src/Verification/BackendReadOnly.md) доступны в отдельном read-only режиме без Python-сервера.
 [STUDIO-BACKEND2](src/Verification/BackendMove.md) добавляет перенос через Enerit,
 явные migration/recovery и единственный writer на изолированной schema2-копии.
-Backend-редактор пока поддерживает только перенос; media/trim/export и HTTP-адаптер впереди.
+[STUDIO-BACKEND3](src/Verification/BackendHttp.md) подключает HTTP/CLI к той же
+writer-сессии UI с expected_revision/SHA. C# EXE требует ASP.NET Core11 runtime.
+Backend-редактор пока поддерживает только перенос; media/trim/export впереди.
 Исторические обозначения 0.15 ниже описывают прежние этапы.
 
 **M2–M4 выполнены: активный код находится в `E:/source/my/TrueMoon.Tales/TrueMoon.Tales.Studio`.**

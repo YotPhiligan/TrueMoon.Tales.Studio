@@ -1,0 +1,150 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace TrueMoon.Tales.Studio.Backend.Http;
+
+// The parent owns the HTTP listener; all project I/O stays in the same owned Enerit backend as the UI.
+internal sealed class BackendHttpServer(BackendConnection backend, int port = 0) : IAsyncDisposable
+{
+    internal const string ProjectRoute = "/api/backend/v1/project";
+    internal const string MoveRoute = "/api/backend/v1/move-clip";
+    internal static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
+    private readonly SemaphoreSlim _slots = new(4, 4);
+    private readonly string _token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    private WebApplication? _app;
+    private bool _started, _disposed;
+    internal Uri Address { get; private set; } = null!;
+    internal string Token => _token;
+    internal object Ready { get; private set; } = null!;
+
+    internal async Task StartAsync(CancellationToken token = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_started) throw new InvalidOperationException("HTTP server already started.");
+        if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
+        _started = true;
+        var opened = await backend.OpenAsync(token).ConfigureAwait(false);
+        if (opened.SchemaVersion != 2) throw new InvalidDataException("HTTP editing requires explicit --migrate-project first.");
+        opened = await backend.AcquireWriterAsync(opened, token).ConfigureAwait(false);
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+        {
+            Args = [], ApplicationName = typeof(BackendHttpServer).Assembly.GetName().Name,
+            ContentRootPath = AppContext.BaseDirectory, EnvironmentName = "Production"
+        });
+        // Environment/appsettings cannot add listeners or override the explicit loopback binding.
+        builder.Configuration.Sources.Clear();
+        builder.Logging.ClearProviders();
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(5));
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.AddServerHeader = false;
+            options.Limits.MaxRequestBodySize = 4096;
+            options.Limits.MaxConcurrentConnections = 8;
+            options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(5);
+            options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(5);
+            options.Limits.MaxRequestHeadersTotalSize = 8192;
+            options.Limits.MaxRequestLineSize = 2048;
+            options.Listen(IPAddress.Loopback, port, listen => listen.Protocols = HttpProtocols.Http1);
+        });
+        _app = builder.Build();
+        _app.Run(HandleAsync);
+        await _app.StartAsync(token).ConfigureAwait(false);
+        var addresses = _app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!;
+        Address = new(addresses.Addresses.Single().TrimEnd('/') + "/");
+        Ready = new { api_version = 1, url = Address.AbsoluteUri, token = _token, project_id = opened.Project.Id,
+            owner_pid = Environment.ProcessId, backend_pid = opened.Identity.ProcessId, product_version = StudioBackendService.ProductVersion };
+    }
+
+    private async Task HandleAsync(HttpContext context)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.Connection = "close";
+        if (context.Request.Host.Host != "127.0.0.1" || (context.Request.Host.Port ?? 80) != context.Connection.LocalPort ||
+            context.Connection.RemoteIpAddress is not { } remote || !IPAddress.IsLoopback(remote) ||
+            context.Request.Headers.ContainsKey("Origin") || context.Request.Headers["Sec-Fetch-Site"] is { Count: > 0 })
+        { await Error(context, 403, "forbidden"); return; }
+        var supplied = context.Request.Headers["X-Studio-Token"];
+        if (supplied.Count != 1 || supplied[0] is not { } key || key.Length != _token.Length ||
+            !CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(key), Encoding.ASCII.GetBytes(_token)))
+        { await Error(context, 403, "forbidden"); return; }
+        if (!await _slots.WaitAsync(0, context.RequestAborted).ConfigureAwait(false))
+        { await Error(context, 429, "busy"); return; }
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            deadline.CancelAfter(TimeSpan.FromSeconds(12));
+            var path = context.Request.Path.Value;
+            if (context.Request.QueryString.HasValue) { await Error(context, 400, "invalid_request"); return; }
+            if (path == ProjectRoute)
+            {
+                if (!HttpMethods.IsGet(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
+                var opened = await backend.OpenAsync(deadline.Token).ConfigureAwait(false);
+                await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(opened), Json, deadline.Token).ConfigureAwait(false);
+            }
+            else if (path == MoveRoute)
+            {
+                if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
+                if (!context.Request.HasJsonContentType()) { await Error(context, 415, "json_required"); return; }
+                using var document = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: deadline.Token).ConfigureAwait(false);
+                if (document.RootElement.ValueKind != JsonValueKind.Object || document.RootElement.EnumerateObject()
+                    .GroupBy(property => property.Name, StringComparer.Ordinal).Any(group => group.Count() != 1))
+                { await Error(context, 400, "invalid_request"); return; }
+                var request = document.RootElement.Deserialize<BackendHttpMove>(Json);
+                if (request is null || !request.Valid) { await Error(context, 400, "invalid_request"); return; }
+                // No claim, read-modify-write, migration, or retry here: the existing owner sends one Move RPC.
+                var saved = await backend.MoveAsync(request.ClipId, request.StartFrame, request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
+                await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(saved), Json, deadline.Token).ConfigureAwait(false);
+            }
+            else await Error(context, 404, "not_found");
+        }
+        catch (BackendCommandException error)
+        {
+            var status = error.Code switch
+            {
+                "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or "recovery_conflict" => 409,
+                "invalid_move" => 422, "access_denied" or "write_not_enabled" => 403, "project_not_found" => 404,
+                "project_too_large" => 413, _ => 503
+            };
+            await Error(context, status, error.Code, true);
+        }
+        catch (Microsoft.AspNetCore.Http.BadHttpRequestException error) { await Error(context, error.StatusCode, "invalid_request"); }
+        catch (JsonException) { await Error(context, 400, "invalid_request"); }
+        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested) { await Error(context, 504, "deadline_exceeded", true); }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+        catch (Exception error) when (error is IOException or InvalidOperationException)
+        { await Error(context, 503, "backend_unavailable", true); }
+        finally { _slots.Release(); }
+    }
+
+    private static async Task Error(HttpContext context, int status, string code, bool reconcile = false)
+    {
+        if (context.RequestAborted.IsCancellationRequested || context.Response.HasStarted) return;
+        context.Response.StatusCode = status;
+        await context.Response.WriteAsJsonAsync(new BackendHttpFailure(code, "Операция не повторяется автоматически.", reconcile), Json, context.RequestAborted).ConfigureAwait(false);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_app is not { } app) return;
+        try { using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5)); await app.StopAsync(deadline.Token).ConfigureAwait(false); }
+        finally { await app.DisposeAsync().ConfigureAwait(false); }
+    }
+}

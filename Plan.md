@@ -5,7 +5,7 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND2; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
+Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND3; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
 
 Область — общий инструмент для опенинга, AMV Клэр и будущих видеопроектов цикла «Сказки истинной луны». План находится вне каталогов отдельных роликов. Связь с [общим планом](../TrueMoon.Tales.Videos/Plan.md): R-08 — управление и интерфейс, R-09 — обработка изображения, R-10 — звук и сборка. Текущая техническая очередь исследований моделей и управления движением сохраняется отдельно.
 
@@ -52,6 +52,28 @@ AGENTS/README/QA. Описаны уровни UiSession, CPU raster, тесто�
 Продолжение этого этапа — STUDIO-BACKEND2 ниже: общий прикладной сервис и одна
 команда переноса с передачей writer; расширять raster-проверки по его контракту.
 
+<a id="backend-http-cli"></a>
+## STUDIO-BACKEND3 — HTTP/CLI общего backend
+
+Выполнено 17.11.2026, Studio **1.2611.17.2-alpha**. Следующий UTC rev после
+main f0eae74 /1.2611.17.1-alpha, версия зафиксирована до финальных проверок.
+[Контракт, команды и evidence](src/Verification/BackendHttp.md).
+
+- [x] --serve-project с loopback Kestrel и optional --with-ui: один BackendConnection,
+  один owned Mithril/Enerit backend и writer lease, без второго ProjectStore.
+- [x] Versioned HTTP v1: GET project / POST move-clip, обязательные observed
+  expected_revision/fingerprint, одна команда, no-op и стабильные ошибки без retry.
+- [x] Token для GET/POST, Host/Origin/body/fields limits, без путей/выдачи прав из
+  request; явная schema2 миграция сохранена. ASP.NET Core11 shared runtime добавлен.
+- [x] Существующий studio_agent.py: backend-project/backend-move, required SHA/revision,
+  no bootstrap/proxy/redirect/retry; legacy schema1 HTTP/CLI остаются прежними.
+- [x] Настоящие UI+raster/CLI/HTTP/Enerit/ProjectStore в одной сессии: CLI commit во
+  время drag → UI conflict draft → Reload → UI commit → CLI read/no-op. Scale1/1.5/2.
+- [x] 32 новых C# cases и7 Python tests. D/R по370 passed/0 failed/5 skipped,
+  Python295 OK, published37/37; builds0 errors/24 прежних generated warnings Enerit.
+- [ ] Media resolver/aliases, preview/trim/export и CPU MP4 parity backend-пути.
+- [ ] Native/physical input/DPI; legacy Web UI ещё не читает schema2.
+
 <a id="backend-move-ipc"></a>
 ## STUDIO-BACKEND2 — перенос через Enerit и единственный writer
 
@@ -71,8 +93,9 @@ main 3fb891a и рабочая 1.2611.16.3-alpha сверены до выбор�
   scale1/1.5/2, Escape, commit/conflict, lost reply/reload, serialized concurrent calls.
 - [x] 34 новых cases; финальные Debug/Release по 338 passed/0 failed/5 skipped,
   Python288 OK, published EXE16/16. Builds0 errors, 24 generated warnings Enerit.
-- [ ] HTTP/CLI-адаптер общего сервиса и полноценный backend media resolver/preview/export.
-  Пока Python обслуживает schema1 и возвращает 409 для schema2; проверять передачу на копии.
+- [x] HTTP/CLI-адаптер общего сервиса — [STUDIO-BACKEND3](#backend-http-cli).
+- [ ] Полноценный backend media resolver/preview/export. Старые Python-маршруты
+  обслуживают schema1; новые backend-команды CLI используют отдельный HTTP v1.
 - [ ] Native/physical Escape, keyboard/DPI и CPU MP4 parity для будущего media-пути.
 
 <a id="backend-readonly"></a>
@@ -94,7 +117,7 @@ main 3fb891a и рабочая 1.2611.16.3-alpha сверены до выбор�
 - [x] STUDIO-BACKEND2: команда переноса, expected_revision/ProjectStore, явные
   migration/recovery, передача writer и SceneViewModel через ISceneService —
   [выполнено 17.11.2026](#backend-move-ipc).
-- [ ] Следом подключить HTTP для CLI/агентов как адаптер тех же операций без второго writer.
+- [x] HTTP для CLI/агентов как адаптер тех же операций без второго writer — [STUDIO-BACKEND3](#backend-http-cli).
 
 Запись, медиа-resolver/aliases и генерация не переносятся этим этапом.
 20 generated warnings Enerit сохранены без подавления: XML docs —
@@ -644,11 +667,11 @@ Computer Use физическим Escape. Полная keyboard/DPI-приёмк
 
 ## Ближайшая очередь
 
-[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 выполнен 17.11.2026; далее — адаптеры общего сервиса и медиа-путь.
+[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; далее — backend media-путь.
 
 [Текущий статус и результаты проверок](Status.md).
 
-1. **Backend — адаптеры и медиапуть после STUDIO-BACKEND2.** Studio 1.2611.17.1-alpha, TrueMoon1.2611.16.1-alpha; полный D/R по338 passed/5 skipped, Python288 OK, published16 passed. Перенос через Enerit, expected_revision, shared writer и сквозной raster/IPC выполнены. Следом — HTTP/CLI как адаптер того же сервиса без возврата второго writer, затем allowlisted media resolver/aliases и preview/export. До этого schema2-переход проверять на изолированной копии. Длинный таймлайн, physical Escape/keyboard/DPI и полная медиаприёмка остаются отдельными задачами; прежний native AV открыт ([диагностика](src/NativeCrash.md)). [STUDIO-BACKEND2](#backend-move-ipc) · [проверки](src/Verification/BackendMove.md).
+1. **Backend — media resolver и предпросмотр после STUDIO-BACKEND3.** Studio1.2611.17.2-alpha, TrueMoon1.2611.16.1-alpha; полные D/R по370 passed/5 skipped, Python295 OK, published37 passed. HTTP/CLI и native UI теперь используют один backend/writer для чтения и переноса. Следом — allowlisted media resolver/aliases, кадры и звук, trim и экспорт с CPU MP4 parity. Backend-редактор пока move-only; legacy Web UI ещё schema1. Длинный таймлайн, physical Escape/keyboard/DPI и прежний native AV остаются отдельными задачами. [STUDIO-BACKEND3](#backend-http-cli) · [проверки](src/Verification/BackendHttp.md).
 
 2. **UI-05 — рабочая сборка Клэр.** Назначить `CL-000A` заглушке доклада и определить роль `Test1` в монтаже. На готовом фрагменте сверить предпросмотр и MP4 по времени, участкам дублей, звуку, титрам и музыкальному акценту. Затем проверить полный монтаж Клэр и повторить проход на собранном сценарии опенинга.
 3. **Проверка стыков и готовность.** Сопоставить граничные кадры после замены дубля и открыть повтор стыка из того же окна. Показать связь с прежним дублем Motion Context. Вынести список проблем готовности рядом с таймлайном. [Монтаж блока](ClipEditing.md) · [Экспорт](DraftExport.md).

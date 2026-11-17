@@ -85,8 +85,9 @@ DTO транспорта представляют несколько источ�
 [ProjectStore, схема хранения 2 и явная миграция](src/ProjectStore.md) реализованы
 отдельной DLL. Read-only открытие реализовано в [STUDIO-BACKEND1](src/Verification/BackendReadOnly.md).
 [STUDIO-BACKEND2](src/Verification/BackendMove.md) добавляет перенос через Enerit,
-expected_revision и явную передачу writer на schema2-копии. Остальные команды,
-HTTP-адаптер и media-путь остаются следующими этапами.
+expected_revision и явную передачу writer на schema2-копии.
+[STUDIO-BACKEND3](src/Verification/BackendHttp.md) подключает HTTP/CLI того же writer;
+остальные команды и media-путь остаются следующими этапами.
 
 ## Совместимость с текущими проектами
 

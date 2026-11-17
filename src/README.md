@@ -11,11 +11,12 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 [Переиспользуемые правила UI-проверок: UiSession, raster и тестовый host](UITesting.md).
 [CPU raster-стенд, PNG и результаты STUDIO-UIQA1](Verification/UIRaster.md).
 [STUDIO-BACKEND2: перенос через Enerit и передача writer](Verification/BackendMove.md).
+[STUDIO-BACKEND3: HTTP/CLI и совместная сессия UI](Verification/BackendHttp.md).
 [Shift+F10, перетаскивание курсора и краёв клипа](TimelineDrag.md).
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.17.1-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.17.2-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.16.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
@@ -27,6 +28,13 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 Backend-редактор этого этапа выполняет только перенос; медиа/trim/export ещё не
 подключены. Python HTTP продолжает обслуживать schema 1 и отклоняет schema 2.
 Команды и правила передачи writer — в [отчёте](Verification/BackendMove.md#запуск).
+
+HTTP/CLI schema2: `--serve-project <каталог> --config <config.json>` запускает
+loopback API, `--with-ui` подключает то же окно к тому же writer. URL/token выдаются
+в ready JSON; новые команды `studio_agent.py backend-project` / `backend-move`
+используют отдельные versioned маршруты с обязательными revision/SHA.
+Все роли C# EXE требуют .NET11 **и ASP.NET Core11 runtime**; новых NuGet-пакетов нет.
+[Контракт, запуск и проверки](Verification/BackendHttp.md).
 
 ## Модель проекта
 

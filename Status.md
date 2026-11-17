@@ -1,8 +1,41 @@
 # Статус разработки Studio
 
-Обновлено 17.11.2026 (STUDIO-BACKEND2; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
+Обновлено 17.11.2026 (STUDIO-BACKEND3; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
 
 После завершения этапа обновлять дату, отмечать доступные изменения, результаты проверок и оставшиеся ограничения. Приоритеты и критерии реализации вести в Plan.md.
+
+<a id="backend-http-cli"></a>
+## STUDIO-BACKEND3 — HTTP/CLI и одна сессия UI, 17.11.2026
+
+Studio **1.2611.17.2-alpha**, следующий UTC rev после1.2611.17.1-alpha/main f0eae74.
+SDK11/net11/runtime-async, TrueMoon1.2611.16.1-alpha и Enerit protocol2 сохранены.
+C# EXE теперь требует .NET11 **и ASP.NET Core11 shared runtime** (FrameworkReference,
+новых NuGet-пакетов нет). Version зафиксирована до финальных build/test/publish.
+
+--serve-project поднимает versioned HTTP v1 на127.0.0.1, --with-ui добавляет окно
+в той же сессии. HTTP и UI используют один BackendConnection и единственный
+owned Mithril/Enerit writer. Чтение и Move принимают/возвращают canonical snapshot;
+для Move обязательны expected_revision и SHA точных байтов. Автоматических retry,
+нового baseline для записи, миграции/recovery и нового writer в адаптере нет.
+
+- studio_agent.py получил backend-project/backend-move, token и required revision/SHA,
+  валидацию ответов, отказ от redirects/env proxy и записи без исходного baseline.
+  Прежние Python HTTP/CLI schema1 остаются; legacy Web UI ещё не переключён.
+- Loopback token нужен для GET/POST, проверяются Host/Origin/размер/форма запроса.
+  Пути и права выбираются только trusted launcher/config. Ошибки conflict409,
+  invalid_move422, backend unavailable503 и прочие классифицированы.
+- 32 новых C# cases +7 Python tests. Полные D/R: **по370 passed,0 failed,5 skipped**;
+  Python **295 tests,OK**; published Release EXE **37 passed,0 failed**.
+  Non-incremental builds0 errors/24 прежних generated warnings Enerit; подавлений нет.
+- Сквозной production UI+raster и отдельный CLI process: один child PID, CLI commit
+  во время drag, UI conflict draft, Cancel/Reload, последующий UI commit и CLI read/no-op.
+  Scale1/1.5/2; HTTP entrypoint, occupied port, auth/limits и owner exit cleanup прошли.
+- PNG просмотрены; listeners/UI/backend/CLI освобождены. Авторские данные,
+  TrueMoon-код и GPU/ComfyUI не затронуты; native/physical/DPI/MP4 не объявлены закрытыми.
+
+Далее — backend media resolver/aliases, preview/trim/export. Новый API не превращает
+move-only редактор в полный монтажный backend. [План](Plan.md#backend-http-cli) ·
+[Контракт, запуск, проверки и evidence](src/Verification/BackendHttp.md).
 
 <a id="backend-move-ipc"></a>
 ## STUDIO-BACKEND2 — перенос через Enerit и передача writer, 17.11.2026
