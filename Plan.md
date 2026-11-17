@@ -5,11 +5,59 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND4; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
+Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND6; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
 
 Область — общий инструмент для опенинга, AMV Клэр и будущих видеопроектов цикла «Сказки истинной луны». План находится вне каталогов отдельных роликов. Связь с [общим планом](../TrueMoon.Tales.Videos/Plan.md): R-08 — управление и интерфейс, R-09 — обработка изображения, R-10 — звук и сборка. Текущая техническая очередь исследований моделей и управления движением сохраняется отдельно.
 
 Дополнение 29.10.2026: включить режим пониженного разрешения для быстрой проверки блока. Будущий целевой сценарий автора — видеоадаптации текста глав ориентировочно по **3–5 минут**; это направление для проектирования, а не жёсткая длительность каждой главы. Набор функций адаптации согласован автором и включён в реализацию этапов UI-06–UI-11. Выбор конкретных технологий и интеграций остаётся задачей проектирования и проверок.
+
+<a id="backend-trim"></a>
+## STUDIO-BACKEND6 — обрезка клипа через общий backend
+
+Выполнено 17.11.2026. Studio **1.2611.17.6-alpha**, TrueMoon **1.2611.17.1-alpha**.
+[Контракт, проверки и границы](src/Verification/BackendTrim.md).
+
+- [x] Protocol5 TrimClip через существующий owned EXE/Enerit/ProjectStore:
+  один writer, expected_revision/SHA, server-side source capacity, no-op без записи.
+- [x] Общая pure projection для UI и backend: source-in/out/start, фактическая
+  длина и scenario 1:1 reflow, fixed window, protected gaps/anchors и соседние окна.
+  Плановое время действия, IDs, sources/takes, opaque properties сохраняются.
+- [x] Routed drag обоих краёв: draft до PointerUp, одна запись, отмена,
+  conflict draft/Cancel/Reload и сверка полученной раскладки с черновиком.
+- [x] HTTPv1 trim-clip и Python backend-trim используют ту же writer-сессию;
+  обязательные baseline/token, строгие fields/types/finite ranges, без retries.
+- [x] Сквозные UI/CLI/raster/IPC и проверка selected fixture через действующий
+  CPU DraftRenderer; команды и фактические результаты приведены в отчёте.
+- [x] Финальные D/R: по710 passed/0 failed/5 прежних skipped; published94/0/0,
+  Python323 OK. Новые87 C# cases, включая10 raster и16 HTTP/CLI;231 input SHA
+  после проверки не изменились. Evidence — в отчёте.
+- [ ] Backend export endpoint/worker, полная монтажная media parity, M:N authoring
+  и split остаются следующими этапами; native/physical/DPI отдельно.
+
+<a id="backend-playback"></a>
+## STUDIO-BACKEND5 — непрерывное воспроизведение выбранного клипа
+
+Выполнено 17.11.2026. Studio **1.2611.17.5-alpha**, TrueMoon **1.2611.17.1-alpha**.
+[Контракт, проверки и границы](src/Verification/BackendPlayback.md).
+
+- [x] Protocol4 Open/Read/Close через тот же owned Mithril/Enerit backend,
+  clip ID и observed revision/SHA; baseline до/после данных, без записи/миграции.
+- [x] Один непрерывный CPU decoder на video-сессию, bounded queue3,
+  source-in/out, постоянная скорость и project/source FPS,480×270BGRA +SHA.
+- [x] Потоковый микс native/music/events48kHz stereo f32le с gain/mute;
+  порции<=32768bytes, абсолютная sample grid, waveform и sample clock в UI.
+- [x] Play/pause/resume и seek с точным project cursor; остановка при focus loss,
+  Reload, смене клипа, закрытии и конфликте; cleanup/cancel/idle deadline.
+- [x] Сквозной production Cobalt/UiSession/CPU raster на scale1/1.5/2 с настоящим
+  EXE/Enerit и synthetic media; независимые PCM/frame oracles, без записи проекта.
+- [x] Финальные D/R: по623passed/0failed/5прежнихskipped; Python312OK;
+  published68passed/0failed/0skipped. Новые100C#cases, включая14raster/IPC.
+- [x] Backend trim и selected-fixture CPU MP4 проверяются в [STUDIO-BACKEND6](#backend-trim).
+- [ ] Backend export и полная media parity; несколько клипов, VFR, переходы/титры,
+  native/physical/DPI и аппаратная AV-задержка остаются отдельно.
+- [ ] При повторе промежуточного FocusLost cleanup-timeout разобрать сохранённые
+  Completion/Error и leases. В финальных D/R/publish с10cycles каждый он не
+  повторился; причинное исправление именно этого редкого случая не заявляется.
 
 <a id="backend-media-frames"></a>
 ## STUDIO-BACKEND4 — media resolver и одиночный кадр
@@ -30,8 +78,10 @@
   speed2, real preview crop, разные asset files и очистка missing image.
 - [x] D/R по523passed/0failed/5skipped, Python312OK, published54/54.
   Новые153C#cases/17Python tests; strict XML builds0errors/7generatedCS8669.
-- [ ] Непрерывное воспроизведение/звук, затем backend trim/export и полная
-  CPU MP4 parity. Native/physical/DPI/long timeline остаются отдельно.
+- [x] Непрерывное воспроизведение/звук выбранного CFR-клипа перенесены в
+  [STUDIO-BACKEND5](#backend-playback).
+- [ ] Backend trim/export и полная CPU MP4 parity. Native/physical/DPI/long
+  timeline остаются отдельно.
 
 <a id="framework-requests-acceptance"></a>
 ## STUDIO-REQUESTS1 — приёмка закрытых заявок TrueMoon
@@ -167,7 +217,7 @@ CS8669 — [существующий backlog](../TrueMoon/src/docs/enerit/PLAN.m
 
 ## Назначение и основа
 
-Studio работает как локальное веб-приложение с сервером Python и интерфейсом на JavaScript. Сервер читает проект и управляет заданиями ComfyUI и сборкой MP4. Способ подключения встроенного помощника предстоит выбрать отдельно. Возможность перехода на C# и TrueMoon с интерфейсом на Argentis вынесена в [отдельное исследование](#исследование-архитектуры-studio).
+Studio поддерживает два контура: рабочий Python/Web (schema1, генерация, монтаж и MP4) и C# UI/backend одного EXE через Mithril/Enerit (schema2, единственный writer, перенос/trim, HTTP/CLI, resolver и просмотр выбранного CFR-клипа со звуком). Полный перенос редактора ещё открыт; подробности текущей поставки — в [STUDIO-BACKEND6](#backend-trim), исторические результаты прежнего контура сохраняют свои даты.
 
 Первая интеграция использует операции [Omni v1.1](Workflows/Omni.v1.1/README.md): подготовка задания без очереди, отдельный запуск, сохранение результатов, native AV-latent и последнего PNG, проверка кадров и сбор метаданных. Реальный MC03 через Studio прошёл запуск/collect: 56 raw → 34 новых кадра, 50,551 с на граф, одна подача, 400 Sage / 0 SDPA. Продолжение с точным AV/PNG создано и технически проверено без нового GPU-дубля. UI использует установленный PowerShell 7; ошибочная ранняя попытка через PowerShell 5 завершилась до очереди и сохранена в диагностике. Прежнее ядро v1 и экспериментальные графы сохранены.
 
@@ -208,10 +258,10 @@ Studio работает как локальное веб-приложение с
   точная история, File.Replace, lease и явное journal recovery. Неизвестные поля
   сохраняются; 34 synthetic проверки и отдельная реальная JSON-копия прошли.
   Debug/Release — по 190 passed; [границы и команды](src/ProjectStore.md).
-- [ ] Подключить ProjectStore к backend-экземпляру через Enerit и доверенную
-  конфигурацию Workspace: передача прав, остановка прежнего владельца записи,
-  явный выбор миграции и обработка конфликтного черновика/recovery. Файловую
-  allowlist не расширять до каталога автоматически.
+- [x] ProjectStore подключён к backend через Enerit и trusted configuration
+  в STUDIO-BACKEND1–3: sole writer lease, явные migration/recovery, revision/SHA
+  и конфликтный draft. Прежний владелец останавливается явно; Studio не завершает
+  чужие процессы. Allowlist не расширяется автоматически до каталога.
 - [ ] Разрешить текстовое действие без создания обязательного генерационного
   источника. Добавить несколько ссылок на источники с назначением/кандидатами,
   сохранив повторное использование одного источника несколькими действиями.
@@ -710,9 +760,13 @@ Computer Use физическим Escape. Полная keyboard/DPI-приёмк
 
 [STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; STUDIO-REQUESTS1 выполнен: закрытые заявки приняты на новом комплекте; STUDIO-BACKEND4 выполнен: resolver/одиночный кадр; далее — непрерывное воспроизведение и звук.
 
+STUDIO-BACKEND5 выполнен17.11.2026: непрерывный выбранный клип со звуком, play/pause/seek.
+
+STUDIO-BACKEND6: обрезка через общий backend с общей UI-проекцией и selected-fixture CPU MP4 проверкой.
+
 [Текущий статус и результаты проверок](Status.md).
 
-1. **Backend — непрерывное воспроизведение и звук после STUDIO-BACKEND4.** Studio1.2611.17.4-alpha, TrueMoon1.2611.17.1-alpha. Resolver/aliases и одиночные CFR-кадры доступны UI/CLI через общий backend; D/R523passed/5skipped, Python312OK, published54passed. Следом — bounded video/audio playback с общей монтажной шкалой, затем trim/export с expected_revision/SHA и CPU MP4 parity. Legacy Web UI ещё schema1; native/physical/DPI, длинный таймлайн и прежний AV остаются отдельно. [STUDIO-BACKEND4](#backend-media-frames) · [проверки](src/Verification/BackendMedia.md).
+1. **Backend — экспорт после STUDIO-BACKEND6.** Studio 1.2611.17.6-alpha, TrueMoon 1.2611.17.1-alpha. Открытие, sole writer, перенос/trim, HTTP/CLI, resolver, кадры и выбранный CFR-клип со звуком доступны через общий backend. Далее — versioned immutable export request/job, bounded CPU worker, status/cancel/recovery без replay и выдача артефакта по SHA; затем полная preview/MP4 parity. Редактор действий/источников и M:N/split остаётся отдельным этапом. [Приёмка trim](src/Verification/BackendTrim.md).
 
 2. **UI-05 — рабочая сборка Клэр.** Назначить `CL-000A` заглушке доклада и определить роль `Test1` в монтаже. На готовом фрагменте сверить предпросмотр и MP4 по времени, участкам дублей, звуку, титрам и музыкальному акценту. Затем проверить полный монтаж Клэр и повторить проход на собранном сценарии опенинга.
 3. **Проверка стыков и готовность.** Сопоставить граничные кадры после замены дубля и открыть повтор стыка из того же окна. Показать связь с прежним дублем Motion Context. Вынести список проблем готовности рядом с таймлайном. [Монтаж блока](ClipEditing.md) · [Экспорт](DraftExport.md).
@@ -820,6 +874,9 @@ C# UI продолжает работать через HTTP с Python-серви
 
 ### Прототипы и порядок перехода
 
+Ниже сохранены результаты прежних прототипов с их датами. Текущий backend-срез —
+[STUDIO-BACKEND6](#backend-trim); ближайшие задачи — в [очереди](#ближайшая-очередь).
+
 1. **Argentis на одной сцене через HTTP.** Первый сценарий покрывает открытие копии проекта, предпросмотр двух дублей, покадровый шаг, обрезку назначенного клипа и повторное открытие. [Результат и запуск](Verification/Argentis.Prototype.md).
    - **Выполнено 07.11.2026.** Shift+F10 исправлен, drag курсора и обоих краёв клипа реализован. Захват, черновик, отмена, одна запись при отпускании и повторное открытие подтверждены; 23 теста в Debug/Release, сохранность данных и короткий CPU MP4. [Отчёт и границы](src/TimelineDrag.md).
    - **Выполнено: просмотр и звук — 07.11.2026.** Непрерывное воспроизведение выбранного CFR-клипа, native/music/event, waveform, пауза/продолжение и остановка ресурсов. Debug/Release — по 67 passed, реальная интеграция отдельно; выбранный клип и звук при 1× сверены с CPU MP4. [Отчёт и границы](src/Playback.md).
@@ -827,7 +884,7 @@ C# UI продолжает работать через HTTP с Python-серви
    - **Завершение этапа.** Связать сценарий, карточку сегмента, исходник с дублями и инспектор клипа; перенос целого клипа внутри сегмента выполнен. Просмотр и волна выбранного клипа выполнены; проверить непрерывный монтаж нескольких клипов, VFR, переходы/титры, звук при разных скоростях и AV-задержку. На короткой сцене и длинной шкале сравнить задержку от действия до кадра, прокрутку и масштабирование в Argentis и веб-версии на одинаковых данных. [План Alloy/Argentis](../TrueMoon/src/docs/alloy/PLAN.md) · [Статус модуля](../TrueMoon/src/docs/alloy/STATUS.md) · [Редактор Aether](../TrueMoon/src/TrueMoon.Aether.Editor/README.md).
    - **Контракт данных.** Перед переносом записи в backend определить контракт [действий, источников и клипов](#переход-к-модели-действий-и-источников) и адаптер существующих проектов.
 
-2. **Два экземпляра одного EXE и запись через IPC.** Первый read-only срез [STUDIO-BACKEND1](#backend-readonly) выполнен; далее — команды и единственный владелец записи. Подключить UI к backend-экземпляру `TrueMoon.Tales.Studio.exe` через Enerit; все backend-сервисы работают в одном служебном экземпляре.
+2. **Два экземпляра одного EXE и запись через IPC.** STUDIO-BACKEND1–4 выполнены, STUDIO-BACKEND5 добавляет просмотр со звуком. Команды переноса и единственный writer реализованы; UI подключён к backend-экземпляру `TrueMoon.Tales.Studio.exe` через Enerit; все backend-сервисы работают в одном служебном экземпляре.
 
    - Разделить fluent-конфигурацию UI/backend-ролей и их Cobalt-сервисы при общей минимальной точке входа Program. Backend запускается без окна, отдельный EXE/исполняемый проект не создаётся.
    - Проверить запуск средствами фреймворка того же физического EXE, роль, готовность IPC и версию контрактов. Воспроизвести ошибку старта, разрыв канала, переподключение, управляемую остановку, аварийное завершение и повторный запуск; завершать только принадлежащие Studio экземпляры.
@@ -870,8 +927,8 @@ C# UI продолжает работать через HTTP с Python-серви
 
 | Модуль | Вопрос для прототипа |
 |---|---|
-| Enerit | Типизированные вызовы по именованным каналам уже доступны для процессов одной сборки. Проверить ограниченные по времени вызовы, восстановление состояния после обрыва и доставку прогресса. Начать с опроса состояния. Отдельный поток событий, курсор переподключения или согласование версий рассматривать по результатам проверки. [Статус Enerit](../TrueMoon/src/docs/enerit/STATUS.md) |
-| Mithril | Проверить штатный запуск backend-экземпляра того же `TrueMoon.Tales.Studio.exe` и управление только принадлежащим Studio экземпляром: роль, готовность IPC, ошибки старта, остановка, падение UI/backend, журналы и повторный запуск. По результатам оценить недостающие общие механизмы. Сверить с опытом Aether Editor и Runtime, сохраняя для Studio один EXE. [Статус Mithril](../TrueMoon/src/docs/mithril/STATUS.md) · [План Aether](../TrueMoon/src/docs/engine/PLAN.md) |
+| Enerit | Open/Move/Media/Playback, revision/SHA, bounded calls и разрыв/cleanup проверяются в STUDIO-BACKEND1–5. Прогресс задач, event stream и reconnect cursor — будущий контур генерации, потребность подтверждать отдельно. |
+| Mithril | Тот же EXE, ownership/role/ready, startup failure, parent/backend death и cleanup реализованы и проверяются STUDIO-BACKEND1–5. Расширение lifecycle задач генерации остаётся отдельно. |
 | Argentis и Alloy | Проверить захват указателя при перетаскивании, прокрутку и масштабирование длинного таймлайна, частичную отрисовку дорожек и вывод кадров. Определить, нужны ли общие компоненты для шкалы времени и отрисовки видимых элементов. Воспроизведение, покадровую перемотку и синхронизацию со звуком проверить с отдельным медиаплеером. |
 
 Кандидаты в TrueMoon — общие компоненты, необходимость которых подтвердит прототип Studio. Если выявится пробел, описать его с воспроизводимым примером, ожидаемым поведением и критерием проверки для плана соответствующего модуля. Модель сценария, правила монтажа и интеграция ComfyUI относятся к Studio.

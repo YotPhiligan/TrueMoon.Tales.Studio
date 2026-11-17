@@ -12,8 +12,8 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): актуальный same-build
-Enerit protocol3 добавляет MediaInfo/Frame. HTTP APIv1 и storage schema2 /
+17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
+добавил MediaInfo/Frame; protocol4 описан в STUDIO-BACKEND5; текущий protocol5 — в STUDIO-BACKEND6 ниже. HTTP APIv1 и storage schema2 /
 ProjectContractv1 сохранены; прежние protocol2 записи ниже относятся к BACKEND2/3.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
@@ -82,6 +82,20 @@ X-Studio-Token для GET/POST; bootstrap/выбор пути/смена про�
 к этим маршрутам; транспортный ProjectContract и schema 2 envelope нельзя
 отправлять как payload старых операций. Переключение владельца записи
 и backend/IPC выполняется отдельным этапом.
+
+STUDIO-BACKEND5 добавляет Enerit protocol4 OpenPlayback/ReadPlayback/ClosePlayback
+для UI-просмотра выбранного клипа со звуком и revision/SHA. HTTPv1 и маршруты
+CLI сохраняются; HTTP playback endpoint этим этапом не вводится.
+[Контракт и границы](src/Verification/BackendPlayback.md).
+
+STUDIO-BACKEND6: текущий Enerit protocol5 добавляет TrimClipAsync; HTTPv1
+получает POST `/api/backend/v1/trim-clip` с clip_id, source_in_frame,
+source_out_frame, start_frame, expected_revision, fingerprint. Source-in/out —
+конечные неотрицательные числа в кадрах проекта, start — целый абсолютный кадр.
+Обрезка не меняет speed/take; один writer, no-op без commit, baseline conflict409,
+invalid_trim422. CLI: `backend-trim --clip ID --source-in N --source-out N
+--start N --revision R --sha256 SHA`; URL/token задаются как у backend-move.
+[Контракт и проверки](src/Verification/BackendTrim.md).
 
 ## Сессия и версия
 

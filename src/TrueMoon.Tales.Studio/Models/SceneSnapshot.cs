@@ -6,7 +6,7 @@ internal sealed record SceneSnapshot(string ProjectName, int Revision, double Fp
 internal sealed record ClipChoice(Clip Clip, Segment Segment, string Title, Take[] Takes);
 internal sealed record Segment(string Id, string Name, int StartFrame, int DurationFrames);
 internal sealed record Clip(string Id, string SegmentId, string BlockId, string? TakeId, string? StoryTitle,
-    int StartFrame, int DurationFrames, double SourceInFrame, double? SourceOutFrame, double? Speed, int? AnchorFrame = null, bool MuteNativeAudio = false)
+    int StartFrame, int DurationFrames, double SourceInFrame, double? SourceOutFrame, double? Speed, int? AnchorFrame = null, bool MuteNativeAudio = false, bool GapProtected = false)
 {
     public double SourceEnd => SourceOutFrame ?? SourceInFrame + DurationFrames * (Speed ?? 1);
 }
@@ -18,4 +18,4 @@ internal sealed record MediaInfo(double Fps, double Seconds, int? Frames)
 
 // Only the placement inputs used by the existing schema-1 scenario projection.
 internal sealed record ScenarioPlacement(string Id, string BlockId, string? TakeId, int? DurationFrames,
-    int GapBeforeFrames, double SourceInFrame, double? SourceOutFrame = null, double? Speed = null, int? AnchorFrame = null, bool MuteNativeAudio = false);
+    int GapBeforeFrames, double SourceInFrame, double? SourceOutFrame = null, double? Speed = null, int? AnchorFrame = null, bool MuteNativeAudio = false, bool GapProtected = false);

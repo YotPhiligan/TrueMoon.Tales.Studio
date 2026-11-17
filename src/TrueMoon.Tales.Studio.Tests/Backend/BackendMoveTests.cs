@@ -56,7 +56,7 @@ public sealed class BackendMoveTests
         if (reason == "anchored") project = project with { Montage = project.Montage with { Clips = project.Montage.Clips
             .Select(clip => clip.Id == "clip-main" ? clip with { AnchorFrame = 12 } : clip).ToArray() } };
         if (reason == "inconsistent") project = project with { Segments = project.Segments.Select(segment => segment.Id == "segment-main"
-            ? segment with { Actions = segment.Actions.Select(action => action.Id == "clip-main" ? action with { PlannedDurationFrames = 25 } : action).ToArray() } : segment).ToArray() };
+            ? segment with { Actions = segment.Actions.Select(action => action.Id == "clip-main" ? action with { GapBeforeFrames = 13 } : action).ToArray() } : segment).ToArray() };
         if (reason == "overflow") project = project with
         {
             Montage = project.Montage with { Windows = project.Montage.Windows.Select(window => window.Id == "segment-main" ? window with { DurationFrames = 80 } : window).ToArray(),

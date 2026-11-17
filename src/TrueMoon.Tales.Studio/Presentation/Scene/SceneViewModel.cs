@@ -20,8 +20,10 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     private MediaInfo? _media;
     private MediaInfo? _assignedMedia;
     private Task<byte[]>? _seekTask;
+    private CancellationTokenSource? _seekScope;
     private SeekRequest? _seekRequested, _seekRunning;
     private TimelineTrim? _trim;
+    private TrimLayoutDraft? _trimLayout;
     private TrimEdge _trimEdge;
     private int _timelineStart;
     private double _trimPreviewSource;
@@ -44,9 +46,10 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public bool Modified => Scene is { } scene && (_start != scene.Clip.SourceInFrame || _end != scene.Clip.SourceEnd || _timelineStart != scene.Clip.StartFrame || _moveDraft is { Changed: true });
     public bool Trimming => _trim is not null;
     public bool Moving => _moving;
-    public Clip[] PreviewClips => _moveDraft?.Clips ?? Scene?.SegmentClips ?? [];
+    public Clip[] PreviewClips => _moveDraft?.Clips ?? _trimLayout?.Clips ?? Scene?.SegmentClips ?? [];
     public bool CanSeek => api.SupportsPreview && Loaded && _pending is null;
-    public bool CanBeginTrim => api.SupportsTrim && Editable && !Modified && !Trimming && !Moving;
+    public bool CanBeginTrim => api.SupportsTrim && Editable && !Modified && !Trimming && !Moving &&
+        (!api.UsesTrimLayout || Pixels is not null && ProjectTrim(_start, _end, _timelineStart).Valid);
     public bool CanBeginMove => Editable && !Modified && !Trimming && !Moving && Idle && Scene is { } scene && new TimelineMove(scene).CanMove;
     public int TimelineStart => _timelineStart;
     public int TimelineDuration => Scene is { } scene ? TimelineTrim.Duration(_start, _end, scene.Clip.Speed ?? 1) : 0;
@@ -59,10 +62,13 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public double CurrentSourceFrame => Loaded ? Boundary(_frameIndex) : 0;
     public bool CanPrevious => CanSeek && _seekTask is null && !Moving && _frameIndex > 0;
     public bool CanNext => CanSeek && _seekTask is null && !Moving && _frameIndex + 1 < _media!.FrameCount;
-    public bool CanSave => Editable && Modified && !Trimming && !Moving && (_moveDraft is not null || api.SupportsTrim) && (_moveDraft is null || _moveDraft.Valid);
+    public bool CanSave => Editable && Modified && !Trimming && !Moving && (_moveDraft is not null || api.SupportsTrim) &&
+        (_moveDraft is null || _moveDraft.Valid) && (_trimLayout is null || _trimLayout.Valid);
     private bool Editable => Loaded && _pending is null && Assigned && !_stale && !_playing;
-    public bool CanSetStart => api.SupportsTrim && Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex) >= Scene!.Clip.SourceInFrame && Boundary(_frameIndex) < _end;
-    public bool CanSetEnd => api.SupportsTrim && Editable && Idle && !Trimming && !Moving && _moveDraft is null && Boundary(_frameIndex + 1) > _start && Boundary(_frameIndex + 1) <= Scene!.Clip.SourceEnd;
+    public bool CanSetStart => api.SupportsTrim && Editable && Idle && !Trimming && !Moving && _moveDraft is null &&
+        (!api.UsesTrimLayout || Pixels is not null) && Boundary(_frameIndex) >= Scene!.Clip.SourceInFrame && Boundary(_frameIndex) < _end;
+    public bool CanSetEnd => api.SupportsTrim && Editable && Idle && !Trimming && !Moving && _moveDraft is null &&
+        (!api.UsesTrimLayout || Pixels is not null) && Boundary(_frameIndex + 1) > _start && Boundary(_frameIndex + 1) <= Scene!.Clip.SourceEnd;
     public string FrameLabel => !api.SupportsPreview ? "Только перенос клипа · медиапредпросмотр не подключён" : Loaded ? $"Кадр {_frameIndex:0000} / {_media!.FrameCount - 1:0000}   ·   {_media.Fps:0.###} кадр/с" : "Кадр —";
     public string TakeLabel => Loaded ? Scene!.Takes[_takeIndex].Name ?? $"Дубль {_takeIndex + 1}" : "Предпросмотр";
     public string EditLabel => _stale ? "Обновите ревизию" : Moving ? "Перенос · отпустите для сохранения" : Trimming ? "Обрезка · отпустите для сохранения" : _moveDraft is not null ? "Черновик переноса" : Modified ? "Черновик обрезки" : "Изменений нет";
@@ -90,6 +96,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         if (_seekTask is not { IsCompleted: true } complete) return false;
         var request = _seekRunning!;
         _seekTask = null; _seekRunning = null;
+        _seekScope?.Dispose(); _seekScope = null;
         try
         {
             var pixels = complete.GetAwaiter().GetResult();
@@ -103,6 +110,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         catch (Exception error) when (error is OperationCanceledException or IOException or InvalidDataException or Win32Exception or InvalidOperationException)
         {
             if (request == _seekRequested) _seekRequested = null;
+            MarkPlaybackConflict(error);
             if (!HasError && !Saving) Fail(error.Message);
         }
         StartSeek();
@@ -125,7 +133,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         if (request.Take == _takeIndex && request.Frame == _frameIndex && Pixels is not null)
         { _seekRequested = null; return; }
         _seekRunning = request;
-        _seekTask = decoder.ReadAsync(api.Media(Scene!.Takes[request.Take].VideoAssetId), request.Frame, request.Media.Fps, _closing.Token);
+        _seekScope = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
+        _seekTask = decoder.ReadAsync(api.Media(Scene!.Takes[request.Take].VideoAssetId), request.Frame, request.Media.Fps, _seekScope.Token);
     }
 
     public void Open()
@@ -173,7 +182,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
                 Status = "Проект открыт";
                 if (!api.SupportsPreview) MediaStatus = "Перенос через backend · медиапредпросмотр не подключён";
                 else if (previewError is not null) MediaStatus = previewError;
-                else if (!api.SupportsTrim) MediaStatus = "Предпросмотр кадра · воспроизведение и обрезка пока недоступны";
+                else if (!api.SupportsTrim && _playback is null) MediaStatus = "Предпросмотр кадра · воспроизведение и обрезка пока недоступны";
             };
         });
     }
@@ -198,6 +207,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         PausePlayback(); _playCursor = false;
         if (!CanSeek || Moving || !double.IsFinite(frame)) return;
         var local = Math.Clamp(Math.Floor(frame) - _timelineStart, 0, TimelineDuration - 1);
+        // Keep the project cursor: round-tripping through a source frame loses time at differing FPS/speed.
+        _playFrame = checked((int)local); _playCursor = true;
         RequestClipPreview(_start + local * (Scene!.Clip.Speed ?? 1));
     }
 
@@ -208,9 +219,10 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         var seconds = media.FrameCount / media.Fps;
         if (double.IsFinite(media.Seconds) && media.Seconds > 0) seconds = Math.Min(seconds, media.Seconds);
         var capacity = seconds * Scene!.Fps;
-        var trim = new TimelineTrim(Scene, Math.Floor(capacity + 1e-7));
+        var trim = new TimelineTrim(Scene, api.UsesTrimLayout ? capacity : Math.Floor(capacity + 1e-7), api.UsesTrimLayout);
         if (edge == TrimEdge.Start && !trim.CanStart) return false;
         _trim = trim; _trimEdge = edge; _trimPreviewSource = CurrentSourceFrame;
+        if (api.UsesTrimLayout) _trimLayout = ProjectTrim(_start, _end, _timelineStart);
         HasError = false; Status = "Перетаскивание края · Escape отменяет";
         return true;
     }
@@ -220,6 +232,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         if (_trim is null) return;
         var draft = _trim.Move(_trimEdge, delta);
         (_timelineStart, _start, _end) = (draft.TimelineStart, draft.SourceStart, draft.SourceEnd);
+        UpdateTrimLayout();
         RequestClipPreview(_trimEdge == TrimEdge.Start ? _start : _end, lastIncluded: _trimEdge == TrimEdge.End);
     }
 
@@ -227,17 +240,34 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     {
         if (_trim is null) return;
         _trim = null;
-        if (Modified) Save();
-        else Status = "Границы клипа не изменились";
+        if (_trimLayout is { Valid: false }) Fail("Обрезка не помещается: отмените черновик или исправьте границы");
+        else if (Modified) Save();
+        else { _trimLayout = null; Status = "Границы клипа не изменились"; }
     }
 
     public void CancelTrim()
     {
         if (_trim is null) return;
-        _trim = null;
+        _trim = null; _trimLayout = null;
         (_timelineStart, _start, _end) = (Scene!.Clip.StartFrame, Scene.Clip.SourceInFrame, Scene.Clip.SourceEnd);
         RequestClipPreview(_trimPreviewSource);
+        HasError = false;
         Status = "Перетаскивание края отменено";
+    }
+
+    private TrimLayoutDraft ProjectTrim(double start, double end, int timelineStart)
+    {
+        var media = _assignedMedia ?? throw new InvalidOperationException("Missing trim media.");
+        var capacity = Math.Min(media.Seconds, media.FrameCount / media.Fps) * Scene!.Fps;
+        return TimelineTrimLayout.Project(Scene, capacity, start, end, timelineStart);
+    }
+
+    private void UpdateTrimLayout()
+    {
+        if (!api.UsesTrimLayout) return;
+        _trimLayout = ProjectTrim(_start, _end, _timelineStart);
+        HasError = !_trimLayout.Valid;
+        Status = _trimLayout.Valid ? "Обрезка в черновике" : "Обрезка не помещается: окно, пауза или закреплённый клип";
     }
 
     public bool BeginMove()
@@ -317,13 +347,14 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         if (start) _start = Boundary(_frameIndex); else _end = Boundary(_frameIndex + 1);
         HasError = false;
         Status = "Обрезка в черновике";
+        UpdateTrimLayout();
     }
 
     public void Cancel()
     {
         if (!Idle || Scene is null) return;
         if (Moving) { CancelMove(); return; }
-        _moveDraft = null;
+        _moveDraft = null; _trimLayout = null;
         (_timelineStart, _start, _end) = (Scene.Clip.StartFrame, Scene.Clip.SourceInFrame, Scene.Clip.SourceEnd);
         Status = "Черновик отменён";
     }
@@ -351,12 +382,24 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             return;
         }
         var (start, end, timelineStart) = (_start, _end, _timelineStart);
+        var expected = _trimLayout;
+        if (expected is not null) RetireSeek();
         // An uncertain write requires a fresh snapshot before another edit.
         _stale = true;
         Saving = true;
         Begin("Сохраняю обрезку…", async token =>
         {
             var saved = await api.TrimAsync(scene, start, end, token, timelineStart != scene.Clip.StartFrame ? timelineStart : null);
+            if (expected is not null && (saved.Revision != scene.Revision + 1 || saved.Segment != scene.Segment || saved.Clip.Id != scene.Clip.Id ||
+                saved.ScenarioActive != scene.ScenarioActive || !saved.ScenarioConsistent ||
+                expected.ScenarioItems is not null && (saved.ScenarioItems is null || !expected.ScenarioItems.SequenceEqual(saved.ScenarioItems)) ||
+                saved.SegmentClips is not { } clips || clips.Length != expected.Clips.Length ||
+                expected.Clips.Any(wanted => !clips.Any(actual => actual.Id == wanted.Id && actual.SegmentId == wanted.SegmentId &&
+                    actual.StartFrame == wanted.StartFrame && actual.DurationFrames == wanted.DurationFrames &&
+                    actual.SourceInFrame == wanted.SourceInFrame && actual.SourceEnd == wanted.SourceEnd &&
+                    (actual.Speed ?? 1) == (wanted.Speed ?? 1) && actual.TakeId == wanted.TakeId && actual.BlockId == wanted.BlockId &&
+                    actual.AnchorFrame == wanted.AnchorFrame && actual.MuteNativeAudio == wanted.MuteNativeAudio && actual.GapProtected == wanted.GapProtected))))
+                throw new InvalidDataException("Ответ сервера отличается от черновика обрезки. Откройте сцену заново для сверки.");
             return () => { SetScene(saved); Status = $"Сохранено · ревизия {saved.Revision}"; };
         });
     }
@@ -372,7 +415,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     private void SetScene(SceneSnapshot scene)
     {
         Scene = scene;
-        _moveDraft = null; _move = null; _moving = false;
+        _moveDraft = null; _move = null; _moving = false; _trimLayout = null;
         _stale = false;
         (_timelineStart, _start, _end) = (scene.Clip.StartFrame, scene.Clip.SourceInFrame, scene.Clip.SourceEnd);
         PreparePlayback(scene);
@@ -386,10 +429,18 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     private void Fail(string message) { Status = message; HasError = true; }
 
+    private void RetireSeek()
+    {
+        _seekScope?.Cancel(); _seekScope?.Dispose(); _seekScope = null;
+        if (_seekTask is { } pending) Observe(pending);
+        _seekTask = null; _seekRunning = null; _seekRequested = null;
+    }
+
     public void Dispose()
     {
         CancelMove();
         DisposePlayback();
+        RetireSeek();
         _closing.Cancel();
         if (_pending is { } pending)
             _ = pending.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);

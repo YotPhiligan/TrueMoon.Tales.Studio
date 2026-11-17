@@ -44,7 +44,7 @@ internal sealed class TimelineMove(SceneSnapshot scene)
     internal static bool Matches(Segment window, ScenarioPlacement[] items, Clip[] clips) =>
         TryProject(window, items, clips, out var projected) && projected.All(clip => clips.Any(original => original == clip));
 
-    private static bool TryProject(Segment window, ScenarioPlacement[] items, Clip[] clips, out Clip[] projected)
+    internal static bool TryProject(Segment window, ScenarioPlacement[] items, Clip[] clips, out Clip[] projected)
     {
         projected = [];
         if (items.Length != clips.Length || items.Select(item => item.Id).Distinct().Count() != items.Length) return false;

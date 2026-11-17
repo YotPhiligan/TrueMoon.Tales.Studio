@@ -3,6 +3,33 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Trims one saved clip and projects its montage with one optimistic commit, or no commit for a no-op.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="clipId">Existing montage clip identity.</param>
+    /// <param name="sourceInFrame">Inclusive source position on the project frame grid.</param>
+    /// <param name="sourceOutFrame">Exclusive source position on the project frame grid.</param>
+    /// <param name="startFrame">Requested absolute montage start.</param><param name="expectedRevision">Observed revision.</param>
+    /// <param name="fingerprint">Observed exact-byte SHA256.</param><param name="cancellationToken">Call deadline.</param>
+    /// <returns>Committed or unchanged snapshot, or a classified refusal.</returns>
+    Task<BackendProjectReply> TrimClipAsync(string sessionKey, string clipId, double sourceInFrame, double sourceOutFrame,
+        int startFrame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Opens one bounded audio preparation or continuous video resource for a saved clip.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="clipId">Saved montage clip.</param>
+    /// <param name="kind">Audio or video.</param><param name="localFrame">First local video frame; zero for audio.</param>
+    /// <param name="expectedRevision">Observed revision.</param><param name="fingerprint">Observed exact-byte SHA256.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Baseline-bound resource metadata or refusal.</returns>
+    Task<BackendPlaybackReply> OpenPlaybackAsync(string sessionKey, string clipId, string kind, int localFrame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads the next bounded payload; no implicit restart or replay occurs.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="sessionId">Owned resource identity.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>One frame, PCM chunk, completion or refusal.</returns>
+    Task<BackendPlaybackReply> ReadPlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>Idempotently closes an owned playback resource and reaps its decoder.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="sessionId">Owned resource identity.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Empty completion message.</returns>
+    Task<BackendPlaybackReply> ClosePlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default);
+
     /// <summary>Reads metadata for a project-selected video asset without changing writer ownership.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="assetId">Registered video asset ID.</param>
     /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>

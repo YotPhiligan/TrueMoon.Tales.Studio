@@ -20,6 +20,7 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
 {
     internal const string ProjectRoute = "/api/backend/v1/project";
     internal const string MoveRoute = "/api/backend/v1/move-clip";
+    internal const string TrimRoute = "/api/backend/v1/trim-clip";
     internal const string MediaRoute = "/api/backend/v1/media-info";
     internal const string FrameRoute = "/api/backend/v1/frame";
     internal static readonly JsonSerializerOptions Json = new()
@@ -113,6 +114,21 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
                 var saved = await backend.MoveAsync(request.ClipId, request.StartFrame, request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
                 await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(saved), Json, deadline.Token).ConfigureAwait(false);
             }
+            else if (path == TrimRoute)
+            {
+                if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
+                if (!context.Request.HasJsonContentType()) { await Error(context, 415, "json_required"); return; }
+                using var document = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: deadline.Token).ConfigureAwait(false);
+                if (document.RootElement.ValueKind != JsonValueKind.Object || document.RootElement.EnumerateObject()
+                    .GroupBy(property => property.Name, StringComparer.Ordinal).Any(group => group.Count() != 1))
+                { await Error(context, 400, "invalid_request"); return; }
+                var request = document.RootElement.Deserialize<BackendHttpTrim>(Json);
+                if (request is null || !request.Valid) { await Error(context, 400, "invalid_request"); return; }
+                // The existing writer applies one absolute trim. The adapter neither reads a replacement baseline nor retries.
+                var saved = await backend.TrimAsync(request.ClipId, request.SourceInFrame, request.SourceOutFrame, request.StartFrame,
+                    request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
+                await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(saved), Json, deadline.Token).ConfigureAwait(false);
+            }
             else if (path == MediaRoute || path == FrameRoute)
             {
                 if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
@@ -137,7 +153,7 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
             var status = error.Code switch
             {
                 "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or "recovery_conflict" => 409,
-                "invalid_move" or "invalid_frame" or "invalid_media" => 422, "access_denied" or "write_not_enabled" => 403,
+                "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" => 422, "access_denied" or "write_not_enabled" => 403,
                 "project_not_found" or "media_not_found" => 404, "media_busy" => 429, "media_timeout" => 504,
                 "project_too_large" => 413, _ => 503
             };

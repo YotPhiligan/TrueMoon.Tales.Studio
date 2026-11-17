@@ -16,15 +16,22 @@ internal sealed partial class StudioBackendService
             ReadMediaAsync(sessionKey, assetId, frame, expectedRevision, fingerprint, cancellationToken);
     }
 
-    private async Task<BackendMediaReply> ReadMediaAsync(string key, string assetId, int frame, long revision, string fingerprint, CancellationToken token)
+    private async Task<BackendMediaReply> ReadMediaAsync(string key, string assetId, int frame, long revision, string fingerprint, CancellationToken token, bool waitForAdmission = false)
     {
         Authorize(key);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!await _mediaGate.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token, _mediaStopping.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        var admitted = false;
         try
         {
+            if (waitForAdmission)
+            { await _mediaGate.WaitAsync(timeout.Token).ConfigureAwait(false); admitted = true; }
+            else
+            {
+                if (!await _mediaGate.WaitAsync(0, timeout.Token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
+                admitted = true;
+            }
             ObjectDisposedException.ThrowIf(_disposed, this);
             var document = await ObserveAsync(revision, fingerprint, timeout.Token).ConfigureAwait(false);
             if (document.SchemaVersion != 2) return new() { ErrorCode = "migration_required" };
@@ -42,6 +49,6 @@ internal sealed partial class StudioBackendService
         catch (OperationCanceledException) when (!token.IsCancellationRequested) { return new() { ErrorCode = "media_timeout" }; }
         catch (ArgumentException) { return new() { ErrorCode = "invalid_request" }; }
         catch (IOException) { return new() { ErrorCode = "project_io_error" }; }
-        finally { _mediaGate.Release(); }
+        finally { if (admitted) _mediaGate.Release(); }
     }
 }

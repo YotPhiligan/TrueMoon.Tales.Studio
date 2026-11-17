@@ -11,6 +11,7 @@ internal interface ISceneService
 {
     bool SupportsPreview => true;
     bool SupportsTrim => SupportsPreview;
+    bool UsesTrimLayout => false;
     bool PreviewOptional => false;
     Uri Media(string assetId);
     Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken);

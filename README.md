@@ -1,6 +1,6 @@
 # True Moon Studio
 
-Текущая версия — **1.2611.17.4-alpha**; C#-прототип использует SDK 11.0.100 /
+Текущая версия — **1.2611.17.6-alpha**; C#-прототип использует SDK 11.0.100 /
 net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 сохраняют действующие операции; продуктовые метки берутся из общего
 `src/Directory.Build.props`. [Приёмка перехода](src/Verification/DotNet11.md).
@@ -11,7 +11,7 @@ net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 [STUDIO-BACKEND3](src/Verification/BackendHttp.md) подключает HTTP/CLI к той же
 writer-сессии UI с expected_revision/SHA. C# EXE требует ASP.NET Core11 runtime.
 [STUDIO-BACKEND4](src/Verification/BackendMedia.md) добавляет media resolver/aliases и одиночные кадры через общий backend для UI/CLI.
-Непрерывное воспроизведение/звук, backend trim и экспорт — следующие этапы.
+[STUDIO-BACKEND5](src/Verification/BackendPlayback.md) добавляет непрерывный просмотр выбранного CFR-клипа со звуком, play/pause и seek. [STUDIO-BACKEND6](src/Verification/BackendTrim.md) подключает trim в UI/CLI с одной guarded записью и scenario reflow. Backend export остаётся следующим этапом.
 [Приёмка закрытых заявок TrueMoon](src/Verification/FrameworkRequests.md): matching пакеты, strict XML и сквозные проверки.
 Исторические обозначения 0.15 ниже описывают прежние этапы.
 
@@ -47,7 +47,7 @@ Arts/Lore/Texts подключаются как внешние библиоте�
 
 Реализован [первый C#-контракт и read-only адаптер старого формата](src/ProjectContracts.md).
 [Хранилище C#, запись и явная миграция](src/ProjectStore.md) реализованы.
-Read-only подключение к backend реализовано; запись и подключение монтажных команд ещё предстоят; текущие Python API и интерфейсы
+Подключение к backend, sole writer и перенос клипа реализованы; полный редактор действий/источников ещё открыт; текущие Python API и интерфейсы
 сохраняют прежний контракт. [Этапы реализации](Plan.md#переход-к-модели-действий-и-источников).
 
 Ниже сохранена история возможностей UI и инструкции по работе с монтажом.

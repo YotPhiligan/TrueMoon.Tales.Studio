@@ -7,7 +7,7 @@ internal enum TrimEdge { Start, End }
 internal readonly record struct TrimDraft(int TimelineStart, int Duration, double SourceStart, double SourceEnd);
 
 // A gesture uses the immutable scene at pointer-down, never the preceding move.
-internal sealed class TimelineTrim(SceneSnapshot scene, double capacity)
+internal sealed class TimelineTrim(SceneSnapshot scene, double capacity, bool projectLayout = false)
 {
     public bool CanStart => scene.Clip.AnchorFrame is null;
 
@@ -23,13 +23,15 @@ internal sealed class TimelineTrim(SceneSnapshot scene, double capacity)
             var previousEnd = neighbors.Where(row => row.Id != clip.Id && row.StartFrame < clip.StartFrame)
                 .Select(row => row.StartFrame + row.DurationFrames).DefaultIfEmpty(scene.Segment.StartFrame).Max();
             var minimum = Math.Max(previousEnd - clip.StartFrame, (int)Math.Ceiling(-clip.SourceInFrame / rate));
+            if (projectLayout && clip.GapProtected) minimum = Math.Max(0, minimum);
             delta = Math.Clamp(delta, minimum, clip.DurationFrames - 1);
             var start = Math.Max(0, clip.SourceInFrame + delta * rate);
             var duration = Duration(start, clip.SourceEnd, rate);
             return new(end - duration, duration, start, clip.SourceEnd);
         }
-        var nextStart = neighbors.Where(row => row.Id != clip.Id && row.StartFrame >= end)
-            .Select(row => row.StartFrame).DefaultIfEmpty(scene.Segment.StartFrame + scene.Segment.DurationFrames).Min();
+        var next = neighbors.Where(row => row.Id != clip.Id && row.StartFrame >= end).OrderBy(row => row.StartFrame).FirstOrDefault();
+        var nextStart = projectLayout && scene.ScenarioActive ? scene.Segment.StartFrame + scene.Segment.DurationFrames :
+            projectLayout && next?.GapProtected == true ? end : next?.StartFrame ?? scene.Segment.StartFrame + scene.Segment.DurationFrames;
         var maximum = Math.Max(1, Math.Min(nextStart, scene.Segment.StartFrame + scene.Segment.DurationFrames) - clip.StartFrame);
         var count = Math.Clamp((long)clip.DurationFrames + delta, 1, maximum);
         // Preserve a partial final source frame when returning to the original edge.

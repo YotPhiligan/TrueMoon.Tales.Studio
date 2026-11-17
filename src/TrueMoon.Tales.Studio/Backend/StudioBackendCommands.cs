@@ -40,6 +40,30 @@ internal sealed partial class StudioBackendService
             return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false));
         }, cancellationToken);
 
+    public Task<BackendProjectReply> TrimClipAsync(string sessionKey, string clipId, double sourceInFrame, double sourceOutFrame,
+        int startFrame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
+        ExecuteAsync(sessionKey, async () =>
+        {
+            RequireWriter();
+            var baseline = await ObserveAsync(expectedRevision, fingerprint, cancellationToken).ConfigureAwait(false);
+            if (baseline.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+            if (baseline.Project.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the current scene UI range.");
+            // Validate layout and detect an exact logical no-op before opening media or changing representation.
+            var active = ScenarioActive(baseline);
+            var draft = BackendTrim.Apply(baseline.Project, active, clipId, sourceInFrame, sourceOutFrame, startFrame, double.MaxValue);
+            if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);
+            var clip = baseline.Project.Montage.Clips.Single(row => row.Id == clipId);
+            var take = baseline.Project.Sources.Single(source => source.Id == clip.SourceId).Takes.SingleOrDefault(row => row.Id == clip.TakeId);
+            if (take?.VideoAssetId is not { Length: > 0 } assetId) throw new InvalidTrimException();
+            var info = await ReadMediaAsync(sessionKey, assetId, -1, expectedRevision, fingerprint, cancellationToken, waitForAdmission: true).ConfigureAwait(false);
+            if (info.ErrorCode.Length != 0) return Failure(info.ErrorCode);
+            var capacity = info.FrameCount / info.Fps * baseline.Project.Fps;
+            draft = BackendTrim.Apply(baseline.Project, active, clipId, sourceInFrame, sourceOutFrame, startFrame, capacity);
+            if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
+                return Failure("project_too_large");
+            return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false));
+        }, cancellationToken);
+
     public Task<BackendProjectReply> MigrateProjectAsync(string sessionKey, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
         ExecuteAsync(sessionKey, async () =>
         {
@@ -84,6 +108,7 @@ internal sealed partial class StudioBackendService
         catch (ProjectRecoveryRequiredException) { return Failure("recovery_required"); }
         catch (ProjectStoreBusyException) { return Failure("writer_busy"); }
         catch (InvalidMoveException) { return Failure("invalid_move"); }
+        catch (InvalidTrimException) { return Failure("invalid_trim"); }
         catch (UnauthorizedAccessException) { return Failure("access_denied"); }
         catch (FileNotFoundException) { return Failure("project_not_found"); }
         catch (DirectoryNotFoundException) { return Failure("project_not_found"); }
@@ -114,6 +139,9 @@ internal sealed partial class StudioBackendService
     public void Dispose()
     {
         _mediaStopping.Cancel();
+        _playbackGate.Wait();
+        try { ClosePlaybackCoreAsync().GetAwaiter().GetResult(); }
+        finally { _playbackGate.Release(); }
         _mediaGate.Wait();
         // Drain a command before relinquishing the session lease, including durable commit completion.
         _gate.Wait();

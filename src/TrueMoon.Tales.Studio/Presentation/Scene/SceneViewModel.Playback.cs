@@ -30,7 +30,8 @@ internal sealed partial class SceneViewModel
         _audioScope?.Cancel(); _audioScope?.Dispose(); _audioScope = null;
         if (_audioPreparation is { } old) Observe(old);
         _audioPreparation = null; _audio = null;
-        if (_playback is null) return;
+        // A missing/unsupported video keeps metadata editing available; it cannot start a clip preview.
+        if (_playback is null || Pixels is null) return;
         _audioScope = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
         MediaStatus = "Подготовка звуковой волны…";
         _audioPreparation = _playback.PrepareAsync(scene, _audioScope.Token);
@@ -48,7 +49,10 @@ internal sealed partial class SceneViewModel
                 MediaStatus = _audio.Peaks.Any(peak => peak > 0) ? "Звук монтажа · готов" : "Тишина";
             }
             catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or System.Text.Json.JsonException or OperationCanceledException or System.ComponentModel.Win32Exception)
-            { MediaStatus = "Звук не подготовлен · " + error.Message; }
+            {
+                MarkPlaybackConflict(error);
+                MediaStatus = "Звук не подготовлен · " + error.Message;
+            }
             changed = true;
         }
         if (!_playing) return changed;
@@ -89,7 +93,7 @@ internal sealed partial class SceneViewModel
             { PausePlayback(); MediaStatus = Status = "Конец клипа"; changed = true; }
         }
         catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or NAudio.MmException)
-        { PausePlayback(); Fail("Просмотр остановлен · " + error.Message); MediaStatus = Status; changed = true; }
+        { PausePlayback(); MarkPlaybackConflict(error); Fail("Просмотр остановлен · " + error.Message); MediaStatus = Status; changed = true; }
         return changed;
     }
 
@@ -118,7 +122,14 @@ internal sealed partial class SceneViewModel
             MediaStatus = "Подготовка видео…";
         }
         catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or NAudio.MmException or System.ComponentModel.Win32Exception)
-        { PausePlayback(); Fail(error.Message); }
+        { PausePlayback(); MarkPlaybackConflict(error); Fail(error.Message); }
+    }
+
+    private void MarkPlaybackConflict(Exception error)
+    {
+        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
+            if (cause is Backend.BackendCommandException { Code: "revision_conflict" })
+            { _stale = true; Fail("Проект изменён. Перечитайте сцену перед воспроизведением или редактированием."); return; }
     }
 
     public void PausePlayback()

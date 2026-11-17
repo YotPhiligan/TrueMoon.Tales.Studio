@@ -135,3 +135,39 @@ files, missing-image transition, read-only session при другом writer и
 во время decode проверяются вместе с SHA/revision/history и process cleanup.
 Требуются явные STUDIO_TEST_PYTHON, STUDIO_TEST_FFMPEG, STUDIO_TEST_FFPROBE;
 это не native/physical/DPI или continuous playback/audio/export acceptance.
+
+## STUDIO-BACKEND5 — непрерывный клип и звук
+
+[Контракт и приёмка](Verification/BackendPlayback.md): BackendPlaybackRasterTests
+использует production Cobalt SceneView, настоящий EXE/Mithril/Enerit и CPU raster
+на scale1/1.5/2. Только звуковое устройство заменено управляемым PlayedSamples:
+декодирование видео, PCM native/music/events, sample offsets и SHA остаются настоящими.
+Play/pause/seek подаются routed input; отдельно проверяются focus, Reload, смена
+клипа, закрытие, конфликт точных байтов проекта и разрыв backend.
+
+Сравнивать исходные pixels и rendered image crop с независимым full decode,
+PCM — с отдельно декодированными и вручную размещёнными дорожками. После остановки
+дождаться Completion/Drain и проверить освобождение файла/owned processes, а также
+неизменность project bytes/revision/history. Для неизвестного ID при потерянном
+Open-ответе учитывать idle lease20s; не повторять Open автоматически.
+
+Это не physical sound-device/Space/Escape, Windows DPI, native present или полная
+CPU MP4 parity. Требования STUDIO_TEST_PYTHON/FFMPEG/FFPROBE и cleanup сохраняются.
+
+## STUDIO-BACKEND6 — trim и CPU fixture
+
+[Контракт и приёмка](Verification/BackendTrim.md): BackendTrimRasterTests проверяет
+оба края на scale1/1.5/2 через production View/UiSession и настоящий backend.
+До PointerUp проверяется неизменность JSON, после — один commit/history; отдельно
+Escape/focus/resize/no-op, scenario reflow с сохранением плана и CLI-конфликт.
+UI сравнивает возвращённые clips/scenario items/protection flags с draft.
+
+Старый seek отменяется перед trim commit, чтобы его поздний ответ не помечал
+новый снимок устаревшим. Backend ждёт медиаслот для trim с дедлайном, не повторяя
+запись; обычные media queries сохраняют отказ media_busy при перегрузке.
+
+CPU-приёмка использует действующий Python DraftRenderer с отдельным ожидаемым
+Request.json. В source добавлены binary frame IDs: сравниваются PTS, правильный
+кадр и соседние кадры, black boundaries, H.264/AAC и выбранный PCM. Это ограниченная
+проверка synthetic fixture; schema2 не открывается старым Python API, новый
+backend-export endpoint этим тестом не объявляется реализованным.

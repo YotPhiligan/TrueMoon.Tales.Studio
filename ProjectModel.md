@@ -122,3 +122,11 @@ payload и названия полей в [API.md](API.md) и инструкци
 в DTO остаются данными; запрос выбирает asset ID и baseline, не filesystem authority.
 Чтение одиночного CFR-кадра не меняет модель, ID, source-in/out, speed или историю;
 schema2/ProjectContractv1 сохранены, Enerit protocol обновлён до3.
+
+17.11.2026: [STUDIO-BACKEND6](src/Verification/BackendTrim.md) отделяет фактическую
+длительность монтажного использования от Action.PlannedDurationFrames при trim.
+Сценарная UI-проекция C# опирается на фактические клипы; плановое время действия
+не переписывается. Существующий 1:1 сценарий пересчитывает последующие клипы с
+authored gaps/anchors в фиксированном окне. Неоднозначные M:N/несогласованные
+проекции этой командой не редактируются. Schema2/ProjectContractv1 сохраняются;
+прежний Python schema1-контур и его операции этим решением не заменяются.

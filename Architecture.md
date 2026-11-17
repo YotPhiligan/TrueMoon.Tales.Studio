@@ -5,13 +5,13 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-STUDIO-BACKEND4 добавляет исключение для одиночного кадра: backend разрешает
-зарегистрированный asset по trusted aliases/allowlist и декодирует bounded CPU
-CFR-frame; protocol3 передаёт raw memory в собственные UI pixels. HTTP/CLI —
-адаптеры тех же MediaInfo/Frame без второго writer. Предыдущая целевая схема
-локального media playback сохраняется как направление; непрерывный просмотр/
-звук, trim и экспорт этим срезом не перенесены.
-[Контракт и границы](src/Verification/BackendMedia.md).
+STUDIO-BACKEND4–6 реализуют trusted media resolver и CPU-декодирование в
+общем backend: одиночные кадры, непрерывный выбранный CFR-клип и потоковый микс
+native/music/events. Protocol5 передаёт bounded raw memory и SHA; UI хранит
+подготовленный PCM, управляет play/pause/seek и локальным звуковым устройством.
+HTTP/CLI используют тот же backend/writer для своих маршрутов; playback transport
+этого среза — Enerit. STUDIO-BACKEND6 добавляет trim с общей UI/backend проекцией фактических длин и guarded commit. Backend export и полный монтаж нескольких клипов ещё открыты.
+[Контракт и границы](src/Verification/BackendPlayback.md).
 
 ## Целевая модель запуска
 
@@ -49,7 +49,7 @@ flowchart LR
 - **Связь.** UI и backend используют типизированные вызовы Enerit через именованные
   каналы. Перед подключением проверяются роль, готовность и версия контрактов.
   Через IPC передаются команды, состояние, ревизии и разрешённые ссылки на медиа;
-  кадры и звук читаются локальным медиаслоем UI. HTTP-адаптер для CLI и агентов
+  Кадры и PCM декодируются backend и передаются bounded IPC-сессиями; звуковое устройство и sample clock принадлежат UI (STUDIO-BACKEND5). HTTP-адаптер для CLI и агентов
   вызывает те же прикладные операции backend.
 - **Жизненный цикл.** Проверить штатный механизм TrueMoon/Mithril для запуска
   backend-экземпляра того же EXE и управления только принадлежащим Studio

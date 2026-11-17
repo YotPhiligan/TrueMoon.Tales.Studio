@@ -24,7 +24,7 @@ internal static class BackendSceneMapping
                 return new Take(take.Id, take.VideoAssetId!, new(project.Fps, frames / project.Fps, frames), take.Id);
             }).ToArray();
             return new ClipChoice(new(clip.Id, clip.WindowId, clip.SourceId, clip.TakeId, action?.Title,
-                clip.StartFrame, clip.DurationFrames, clip.SourceInFrame, clip.SourceOutFrame, clip.Speed, clip.AnchorFrame, clip.MuteNativeAudio),
+                clip.StartFrame, clip.DurationFrames, clip.SourceInFrame, clip.SourceOutFrame, clip.Speed, clip.AnchorFrame, clip.MuteNativeAudio, clip.GapProtected),
                 new(window.Id, semantic?.Name ?? window.Id, window.StartFrame, window.DurationFrames), action?.Title ?? source.Title, takes);
         }).ToArray();
         var selected = clipId is null ? choices.FirstOrDefault(row => row.Takes.Any(take => take.Id == row.Clip.TakeId))
@@ -38,8 +38,8 @@ internal static class BackendSceneMapping
                 var uses = project.Montage.Clips.Where(row => row.WindowId == window.Id && row.ActionId == action.Id).ToArray();
                 // Existing editing projection is 1:1. Multiple uses stay readable but cannot be reordered here.
                 var use = uses.Length == 1 ? uses[0] : null;
-                return new ScenarioPlacement(use?.Id ?? "", use?.SourceId ?? "", use?.TakeId, action.PlannedDurationFrames,
-                    action.GapBeforeFrames, use?.SourceInFrame ?? 0, use?.SourceOutFrame, use?.Speed, action.AnchorFrame, use?.MuteNativeAudio ?? false);
+                return new ScenarioPlacement(use?.Id ?? "", use?.SourceId ?? "", use?.TakeId, use?.DurationFrames,
+                    action.GapBeforeFrames, use?.SourceInFrame ?? 0, use?.SourceOutFrame, use?.Speed, action.AnchorFrame, use?.MuteNativeAudio ?? false, action.GapProtected);
             }).ToArray();
         }
         var consistent = !active || project.Montage.Windows.All(window =>

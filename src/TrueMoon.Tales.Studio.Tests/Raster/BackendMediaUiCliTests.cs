@@ -39,7 +39,7 @@ public sealed class BackendMediaUiCliTests
         Assert.Equal(5, model.FrameIndex); Assert.Equal(first, model.Pixels);
         Assert.Equal(12, model.Scene!.Revision);
         Assert.Equal(4, model.Start); Assert.Equal(52, model.End); Assert.Equal(2d, model.Scene.Clip.Speed!.Value);
-        Assert.True(model.CanBeginMove); Assert.False(model.CanBeginTrim); Assert.False(model.CanSetStart); Assert.False(model.CanSetEnd); Assert.False(model.CanSave);
+        Assert.True(model.CanBeginMove); Assert.True(model.CanBeginTrim); Assert.True(model.CanSetStart); Assert.True(model.CanSetEnd); Assert.False(model.CanSave);
         Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(BackendProjectAccess.Read(backend.Files.Options)));
         AssertPreviewFrame(host, first, scale,
             host.Capture("loaded-frame5", new { sourceFrame = 5, projectRevision = 12, backendPid = identity.ProcessId, pixelSha = Hash(first) }));
@@ -90,7 +90,7 @@ public sealed class BackendMediaUiCliTests
         host.PumpUntil(() => model.Idle && (model.FrameIndex == 64 || model.HasError), TimeSpan.FromSeconds(20));
         Assert.False(model.HasError, model.Status);
         Assert.Equal(64, model.FrameIndex); Assert.Equal(last, model.Pixels);
-        Assert.False(model.CanBeginTrim); Assert.False(model.CanSave);
+        Assert.True(model.CanBeginTrim); Assert.False(model.CanSave);
         AssertPreviewFrame(host, last, scale,
             host.Capture("end-frame64", new { sourceFrame = 64, pixelSha = Hash(last) }));
         Assert.Same(owner, backend.App.Services.Resolve<BackendProcessFactory>()!.Owned);

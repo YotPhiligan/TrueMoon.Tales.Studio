@@ -36,3 +36,17 @@ internal sealed class BackendHttpMove
     internal bool Valid => !string.IsNullOrWhiteSpace(ClipId) && ClipId.Length <= 160 && ExpectedRevision >= 0 &&
         Fingerprint is { Length: 64 } && Fingerprint.All(Uri.IsHexDigit);
 }
+
+internal sealed class BackendHttpTrim
+{
+    public required string ClipId { get; init; }
+    public required double SourceInFrame { get; init; }
+    public required double SourceOutFrame { get; init; }
+    public required int StartFrame { get; init; }
+    public required long ExpectedRevision { get; init; }
+    public required string Fingerprint { get; init; }
+
+    internal bool Valid => !string.IsNullOrWhiteSpace(ClipId) && ClipId.Length <= 160 && !ClipId.Contains('\0') &&
+        double.IsFinite(SourceInFrame) && double.IsFinite(SourceOutFrame) && SourceInFrame >= 0 && SourceOutFrame > SourceInFrame &&
+        StartFrame >= 0 && ExpectedRevision >= 0 && Fingerprint is { Length: 64 } && Fingerprint.All(Uri.IsHexDigit);
+}

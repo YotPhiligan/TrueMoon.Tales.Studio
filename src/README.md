@@ -1,7 +1,7 @@
 # Десктопный прототип Studio
 
-C# / net11.0: Argentis поверх Python HTTP API и отдельный read-only режим
-[backend того же EXE через Mithril/Enerit](Verification/BackendReadOnly.md). Рабочий веб-интерфейс
+C# / net11.0: Argentis поверх Python HTTP API и backend того же EXE через
+Mithril/Enerit с schema2, переносом клипа и медиапредпросмотром. Рабочий веб-интерфейс
 и сервер находятся в корне Studio. [План перехода](../Plan.md#исследование-архитектуры-studio)
 и [проверенная сцена](../Verification/Argentis.Prototype.md) описывают границы прототипа.
 Первое окно оформлено по [общему дизайн-коду TrueMoon](../../TrueMoon/src/docs/alloy/DESIGN.md).
@@ -14,11 +14,13 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 [STUDIO-BACKEND3: HTTP/CLI и совместная сессия UI](Verification/BackendHttp.md).
 [STUDIO-REQUESTS1: пакеты и приёмка закрытых заявок](Verification/FrameworkRequests.md).
 [STUDIO-BACKEND4: media resolver/aliases, кадры и CLI PNG](Verification/BackendMedia.md).
+[STUDIO-BACKEND5: непрерывное видео/звук, play/pause и seek](Verification/BackendPlayback.md).
+[STUDIO-BACKEND6: обрезка через общий backend, UI/CLI и CPU MP4](Verification/BackendTrim.md).
 [Shift+F10, перетаскивание курсора и краёв клипа](TimelineDrag.md).
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.17.4-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.17.6-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
@@ -27,8 +29,9 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 --config <config.json>` на изолированной копии, затем `--edit-project <каталог>
 --config <config.json>`. В доверенном config нужны отдельные `project_write_roots`
 для каталога этой копии. `--recover-project` — отдельное явное восстановление.
-Backend-редактор этого этапа выполняет только перенос; медиа/trim/export ещё не
-подключены. Python HTTP продолжает обслуживать schema 1 и отклоняет schema 2.
+Backend-редактор выполняет перенос, обрезку и просмотр выбранного CFR-клипа со
+звуком, play/pause и seek. Экспорт через backend ещё не подключён. Python HTTP продолжает
+обслуживать schema 1 и отклоняет schema 2.
 Команды и правила передачи writer — в [отчёте](Verification/BackendMove.md#запуск).
 
 HTTP/CLI schema2: `--serve-project <каталог> --config <config.json>` запускает
@@ -43,8 +46,9 @@ loopback API, `--with-ui` подключает то же окно к тому ж
 Нормативная [модель действий, источников и монтажа](../ProjectModel.md) согласована
 09.11.2026. Одно действие допускает несколько источников и клипов; источник
 переиспользуется, монтажное окно ссылается на смысловой сегмент. Текущий
-C#-прототип использует прежний Python HTTP-контракт. Новый формат и миграция
-входят в [план](../Plan.md#переход-к-модели-действий-и-источников).
+C#-редактор поддерживает schema2 через общий backend; прежний режим Python HTTP
+сохранён. Контракт описывает M:N, а UI редактирования действий/источников остаётся
+в [плане](../Plan.md#переход-к-модели-действий-и-источников).
 
 ## Структура C#-решения
 

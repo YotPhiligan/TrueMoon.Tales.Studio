@@ -1,8 +1,75 @@
 # Статус разработки Studio
 
-Обновлено 17.11.2026 (STUDIO-BACKEND4; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
+Обновлено 17.11.2026 (STUDIO-BACKEND6; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
 
 После завершения этапа обновлять дату, отмечать доступные изменения, результаты проверок и оставшиеся ограничения. Приоритеты и критерии реализации вести в Plan.md.
+
+<a id="backend-trim"></a>
+## STUDIO-BACKEND6 — обрезка через общий backend, 17.11.2026
+
+Studio **1.2611.17.6-alpha**, TrueMoon **1.2611.17.1-alpha**, SDK11/net11/runtime-async.
+Новый набор включает изменения BACKEND5 и использует следующий rev6;
+main d613e87/17.4 сверён перед выбором версии. [Контракт и evidence](src/Verification/BackendTrim.md).
+
+- Trim проходит через единственный writer того же owned EXE/Mithril/Enerit,
+  protocol5; expected_revision/SHA и server-side source metadata обязательны.
+  Один commit/history, no-op без записи; schema2/ProjectContractv1/HTTPv1 сохраняются.
+- Общий расчёт UI/backend показывает локальный draft и scenario 1:1 reflow.
+  Фактическая длина клипа отделена от Action.PlannedDurationFrames; protected gap,
+  anchors, окно и неизвестные поля сохраняются. M:N editing/split не вводятся.
+- UI: оба края, отмена, conflict draft и явное перечитывание; response проверяется
+  против рассчитанного draft. HTTP/CLI trim использует ту же backend-сессию.
+- CPU MP4 acceptance относится к отдельной synthetic scene через действующий
+  DraftRenderer; это не новый backend-export и не полная авторская media acceptance.
+
+Финальные Debug/Release: **по710 passed,0 failed,5 прежних skipped**;
+published EXE: **94 passed,0 failed,0 skipped**; Python: **323 tests,OK**.
+Новые87C#cases,10raster/16HTTP;231frozen inputs после проверки не изменились.
+Обе strict XML/emit сборки:0errors/9generatedCS8669 прежней категории, без suppressions.
+Сравнение selected fixture с действующим CPU DraftRenderer прошло по PTS,
+H.264/AAC, кадрам с frame ID, чёрным границам и PCM; пределы и evidence в отчёте.
+
+Следом — backend CPU export с immutable request/job, status/cancel/recovery и SHA
+артефакта. Физический ввод, Windows DPI и аппаратный audio/native профиль отдельно.
+Предыдущий редкий FocusLost timeout и границы его диагностики сохраняются в BACKEND5.
+
+<a id="backend-playback"></a>
+## STUDIO-BACKEND5 — просмотр клипа со звуком, 17.11.2026
+
+Studio **1.2611.17.5-alpha**, TrueMoon **1.2611.17.1-alpha**, SDK11/net11/runtime-async.
+Версия зафиксирована до финальной приёмки; актуальный main d613e87/1.2611.17.4-alpha
+сверен через GitHub. [Контракт, результаты и evidence](src/Verification/BackendPlayback.md).
+
+- UI использует playback-сессии того же owned backend EXE/Mithril/Enerit,
+  protocol4. Storage schema2, ProjectContractv1 и HTTPv1 сохранены.
+- Непрерывный CFR480×270BGRA, source-in/out/speed/FPS, очередь3; native/music/events
+  потоково смешиваются backend в48kHz stereo f32le с gain/mute и absolute sample grid.
+  UI получает bounded packets с SHA; пути и декодеры остаются за trusted resolver.
+- Play/pause/resume/seek подключены в production Cobalt SceneView; точный курсор
+  проекта не восстанавливается с потерей кадра из округлённого source frame.
+  Sample clock стартует после первого кадра; смена клипа/Reload/focus/close останавливают поток.
+- Каждый Open/Read проверяет revision/SHA до/после данных. Конфликт требует Reload;
+  просмотр не меняет проект, историю и writer. Cleanup ограничен дедлайнами;
+  потерянный Open-ответ освобождается по idle lease<=20s, автоматического повтора нет.
+
+- Финальные Debug/Release: **по623 passed,0 failed,5 прежних skipped**;
+  published EXE: **68 passed,0 failed,0 skipped**; Python: **312 tests,OK**.
+  Новые100C#cases,14сквозных;221frozen inputs после проверок не изменились.
+  Strict XML/emit builds0errors/9generatedCS8669 закреплённого Enerit, без подавлений.
+- Промежуточный FocusLost cleanup-timeout не повторился в финальных D/R/publish
+  с10 последовательными focus cycles каждый. Его отдельная причина не установлена;
+  усиление Close/регрессия и диагностическая граница описаны в отчёте.
+
+| Контур | Текущая граница |
+|---|---|
+| Python/Web schema1 | Прежние монтаж, генерация и MP4; историческая приёмка относится к своим датам |
+| C# backend schema2 | Открытие, миграция/recovery, sole writer, перенос, HTTP/CLI, resolver/кадры и просмотр выбранного клипа со звуком |
+| Целевая модель | DTO/storage поддерживают действия/источники/клипы; полный M:N редактор и split с сохранением действия ещё открыты |
+
+Следом — backend trim/export с revision/SHA и CPU MP4 parity. Непрерывный монтаж
+нескольких клипов, VFR, переходы/титры, legacy Web schema2, physical input/DPI и
+аппаратная AV-задержка остаются отдельными проверками. Исторические версии и
+числа тестов ниже сохраняются. [План](Plan.md#backend-playback).
 
 <a id="backend-media-frames"></a>
 ## STUDIO-BACKEND4 — media resolver и кадры, 17.11.2026
@@ -611,12 +678,19 @@ Python/Studio/FFmpeg от проверок; QA-порты 59260, 51762, 54344, 5
 - В браузере на отдельном тестовом проекте открыты три точки входа. Из карточки сегмента «Изменить блок» открывает сценарную форму. «Материалы и промпт» открывает «Исходник», где доступны постановка, референсы, опоры и дубли. Выбор клипа на шкале переключает инспектор на «В монтаже» и открывает доступ к «Участку и скорости».
 - В форме «Изменить блок» рядом с описанием находятся выбор дубля и вход в него. Ряд клипов на шкале подписан «Блоки». Это два места, где подписи могут смешивать сценарную правку с монтажной. Точки входа описаны по текущим подписям. [Где редактировать](Scenario.md#где-редактировать).
 
-## Переход на C# и TrueMoon
+## История перехода на C# и TrueMoon · срез STUDIO-MOVE
+
+Текущий backend-срез описан [выше](#backend-trim). Следующие два пункта
+сохраняют контекст приёмки 16.11.2026 и не задают актуальную очередь.
 
 - **Текущий этап.** Через Python HTTP API работают открытие, drag/trim, Shift+F10, непрерывный просмотр выбранного CFR-клипа со звуком, waveform и пауза/продолжение. После STUDIO-MOVE: Studio `1.2611.16.2-alpha`, TrueMoon `1.2611.16.1-alpha`, net11.0/runtime-async=on; DI — Cobalt, HTTP принадлежит сервису, Debug/Release — по 247 passed и 5 ожидаемых skipped. Перенос целого клипа внутри сегмента проверен routed input/HTTP/CPU MP4. Видео имеет ограниченную очередь и следует sample clock; реальный FFmpeg/устройство/CPU MP4 проверены на изолированной сцене. VFR, монтаж нескольких клипов и отзывчивость длинной шкалы остаются открытыми. [Результат](src/Playback.md). [DI и lifecycle](src/README.md#di-на-cobalt).
 - **Следующий шаг.** Измерение отзывчивости длинной шкалы и физическая приёмка переноса клипа. Довести клавиатурную/DPI и полную медиаприёмку, включая физический Space, стыки/переходы/титры и AV-задержку. Регулируемые панели остаются заявкой владельцу Alloy. Отдельный C#-сервис через Enerit следует за этапом HTTP. [Порядок перехода](Plan.md#прототипы-и-порядок-перехода).
 
 ## Готовность по этапам
+
+Таблица описывает прежде всего Python/Web и прежние HTTP-прототипы. Наличие
+возможности в этом контуре не означает её перенос в schema2 backend; текущие
+границы сведены [выше](#backend-playback).
 
 | Этап | Сделано | Что остаётся |
 |---|---|---|

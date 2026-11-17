@@ -11,6 +11,45 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
 {
     private readonly SemaphoreSlim _slot = new(1, 1);
     private readonly Lazy<BackendMediaResolver> _resolver = new(() => resolvers.Create() ?? throw new InvalidDataException("Missing media resolver."));
+    internal async Task<BackendPlaybackSession> OpenPlaybackAsync(ProjectContract project, string clipId, string kind,
+        int localFrame, string fingerprint, CancellationToken operation, CancellationToken stopping)
+    {
+        var scene = BackendPlaybackProject.Scene(project, clipId);
+        if (kind is not ("audio" or "video") || localFrame < 0 || localFrame >= scene.Clip.DurationFrames || kind == "audio" && localFrame != 0)
+            throw new ArgumentException("Invalid playback kind or starting frame.");
+        var resolver = _resolver.Value;
+        var leases = new List<FileStream>();
+        var paths = new Dictionary<string, string>(StringComparer.Ordinal);
+        var references = new Dictionary<string, string>(StringComparer.Ordinal);
+        string Resolve(string assetId)
+        {
+            if (paths.TryGetValue(assetId, out var previous)) return previous;
+            if (!project.Properties.TryGetValue("assets", out var assets) || assets.ValueKind != JsonValueKind.Object ||
+                !assets.TryGetProperty(assetId, out var asset) || asset.ValueKind != JsonValueKind.Object ||
+                !asset.TryGetProperty("path", out var value) || value.ValueKind != JsonValueKind.String)
+                throw new FileNotFoundException("Registered playback media is missing.");
+            var path = resolver.Resolve(value.GetString()!);
+            leases.Add(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous));
+            paths.Add(assetId, path);
+            references.Add(assetId, value.GetString()!);
+            return path;
+        }
+        void ValidatePaths()
+        {
+            foreach (var (assetId, reference) in references)
+                if (resolver.Resolve(reference) != paths[assetId]) throw new UnauthorizedAccessException("Playback media moved outside its observed path.");
+        }
+        try
+        {
+            var videoPath = Resolve(scene.Takes.Single(row => row.Id == scene.Clip.TakeId).VideoAssetId);
+            var info = await decoder.ProbeAsync(videoPath, operation).ConfigureAwait(false);
+            var audio = kind == "audio" ? scene.Audio!.Select(slice => (slice, Resolve(slice.AssetId))).ToArray() : [];
+            ValidatePaths();
+            operation.ThrowIfCancellationRequested();
+            return new(decoder, scene, info, videoPath, audio, leases, kind, localFrame, fingerprint, stopping, ValidatePaths);
+        }
+        catch { foreach (var lease in leases) await lease.DisposeAsync().ConfigureAwait(false); throw; }
+    }
     internal async Task<BackendMediaReply> ReadAsync(ProjectContract project, string assetId, int frame, CancellationToken token)
     {
         if (!await _slot.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };

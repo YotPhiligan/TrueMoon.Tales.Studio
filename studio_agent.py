@@ -60,6 +60,9 @@ class BackendClient(StudioClient):
         self.opener=request.build_opener(request.ProxyHandler({}),_NoBackendRedirect())
 
     def call(self, method, path, body=None):
+        if path=='/api/backend/v1/trim-clip':
+            if method!='POST':raise ClientError('Backend trim требует POST.')
+            _backend_trim_query(body)
         if path in ['/api/backend/v1/media-info','/api/backend/v1/frame']:
             if method!='POST':raise ClientError('Backend media требует POST.')
             _backend_media_query(body,path.endswith('/frame'))
@@ -83,6 +86,7 @@ class BackendClient(StudioClient):
                 raise ValueError('Invalid backend project')
             if not isinstance(fingerprint,str) or len(fingerprint)!=64 or any(c not in '0123456789abcdefABCDEF' for c in fingerprint):
                 raise ValueError('Invalid backend fingerprint')
+            if path=='/api/backend/v1/trim-clip':_backend_trim_response(snapshot,body)
             return snapshot
         except error.HTTPError as exc:
             try:message=json.loads(exc.read(4096)).get('error',str(exc))
@@ -104,6 +108,49 @@ def _backend_json_object(pairs):
 def _sha256_text(value):
     return isinstance(value,str) and len(value)==64 and all(c in '0123456789abcdefABCDEF' for c in value)
 
+
+
+def _backend_number(value):
+    try:return type(value) in (int,float) and math.isfinite(value)
+    except OverflowError:return False
+
+
+def _backend_trim_query(body):
+    fields={'clip_id','source_in_frame','source_out_frame','start_frame','expected_revision','fingerprint'}
+    if not isinstance(body,dict) or set(body)!=fields:raise ClientError('Некорректная trim query.')
+    clip=body['clip_id'];revision=body['expected_revision']
+    if not isinstance(clip,str) or not clip.strip() or chr(0) in clip or len(clip.encode('utf-16-le'))>320:
+        raise ClientError('Нужен существующий clip ID до160 UTF-16 символов.')
+    if type(revision) is not int or not 0<=revision<=2**63-1 or not _sha256_text(body['fingerprint']):
+        raise ClientError('Нужны observed revision/SHA.')
+    if type(body['start_frame']) is not int or not 0<=body['start_frame']<=2**31-1:
+        raise ClientError('Нужен неотрицательный start в диапазоне Int32.')
+    start,end=body['source_in_frame'],body['source_out_frame']
+    if not _backend_number(start) or not _backend_number(end) or start<0 or end<=start:
+        raise ClientError('Нужен конечный участок source-in < source-out, начиная с нуля.')
+
+
+def _backend_trim_response(snapshot,body):
+    project=snapshot['project'];revision=project['revision'];fingerprint=snapshot['fingerprint']
+    if revision not in (body['expected_revision'],body['expected_revision']+1):
+        raise ValueError('Unexpected backend trim revision')
+    same=fingerprint.lower()==body['fingerprint'].lower()
+    if same!=(revision==body['expected_revision']):raise ValueError('Invalid trim baseline transition')
+    montage=project.get('montage')
+    if not isinstance(montage,dict) or not isinstance(montage.get('clips'),list):raise ValueError('Missing saved montage')
+    clips=[clip for clip in montage['clips'] if isinstance(clip,dict) and clip.get('id')==body['clip_id']]
+    if len(clips)!=1:raise ValueError('Missing or duplicate saved trim clip')
+    clip=clips[0];speed=clip.get('speed',1);source=clip.get('source_in_frame');end=clip.get('source_out_frame')
+    duration=clip.get('duration_frames');start=clip.get('start_frame')
+    if type(duration) is not int or not 1<=duration<=2**31-1 or type(start) is not int or start!=body['start_frame']:
+        raise ValueError('Unexpected saved trim placement')
+    if not _backend_number(speed) or not .25<=speed<=4 or not _backend_number(source) or source!=body['source_in_frame']:
+        raise ValueError('Unexpected saved trim source')
+    if end is None:end=source+duration*speed
+    if not _backend_number(end) or end!=body['source_out_frame']:raise ValueError('Unexpected saved trim extent')
+    frames=(end-source)/speed
+    if not _backend_number(frames) or frames>2**31-1 or duration!=max(1,math.ceil(frames-1e-8)):
+        raise ValueError('Unexpected saved trim extent')
 
 
 def _backend_media_query(body,frame):
@@ -192,6 +239,11 @@ def parser():
     sub=commands.add_parser('backend-move')
     sub.add_argument('--clip',required=True);sub.add_argument('--start-frame',type=int,required=True)
     sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
+    sub=commands.add_parser('backend-trim')
+    sub.add_argument('--clip',required=True);sub.add_argument('--source-in',type=float,required=True)
+    sub.add_argument('--source-out',type=float,required=True)
+    sub.add_argument('--start','--start-frame',dest='start_frame',type=int,required=True)
+    sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
     for name in ['backend-media','backend-frame']:
         sub=commands.add_parser(name)
         sub.add_argument('--asset',required=True);sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
@@ -235,11 +287,16 @@ def task_summary(task):
 
 def execute(client, args):
     command = args.command
-    if command in ['backend-project','backend-move','backend-media','backend-frame']:
+    if command in ['backend-project','backend-move','backend-trim','backend-media','backend-frame']:
         if args.project:raise ClientError('Backend project выбирается владельцем --serve-project, без --project в запросе.')
         if command=='backend-project':return client.call('GET','/api/backend/v1/project')
         if type(args.revision) is not int or not 0<=args.revision<=2**63-1 or not _sha256_text(args.sha256):
             raise ClientError('Нужны observed --revision и 64 hex --sha256 из backend-project.')
+        if command=='backend-trim':
+            body={'clip_id':args.clip,'source_in_frame':args.source_in,'source_out_frame':args.source_out,
+                  'start_frame':args.start_frame,'expected_revision':args.revision,'fingerprint':args.sha256}
+            _backend_trim_query(body)
+            return client.call('POST','/api/backend/v1/trim-clip',body)
         if command=='backend-move':
             return client.call('POST','/api/backend/v1/move-clip',{'clip_id':args.clip,'start_frame':args.start_frame,
                 'expected_revision':args.revision,'fingerprint':args.sha256})

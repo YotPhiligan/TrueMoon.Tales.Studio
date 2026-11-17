@@ -59,6 +59,10 @@ public sealed class BackendLostReplyTests
     // Only fault injection is doubled: the invocation, process, store and UI are real.
     private sealed class DropReply(IStudioBackend inner) : IStudioBackend
     {
+        public Task<BackendProjectReply> TrimClipAsync(string key, string id, double sourceInFrame, double sourceOutFrame, int start, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.TrimClipAsync(key, id, sourceInFrame, sourceOutFrame, start, revision, fingerprint, cancellationToken);
+        public Task<BackendPlaybackReply> OpenPlaybackAsync(string key, string clipId, string kind, int localFrame, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.OpenPlaybackAsync(key, clipId, kind, localFrame, revision, fingerprint, cancellationToken);
+        public Task<BackendPlaybackReply> ReadPlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => inner.ReadPlaybackAsync(key, id, cancellationToken);
+        public Task<BackendPlaybackReply> ClosePlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => inner.ClosePlaybackAsync(key, id, cancellationToken);
         public Task<BackendMediaReply> MediaInfoAsync(string key, string id, long revision, string hash, CancellationToken cancellationToken = default) => inner.MediaInfoAsync(key, id, revision, hash, cancellationToken);
         public Task<BackendMediaReply> FrameAsync(string key, string id, int frame, long revision, string hash, CancellationToken cancellationToken = default) => inner.FrameAsync(key, id, frame, revision, hash, cancellationToken);
         internal int MoveCalls;

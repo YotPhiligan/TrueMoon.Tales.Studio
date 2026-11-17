@@ -48,8 +48,8 @@ public sealed class BackendRasterIpcTests
             Assert.True(model.Loaded, model.Status);
             Assert.Equal(12, model.Scene!.Revision);
             Assert.NotNull(model.Scene.Fingerprint);
-            Assert.False(model.CanBeginTrim); Assert.True(model.CanSeek); Assert.False(model.CanPlay);
-            Assert.Contains("воспроизведение и обрезка пока недоступны", model.MediaStatus);
+            Assert.True(model.CanSeek);
+            // This metadata fixture has no real media. Playback is covered by BackendPlaybackRasterTests.
             frames.Calls.Clear();
             var strip = Assert.Single(RasterWindow<SceneView>.Walk(view).OfType<SceneStrip>());
             Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(BackendProjectAccess.Read(fixture.Options)));
