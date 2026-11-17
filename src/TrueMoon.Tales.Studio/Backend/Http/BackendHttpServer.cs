@@ -20,6 +20,8 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
 {
     internal const string ProjectRoute = "/api/backend/v1/project";
     internal const string MoveRoute = "/api/backend/v1/move-clip";
+    internal const string MediaRoute = "/api/backend/v1/media-info";
+    internal const string FrameRoute = "/api/backend/v1/frame";
     internal static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -111,6 +113,23 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
                 var saved = await backend.MoveAsync(request.ClipId, request.StartFrame, request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
                 await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(saved), Json, deadline.Token).ConfigureAwait(false);
             }
+            else if (path == MediaRoute || path == FrameRoute)
+            {
+                if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
+                if (!context.Request.HasJsonContentType()) { await Error(context, 415, "json_required"); return; }
+                using var document = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: deadline.Token).ConfigureAwait(false);
+                if (document.RootElement.ValueKind != JsonValueKind.Object || document.RootElement.EnumerateObject()
+                    .GroupBy(property => property.Name, StringComparer.Ordinal).Any(group => group.Count() != 1))
+                { await Error(context, 400, "invalid_request"); return; }
+                BackendHttpMediaQuery? request = path == FrameRoute ? document.RootElement.Deserialize<BackendHttpFrameQuery>(Json)
+                    : document.RootElement.Deserialize<BackendHttpMediaQuery>(Json);
+                if (request is null || !request.Valid) { await Error(context, 400, "invalid_request"); return; }
+                if (request is BackendHttpFrameQuery { Frame: < 0 }) { await Error(context, 422, "invalid_frame"); return; }
+                var result = request is BackendHttpFrameQuery frame
+                    ? await backend.FrameAsync(frame.AssetId, frame.Frame, frame.ExpectedRevision, frame.Fingerprint, deadline.Token).ConfigureAwait(false)
+                    : await backend.MediaInfoAsync(request.AssetId, request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
+                await context.Response.WriteAsJsonAsync(new BackendHttpMediaSnapshot(1, 2, result), Json, deadline.Token).ConfigureAwait(false);
+            }
             else await Error(context, 404, "not_found");
         }
         catch (BackendCommandException error)
@@ -118,7 +137,8 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
             var status = error.Code switch
             {
                 "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or "recovery_conflict" => 409,
-                "invalid_move" => 422, "access_denied" or "write_not_enabled" => 403, "project_not_found" => 404,
+                "invalid_move" or "invalid_frame" or "invalid_media" => 422, "access_denied" or "write_not_enabled" => 403,
+                "project_not_found" or "media_not_found" => 404, "media_busy" => 429, "media_timeout" => 504,
                 "project_too_large" => 413, _ => 503
             };
             await Error(context, status, error.Code, true);

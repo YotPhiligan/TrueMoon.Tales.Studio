@@ -5,11 +5,33 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
-Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-REQUESTS1; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
+Дата плана — 29.10.2026. Последняя сверка — 17.11.2026 (STUDIO-BACKEND4; прежние проверки сохраняют свои даты). Начальный выпуск 0.1 описан в [первоначальной проверке](Verification/Report.v1.md). Текущие возможности и результаты проверок сведены в [Status.md](Status.md). [Запуск](README.md) · [Архитектура](Architecture.md) · [API](API.md).
 
 Область — общий инструмент для опенинга, AMV Клэр и будущих видеопроектов цикла «Сказки истинной луны». План находится вне каталогов отдельных роликов. Связь с [общим планом](../TrueMoon.Tales.Videos/Plan.md): R-08 — управление и интерфейс, R-09 — обработка изображения, R-10 — звук и сборка. Текущая техническая очередь исследований моделей и управления движением сохраняется отдельно.
 
 Дополнение 29.10.2026: включить режим пониженного разрешения для быстрой проверки блока. Будущий целевой сценарий автора — видеоадаптации текста глав ориентировочно по **3–5 минут**; это направление для проектирования, а не жёсткая длительность каждой главы. Набор функций адаптации согласован автором и включён в реализацию этапов UI-06–UI-11. Выбор конкретных технологий и интеграций остаётся задачей проектирования и проверок.
+
+<a id="backend-media-frames"></a>
+## STUDIO-BACKEND4 — media resolver и одиночный кадр
+
+Выполнено 17.11.2026. Studio **1.2611.17.4-alpha**, TrueMoon1.2611.17.1-alpha.
+[Контракт, команды, матрица и evidence](src/Verification/BackendMedia.md).
+
+- [x] Trusted mounts/aliases и lexical legacy compatibility до IO; protected,
+  allowlist, traversal/reparse/device deny, без новых прав из проекта/запроса.
+- [x] Protocol3 MediaInfo/Frame через тот же owned Mithril/Enerit backend:
+  asset ID + observed revision/SHA, CFR480×270BGRA/518400bytes +pixel SHA,
+  baseline до/после decode, без writer claim/migration/сохранения.
+- [x] Bounded CPU FFmpeg/ffprobe, raw-memory codec/owned copy, admission/timeout/
+  cancel/dispose cleanup. Optional trusted config paths к media tools.
+- [x] HTTPv1 media-info/frame и CLI backend-media/backend-frame с проверкой
+  payload/SHA и новым PNG без overwrite/ADS; auth/limits/no retry сохранены.
+- [x] Production UI/raster и CLI: source frames5/20/64 приproject24/source30fps,
+  speed2, real preview crop, разные asset files и очистка missing image.
+- [x] D/R по523passed/0failed/5skipped, Python312OK, published54/54.
+  Новые153C#cases/17Python tests; strict XML builds0errors/7generatedCS8669.
+- [ ] Непрерывное воспроизведение/звук, затем backend trim/export и полная
+  CPU MP4 parity. Native/physical/DPI/long timeline остаются отдельно.
 
 <a id="framework-requests-acceptance"></a>
 ## STUDIO-REQUESTS1 — приёмка закрытых заявок TrueMoon
@@ -89,7 +111,8 @@ main f0eae74 /1.2611.17.1-alpha, версия зафиксирована до ф
   время drag → UI conflict draft → Reload → UI commit → CLI read/no-op. Scale1/1.5/2.
 - [x] 32 новых C# cases и7 Python tests. D/R по370 passed/0 failed/5 skipped,
   Python295 OK, published37/37; builds0 errors/24 прежних generated warnings Enerit.
-- [ ] Media resolver/aliases, preview/trim/export и CPU MP4 parity backend-пути.
+- [x] Media resolver/aliases и одиночные кадры — [STUDIO-BACKEND4](#backend-media-frames).
+- [ ] Непрерывные preview/звук, trim/export и полная CPU MP4 parity backend-пути.
 - [ ] Native/physical input/DPI; legacy Web UI ещё не читает schema2.
 
 <a id="backend-move-ipc"></a>
@@ -112,7 +135,7 @@ main 3fb891a и рабочая 1.2611.16.3-alpha сверены до выбор�
 - [x] 34 новых cases; финальные Debug/Release по 338 passed/0 failed/5 skipped,
   Python288 OK, published EXE16/16. Builds0 errors, 24 generated warnings Enerit.
 - [x] HTTP/CLI-адаптер общего сервиса — [STUDIO-BACKEND3](#backend-http-cli).
-- [ ] Полноценный backend media resolver/preview/export. Старые Python-маршруты
+- [ ] Непрерывный backend preview/звук/trim/export; resolver/одиночный кадр выполнены в [STUDIO-BACKEND4](#backend-media-frames). Старые Python-маршруты
   обслуживают schema1; новые backend-команды CLI используют отдельный HTTP v1.
 - [ ] Native/physical Escape, keyboard/DPI и CPU MP4 parity для будущего media-пути.
 
@@ -685,11 +708,11 @@ Computer Use физическим Escape. Полная keyboard/DPI-приёмк
 
 ## Ближайшая очередь
 
-[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; STUDIO-REQUESTS1 выполнен: закрытые заявки приняты на новом комплекте; далее — backend media-путь.
+[STUDIO-NET11](#dotnet11-framework-refresh), [STUDIO-MOVE](#clip-move-within-segment) и [STUDIO-BACKEND1](#backend-readonly) выполнены 16.11.2026; [STUDIO-UIQA1](#ui-raster-harness) — 17.11.2026. STUDIO-BACKEND2 и STUDIO-BACKEND3 выполнены 17.11.2026; STUDIO-REQUESTS1 выполнен: закрытые заявки приняты на новом комплекте; STUDIO-BACKEND4 выполнен: resolver/одиночный кадр; далее — непрерывное воспроизведение и звук.
 
 [Текущий статус и результаты проверок](Status.md).
 
-1. **Backend — media resolver и предпросмотр после STUDIO-BACKEND3.** Studio1.2611.17.3-alpha, TrueMoon1.2611.17.1-alpha; полные D/R по370 passed/5 skipped, Python295 OK, published37 passed. HTTP/CLI и native UI теперь используют один backend/writer для чтения и переноса. Следом — allowlisted media resolver/aliases, кадры и звук, trim и экспорт с CPU MP4 parity. Backend-редактор пока move-only; legacy Web UI ещё schema1. Длинный таймлайн, physical Escape/keyboard/DPI и прежний native AV остаются отдельными задачами. [STUDIO-BACKEND3](#backend-http-cli) · [проверки](src/Verification/BackendHttp.md).
+1. **Backend — непрерывное воспроизведение и звук после STUDIO-BACKEND4.** Studio1.2611.17.4-alpha, TrueMoon1.2611.17.1-alpha. Resolver/aliases и одиночные CFR-кадры доступны UI/CLI через общий backend; D/R523passed/5skipped, Python312OK, published54passed. Следом — bounded video/audio playback с общей монтажной шкалой, затем trim/export с expected_revision/SHA и CPU MP4 parity. Legacy Web UI ещё schema1; native/physical/DPI, длинный таймлайн и прежний AV остаются отдельно. [STUDIO-BACKEND4](#backend-media-frames) · [проверки](src/Verification/BackendMedia.md).
 
 2. **UI-05 — рабочая сборка Клэр.** Назначить `CL-000A` заглушке доклада и определить роль `Test1` в монтаже. На готовом фрагменте сверить предпросмотр и MP4 по времени, участкам дублей, звуку, титрам и музыкальному акценту. Затем проверить полный монтаж Клэр и повторить проход на собранном сценарии опенинга.
 3. **Проверка стыков и готовность.** Сопоставить граничные кадры после замены дубля и открыть повтор стыка из того же окна. Показать связь с прежним дублем Motion Context. Вынести список проблем готовности рядом с таймлайном. [Монтаж блока](ClipEditing.md) · [Экспорт](DraftExport.md).

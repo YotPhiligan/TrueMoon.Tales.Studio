@@ -13,11 +13,12 @@ C# / net11.0: Argentis поверх Python HTTP API и отдельный read-o
 [STUDIO-BACKEND2: перенос через Enerit и передача writer](Verification/BackendMove.md).
 [STUDIO-BACKEND3: HTTP/CLI и совместная сессия UI](Verification/BackendHttp.md).
 [STUDIO-REQUESTS1: пакеты и приёмка закрытых заявок](Verification/FrameworkRequests.md).
+[STUDIO-BACKEND4: media resolver/aliases, кадры и CLI PNG](Verification/BackendMedia.md).
 [Shift+F10, перетаскивание курсора и краёв клипа](TimelineDrag.md).
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.17.3-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.17.4-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.

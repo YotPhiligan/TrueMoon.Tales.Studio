@@ -48,8 +48,9 @@ public sealed class BackendRasterIpcTests
             Assert.True(model.Loaded, model.Status);
             Assert.Equal(12, model.Scene!.Revision);
             Assert.NotNull(model.Scene.Fingerprint);
-            Assert.False(model.CanBeginTrim); Assert.False(model.CanSeek); Assert.False(model.CanPlay);
-            Assert.Contains("медиапредпросмотр не подключён", model.MediaStatus);
+            Assert.False(model.CanBeginTrim); Assert.True(model.CanSeek); Assert.False(model.CanPlay);
+            Assert.Contains("воспроизведение и обрезка пока недоступны", model.MediaStatus);
+            frames.Calls.Clear();
             var strip = Assert.Single(RasterWindow<SceneView>.Walk(view).OfType<SceneStrip>());
             Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(BackendProjectAccess.Read(fixture.Options)));
             var baseline = host.Capture("loaded", new { revision = 12 });
@@ -85,7 +86,10 @@ public sealed class BackendRasterIpcTests
                 model.Save(); host.Update(); // A stale draft is never replayed.
                 Assert.Equal(current, File.ReadAllBytes(fixture.Files.ProjectPath)); Assert.Single(fixture.Files.HistoryFiles);
                 host.Capture("conflict", new { revision = 12, draft = 14 });
+                Assert.Empty(frames.Calls);
                 model.Cancel(); model.Open(); host.PumpUntil(() => model.Idle);
+                Assert.Equal(0, Assert.Single(frames.Calls).Frame); // Explicit reload reads its initial frame.
+                frames.Calls.Clear();
                 Assert.False(model.Stale); Assert.False(model.Modified); Assert.Equal(12, model.TimelineStart);
             }
             else

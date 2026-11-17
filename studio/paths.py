@@ -56,7 +56,7 @@ class WorkspacePaths:
         try:data=json.loads(config.read_text(encoding='utf-8-sig'))
         except (OSError,ValueError) as e:raise PathPolicyError('Не удалось прочитать конфигурацию Studio: '+str(e),422) from e
         required={'version','legacy_root','amv_root','state_root','projects_root','mounts'}
-        optional={'cache_root','exports_root','profiles_root','python_executable','comfy_root','project_write_roots','protected_roots','path_aliases','legacy_read_enabled'}
+        optional={'cache_root','exports_root','profiles_root','python_executable','comfy_root','project_write_roots','protected_roots','path_aliases','legacy_read_enabled','ffmpeg_executable','ffprobe_executable'}
         if not isinstance(data,dict) or type(data.get('version')) is not int or data.get('version')!=1 or not required<=data.keys() or set(data)-required-optional:raise PathPolicyError('Некорректная схема конфигурации Studio v1.',422)
         enabled=data.get('legacy_read_enabled',True)
         if type(enabled) is not bool:raise PathPolicyError('legacy_read_enabled должен быть boolean.',422)
@@ -76,6 +76,9 @@ class WorkspacePaths:
         kwargs={'legacy_root':legacy_namespace,**{key:path(data[key]) for key in ['amv_root','state_root','projects_root']}}
         for key in ['cache_root','exports_root','profiles_root','python_executable','comfy_root']:
             if data.get(key) is not None:kwargs[key]=path(data[key])
+        # These trusted paths belong to the C# backend; legacy Python does not launch or reinterpret them.
+        for key in ['ffmpeg_executable','ffprobe_executable']:
+            if key in data:path(data[key])
         # The concurrently developed framework never becomes a Studio data root.
         code=Path(code_root or config.parent).resolve()
         protected=[code.parent/'TrueMoon',*(path(p) for p in data.get('protected_roots',[]))]

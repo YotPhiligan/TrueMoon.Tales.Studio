@@ -12,7 +12,7 @@ internal interface IBackendProjectReader
     Task<OpenedBackendProject> OpenAsync(CancellationToken cancellationToken = default);
 }
 
-internal sealed class BackendConnection(IStudioBackend service, BackendOptions options, BackendProcessFactory processes) : IBackendProjectReader
+internal sealed partial class BackendConnection(IStudioBackend service, BackendOptions options, BackendProcessFactory processes) : IBackendProjectReader
 {
     internal Task<OpenedBackendProject> AcquireWriterAsync(OpenedBackendProject baseline, CancellationToken token = default) =>
         CommandAsync(ct => service.AcquireWriterAsync(options.SessionKey, baseline.Project.Revision, baseline.Fingerprint, ct), token);

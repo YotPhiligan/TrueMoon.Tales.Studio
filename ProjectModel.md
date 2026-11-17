@@ -116,3 +116,9 @@ payload и названия полей в [API.md](API.md) и инструкци
 `expected_revision`, атомарным сохранением, историей и защитой черновика.
 В целевой C#-архитектуре это backend-экземпляр того же EXE; Python возвращает
 артефакты. [Модель запуска](Architecture.md#целевая-модель-запуска) сохраняется.
+
+17.11.2026: [STUDIO-BACKEND4](src/Verification/BackendMedia.md) разрешает video asset
+по сохранённым source/take IDs и Properties.assets через trusted aliases. Пути
+в DTO остаются данными; запрос выбирает asset ID и baseline, не filesystem authority.
+Чтение одиночного CFR-кадра не меняет модель, ID, source-in/out, speed или историю;
+schema2/ProjectContractv1 сохранены, Enerit protocol обновлён до3.

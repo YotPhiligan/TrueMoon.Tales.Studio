@@ -12,6 +12,26 @@
 > прежние версии. GPU запускается только отдельной явной операцией launch.
 
 
+17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): актуальный same-build
+Enerit protocol3 добавляет MediaInfo/Frame. HTTP APIv1 и storage schema2 /
+ProjectContractv1 сохранены; прежние protocol2 записи ниже относятся к BACKEND2/3.
+
+- POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
+- POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
+- Ответ api_version1/schema_version2/media: asset_id/revision/fingerprint,
+  fps/frame_count/source_width/source_height, frame_index(-1дляmetadata),
+  width480/height270, pixels(base64BGRA), pixel_sha256, error_code.
+  В metadata pixels и pixel_sha256 пустые; физические пути не возвращаются.
+- Зарегистрированный video asset разрешается по trusted mounts/aliases с deny
+  protected/reparse/traversal/disabled legacy. Baseline до/после decode;
+  read не захватывает writer и не пишет revision/history/cache.
+- 404 media_not_found,403 access_denied,422 invalid_media/invalid_frame,
+  409 revision_conflict/migration/recovery,429 media_busy,503 decoder_unavailable,
+  504 media_timeout; прежние auth/Host/body/field limits/no retry сохранены.
+- CLI backend-media и backend-frame --asset/--revision/--sha256; frame требует
+  --frame и --output нового PNG. Проверяются размеры/types/SHA, existing/ADS
+  output запрещён. Tool paths задаёт trusted config, не HTTP/IPC.
+
 17.11.2026: отдельный [backend protocol2](src/Verification/BackendMove.md)
 поддерживает AcquireWriter/MoveClip/MigrateProject/RecoverProject с launch
 capability. MoveClip получает clip ID/start, expected_revision и exact-byte SHA;

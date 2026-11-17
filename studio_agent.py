@@ -1,6 +1,6 @@
 """Small standard-library CLI for an external local agent. Never retries writes."""
 from __future__ import annotations
-import argparse, json, os, sys
+import argparse, base64, hashlib, json, math, os, struct, sys, zlib
 from pathlib import Path
 from urllib import error, parse, request
 
@@ -60,6 +60,9 @@ class BackendClient(StudioClient):
         self.opener=request.build_opener(request.ProxyHandler({}),_NoBackendRedirect())
 
     def call(self, method, path, body=None):
+        if path in ['/api/backend/v1/media-info','/api/backend/v1/frame']:
+            if method!='POST':raise ClientError('Backend media требует POST.')
+            _backend_media_query(body,path.endswith('/frame'))
         headers={'X-Studio-Token':self.token}
         data=None
         if body is not None:
@@ -70,9 +73,11 @@ class BackendClient(StudioClient):
             with self.opener.open(req,timeout=15) as response:
                 encoded=response.read(2*1024*1024+1)
                 if len(encoded)>2*1024*1024:raise ClientError('Слишком большой ответ backend. Перечитайте проект перед следующей записью.')
-                snapshot=json.loads(encoded)
+                snapshot=json.loads(encoded,object_pairs_hook=_backend_json_object)
             if not isinstance(snapshot,dict) or type(snapshot.get('api_version')) is not int or snapshot['api_version']!=1 or type(snapshot.get('schema_version')) is not int or snapshot['schema_version']!=2:
                 raise ValueError('Unsupported backend envelope')
+            if path in ['/api/backend/v1/media-info','/api/backend/v1/frame']:
+                return _backend_media_response(snapshot,body,path.endswith('/frame'))
             project=snapshot.get('project'); fingerprint=snapshot.get('fingerprint')
             if not isinstance(project,dict) or type(project.get('contract_version')) is not int or project['contract_version']!=1 or type(project.get('revision')) is not int or project['revision']<0 or not isinstance(project.get('id'),str):
                 raise ValueError('Invalid backend project')
@@ -87,6 +92,95 @@ class BackendClient(StudioClient):
             raise ClientError('Ответ backend не получен или недостоверен. Запись автоматически не повторяется; перечитайте проект для сверки результата.') from exc
 
 
+
+def _backend_json_object(pairs):
+    result={}
+    for key,value in pairs:
+        if key in result:raise ValueError('Duplicate backend JSON field')
+        result[key]=value
+    return result
+
+
+def _sha256_text(value):
+    return isinstance(value,str) and len(value)==64 and all(c in '0123456789abcdefABCDEF' for c in value)
+
+
+
+def _backend_media_query(body,frame):
+    fields={'asset_id','expected_revision','fingerprint'}|({'frame'} if frame else set())
+    if not isinstance(body,dict) or set(body)!=fields:
+        raise ClientError('Некорректная media query.')
+    asset=body['asset_id'];revision=body['expected_revision']
+    if not isinstance(asset,str) or not asset.strip() or chr(0) in asset or len(asset.encode('utf-16-le'))>320:
+        raise ClientError('Нужен существующий asset ID до160 UTF-16 символов.')
+    if type(revision) is not int or not 0<=revision<=2**63-1 or not _sha256_text(body['fingerprint']):
+        raise ClientError('Нужны observed revision/SHA.')
+    if frame and (type(body['frame']) is not int or not 0<=body['frame']<=2**31-1):
+        raise ClientError('Нужен неотрицательный frame в диапазоне Int32.')
+
+
+def _backend_media_response(snapshot,body,frame):
+    fields={'error_code','asset_id','revision','fingerprint','fps','frame_count','source_width','source_height',
+            'frame_index','width','height','pixels','pixel_sha256'}
+    media=snapshot.get('media')
+    if set(snapshot)!={'api_version','schema_version','media'} or not isinstance(media,dict) or set(media)!=fields or not isinstance(body,dict):
+        raise ValueError('Invalid backend media envelope')
+    expected_frame=body.get('frame') if frame else -1
+    integer_bounds={'revision':(0,2**63-1),'frame_count':(1,10_000_000),'source_width':(1,8192),
+                    'source_height':(1,8192),'width':(480,480),'height':(270,270),'frame_index':(-1,2**31-1)}
+    if any(type(media.get(key)) is not int or not low<=media[key]<=high for key,(low,high) in integer_bounds.items()):
+        raise ValueError('Invalid backend media dimensions or integers')
+    if media['error_code']!='' or not isinstance(media['error_code'],str) or not isinstance(media['asset_id'],str) or media['asset_id']!=body.get('asset_id') or media['revision']!=body.get('expected_revision'):
+        raise ValueError('Backend media identity does not match the requested baseline')
+    if not _sha256_text(media['fingerprint']) or not _sha256_text(body.get('fingerprint')) or media['fingerprint'].lower()!=body['fingerprint'].lower():
+        raise ValueError('Backend media baseline SHA does not match')
+    if type(media['fps']) not in (int,float) or not 0<media['fps']<=240 or not math.isfinite(media['fps']) or media['source_width']*media['source_height']>16_777_216:
+        raise ValueError('Invalid backend source extent or rate')
+    if type(expected_frame) is not int or media['frame_index']!=expected_frame or expected_frame>=media['frame_count']:
+        raise ValueError('Unexpected backend frame index')
+    pixels=media['pixels'];digest=media['pixel_sha256']
+    if not isinstance(pixels,str) or not isinstance(digest,str):
+        raise ValueError('Invalid backend pixel encoding')
+    if not frame:
+        if pixels!='' or digest!='':raise ValueError('Pixels in metadata-only reply')
+    else:
+        if len(pixels)!=691200 or not _sha256_text(digest):raise ValueError('Invalid backend frame size or SHA')
+        decoded=base64.b64decode(pixels,validate=True)
+        if len(decoded)!=518400 or hashlib.sha256(decoded).hexdigest()!=digest.lower():
+            raise ValueError('Corrupt backend frame bytes')
+    return snapshot
+
+
+def _backend_output_path(value):
+    output=Path(value).expanduser().absolute()
+    if os.name=='nt' and (':' in output.name or output.name.endswith(('.', ' '))):
+        raise ClientError('ADS и неоднозначные Windows имена не являются новым PNG-файлом.')
+    if output.suffix.lower()!='.png' or not output.parent.is_dir() or os.path.lexists(output):
+        raise ClientError('--output должен указывать на новый PNG в существующем каталоге; файлы не перезаписываются.')
+    if os.name=='nt' and output.name.split('.',1)[0].rstrip(' .').upper() in {'CON','PRN','AUX','NUL',*(f'COM{i}' for i in range(1,10)),*(f'LPT{i}' for i in range(1,10))}:
+        raise ClientError('Device path не является PNG-файлом.')
+    return output
+
+
+def _backend_frame_png(pixels):
+    if len(pixels)!=518400:raise ValueError('Unexpected frame bytes')
+    rgba=bytearray(len(pixels))
+    rgba[0::4]=pixels[2::4];rgba[1::4]=pixels[1::4];rgba[2::4]=pixels[0::4];rgba[3::4]=pixels[3::4]
+    stride=480*4
+    rows=b''.join(b'\0'+rgba[start:start+stride] for start in range(0,len(rgba),stride))
+    def chunk(kind,data):
+        return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data)&0xffffffff)
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!IIBBBBB',480,270,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(rows))+chunk(b'IEND',b'')
+
+
+def _backend_save_frame(snapshot,output):
+    png=_backend_frame_png(base64.b64decode(snapshot['media']['pixels'],validate=True))
+    # Exclusive creation also closes a race between the preflight and the HTTP response.
+    with output.open('xb') as handle:handle.write(png)
+    return {'api_version':snapshot['api_version'],'schema_version':snapshot['schema_version'],
+            'media':{key:value for key,value in snapshot['media'].items() if key!='pixels'},
+            'output_path':str(output),'png_sha256':hashlib.sha256(png).hexdigest()}
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--url', default='http://127.0.0.1:8787')
@@ -98,6 +192,10 @@ def parser():
     sub=commands.add_parser('backend-move')
     sub.add_argument('--clip',required=True);sub.add_argument('--start-frame',type=int,required=True)
     sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
+    for name in ['backend-media','backend-frame']:
+        sub=commands.add_parser(name)
+        sub.add_argument('--asset',required=True);sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
+        if name=='backend-frame':sub.add_argument('--frame',type=int,required=True);sub.add_argument('--output',required=True)
     for name in ['doctor', 'projects', 'requests', 'exports']:
         commands.add_parser(name)
     sub=commands.add_parser('export');sub.add_argument('--revision',type=int,required=True);sub.add_argument('--profile',choices=['draft','project','final'],default='draft');sub.add_argument('--client-key')
@@ -137,13 +235,22 @@ def task_summary(task):
 
 def execute(client, args):
     command = args.command
-    if command in ['backend-project','backend-move']:
+    if command in ['backend-project','backend-move','backend-media','backend-frame']:
         if args.project:raise ClientError('Backend project выбирается владельцем --serve-project, без --project в запросе.')
         if command=='backend-project':return client.call('GET','/api/backend/v1/project')
-        if args.revision<0 or len(args.sha256)!=64 or any(c not in '0123456789abcdefABCDEF' for c in args.sha256):
+        if type(args.revision) is not int or not 0<=args.revision<=2**63-1 or not _sha256_text(args.sha256):
             raise ClientError('Нужны observed --revision и 64 hex --sha256 из backend-project.')
-        return client.call('POST','/api/backend/v1/move-clip',{'clip_id':args.clip,'start_frame':args.start_frame,
-            'expected_revision':args.revision,'fingerprint':args.sha256})
+        if command=='backend-move':
+            return client.call('POST','/api/backend/v1/move-clip',{'clip_id':args.clip,'start_frame':args.start_frame,
+                'expected_revision':args.revision,'fingerprint':args.sha256})
+        if not isinstance(args.asset,str) or not args.asset.strip() or len(args.asset.encode('utf-16-le'))>320 or chr(0) in args.asset:
+            raise ClientError('Нужен --asset существующего материала (до160 UTF-16 символов).')
+        body={'asset_id':args.asset,'expected_revision':args.revision,'fingerprint':args.sha256}
+        if command=='backend-media':return client.call('POST','/api/backend/v1/media-info',body)
+        if type(args.frame) is not int or not 0<=args.frame<=2**31-1:raise ClientError('Нужен неотрицательный --frame в диапазоне Int32.')
+        output=_backend_output_path(args.output)
+        body['frame']=args.frame
+        return _backend_save_frame(client.call('POST','/api/backend/v1/frame',body),output)
     if command == 'doctor':
         health = client.call('GET', '/api/health')
         if health.get('app') != 'true-moon-studio':

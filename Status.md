@@ -1,8 +1,41 @@
 # Статус разработки Studio
 
-Обновлено 17.11.2026 (STUDIO-REQUESTS1; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
+Обновлено 17.11.2026 (STUDIO-BACKEND4; прежние разделы сохраняют свои даты). Состояние рабочей копии Studio. [План и ближайшая очередь](Plan.md#ближайшая-очередь) · [Модель проекта](Scenario.md#структура-проекта).
 
 После завершения этапа обновлять дату, отмечать доступные изменения, результаты проверок и оставшиеся ограничения. Приоритеты и критерии реализации вести в Plan.md.
+
+<a id="backend-media-frames"></a>
+## STUDIO-BACKEND4 — media resolver и кадры, 17.11.2026
+
+Studio **1.2611.17.4-alpha**, TrueMoon **1.2611.17.1-alpha**, SDK11/net11/runtime-async.
+Версия зафиксирована до финальной приёмки и выше main dcba204/1.2611.17.3-alpha
+по NuGet comparison. [Контракт, команды и evidence](src/Verification/BackendMedia.md).
+
+- Protocol3: metadata/один CFR-кадр по asset ID и observed revision/SHA через
+  существующий owned backend. Baseline проверяется до/после decode; read-only
+  процесс читает кадр даже при writer другой сессии. JSON/revision/history/IDs
+  не меняются, writer не перехватывается; schema2/project-contract1 сохранены.
+- Trusted resolver поддерживает mounts, relative/absolute/named aliases до IO
+  disabled legacy; protected/allowlist/traversal/reparse/device проверки.
+  FFmpeg/ffprobe bounded/owned CPU; выход480×270BGRA +pixel SHA. Raw-memory codec
+  копирует/возвращает rental; frame cache на диске не создаётся.
+- HTTPv1 media-info/frame и CLI backend-media/backend-frame с token, строгими
+  полями/types/длиной/SHA и PNG в новый файл через xb; no proxy/redirect/retry.
+  Optional config ffmpeg_executable/ffprobe_executable выбирает tools доверенно.
+- UI показывает настоящий кадр и перематывает линейкой/кнопками с source-in/out,
+  разными fps и speed. Trim/playback не включены. Missing media сохраняет
+  metadata editing, переход на него очищает прежнее изображение.
+- Финальные D/R: **по523 passed,0 failed,5 прежних skipped**; Python **312 tests,OK**;
+  published EXE **54 passed,0 failed,0 skipped**. Новые153C#cases и17Python tests.
+  Strict XML/emit builds0errors/7generatedCS8669 (5прежних+2нового DTO), без NoWarn.
+- UI/CLI кадры5/20/64 совпали с независимым full decode; actual preview crop,
+  разные реальные asset files, late baseline conflict и stop/cancel/EOF/overflow
+  cleanup проверены. 99PNG D/R и48publish совпали; native/font SHA и disposal
+  подтверждены. Авторские данные, GPU, TrueMoon-код и native окна не затронуты.
+
+Следом — непрерывное воспроизведение и звук; backend trim/export/полная MP4 parity,
+legacy Web UI schema2, physical Escape/keyboard/DPI/long timeline и прежний native
+AV остаются открытыми. [План](Plan.md#backend-media-frames).
 
 <a id="framework-requests-acceptance"></a>
 ## STUDIO-REQUESTS1 — приёмка заявок, 17.11.2026

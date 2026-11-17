@@ -3,6 +3,19 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Reads metadata for a project-selected video asset without changing writer ownership.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="assetId">Registered video asset ID.</param>
+    /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>
+    /// <param name="cancellationToken">Local call deadline.</param><returns>Bounded video metadata or a refusal.</returns>
+    Task<BackendMediaReply> MediaInfoAsync(string sessionKey, string assetId, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads one bounded CPU frame from a registered video asset at the observed project baseline.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="assetId">Registered video asset ID.</param>
+    /// <param name="frame">Nonnegative source frame index.</param><param name="expectedRevision">Observed project revision.</param>
+    /// <param name="fingerprint">Observed project SHA256.</param><param name="cancellationToken">Local call deadline.</param>
+    /// <returns>Owned BGRA pixels with SHA256, or a classified refusal.</returns>
+    Task<BackendMediaReply> FrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Checks readiness and the identity of the owned service.</summary>
     /// <param name="sessionKey">The per-launch capability.</param><param name="cancellationToken">The local call deadline.</param>
     /// <returns>The role and contract identity.</returns>

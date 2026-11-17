@@ -254,10 +254,10 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private void Refresh()
     {
         if (!ReferenceEquals(_shownScene, _model.Scene)) { Overlays.Close(); _shownScene = _model.Scene; }
-        if (!ReferenceEquals(_pixels, _model.Pixels) && _model.Pixels is { } pixels)
+        if (!ReferenceEquals(_pixels, _model.Pixels))
         {
-            var next = SkiaImageSource.CopyBgraPixels(FrameDecoder.Width, FrameDecoder.Height, pixels);
-            _preview.Source = next; _image?.Dispose(); _image = next; _pixels = pixels;
+            var next = _model.Pixels is { } pixels ? SkiaImageSource.CopyBgraPixels(FrameDecoder.Width, FrameDecoder.Height, pixels) : null;
+            _preview.Source = next; _image?.Dispose(); _image = next; _pixels = _model.Pixels;
         }
         if (!_model.Modified) _closePrompt = false;
         CloseNotice.IsVisible = _closePrompt;

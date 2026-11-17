@@ -150,3 +150,15 @@ codec не разрешает пути медиа: физический коре
 grants каталога копии, общий lease с Python и schema2 barrier; автоматической
 выдачи прав нет. HTTP/CLI общего writer реализованы в [STUDIO-BACKEND3](src/Verification/BackendHttp.md); полный media resolver/aliases ещё впереди; расширять файловые разрешения
 до всего каталога автоматически нельзя.
+
+## Backend media tools — 17.11.2026
+
+STUDIO-BACKEND4 читает зарегистрированные видео по тем же trusted roots/mounts и
+aliases без изменения исторических строк. В config v1 допустимы optional
+ffmpeg_executable/ffprobe_executable: непустые доверенные пути (относительно config).
+Без них backend ищет ffmpeg/ffprobe в PATH; системная установка/скачивание при
+старте Studio не выполняется. Legacy Python runner сохраняет свой выбор tools.
+
+Resolver откладывается до media query; неполная media-конфигурация не ломает
+metadata editing. Недоступное видео показывает пояснение, без скрытой миграции
+или повторов. [Media API, форматы/CFR, лимиты и приёмка](src/Verification/BackendMedia.md).

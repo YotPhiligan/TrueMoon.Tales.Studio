@@ -10,6 +10,8 @@ namespace TrueMoon.Tales.Studio.Infrastructure;
 internal interface ISceneService
 {
     bool SupportsPreview => true;
+    bool SupportsTrim => SupportsPreview;
+    bool PreviewOptional => false;
     Uri Media(string assetId);
     Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken);
     Task<bool> HasAudioAsync(string assetId, int stream, CancellationToken token);

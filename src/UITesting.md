@@ -125,3 +125,13 @@ OS capture, IME, переход DPI между мониторами или по�
 [backend](Verification/BackendReadOnly.md) и [перенос клипа](Verification/ClipMove.md).
 Команды брать из README/отчёта текущей поставки. Версия 1.2611.16.3-alpha сохраняется:
 STUDIO-UIQA1 добавляет только тесты/тестовые assets и документацию.
+
+## STUDIO-BACKEND4 — кадр общего backend
+
+[Приёмка и команды](Verification/BackendMedia.md): настоящий Cobalt SceneView,
+CPU raster, CLI/HTTP/Enerit и synthetic MP4. Прямые source frames5/20/64 сверяются
+с независимым full decode и rendered preview crop на scale1/1.5/2. Отдельные asset
+files, missing-image transition, read-only session при другом writer и commit
+во время decode проверяются вместе с SHA/revision/history и process cleanup.
+Требуются явные STUDIO_TEST_PYTHON, STUDIO_TEST_FFMPEG, STUDIO_TEST_FFPROBE;
+это не native/physical/DPI или continuous playback/audio/export acceptance.

@@ -21,11 +21,14 @@ internal static class BackendConfiguration
         }));
         context.PipesServiceTransport(_ => options.Endpoint, new PipesTransportOptions
         {
-            RequestTimeout = TimeSpan.FromSeconds(3), MaxPendingRequests = 4, MaxQueuedRequests = 4,
+            RequestTimeout = TimeSpan.FromSeconds(12), MaxPendingRequests = 4, MaxQueuedRequests = 4,
             MaxConcurrentRequests = 4, MaxBufferedRequestBytes = 64 * 1024, MaxConnections = 2
         });
         context.AddUnit(unit => unit
             .Services(r => r.Instance(storage).Singleton<ProjectStore>(resolver => new(resolver.Resolve<ProjectStoreOptions>()))
+                .Singleton<IFactory<BackendMediaResolver>, BackendMediaResolverFactory>()
+                .Singleton<BackendMediaDecoder>(_ => BackendMediaReader.Decoder(options))
+                .Singleton<BackendMediaReader>()
                 .Singleton<IStudioBackend, StudioBackendService>())
             .ListenInvocationService<IStudioBackend, StudioBackendService>(), configuration =>
         {
