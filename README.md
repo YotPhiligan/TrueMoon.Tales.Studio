@@ -1,6 +1,6 @@
 # True Moon Studio
 
-Текущая версия — **1.2611.17.6-alpha**; C#-прототип использует SDK 11.0.100 /
+Текущая версия — **1.2611.18.1-alpha**. C#-прототип использует SDK 11.0.100 /
 net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 сохраняют действующие операции; продуктовые метки берутся из общего
 `src/Directory.Build.props`. [Приёмка перехода](src/Verification/DotNet11.md).
@@ -11,7 +11,8 @@ net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 [STUDIO-BACKEND3](src/Verification/BackendHttp.md) подключает HTTP/CLI к той же
 writer-сессии UI с expected_revision/SHA. C# EXE требует ASP.NET Core11 runtime.
 [STUDIO-BACKEND4](src/Verification/BackendMedia.md) добавляет media resolver/aliases и одиночные кадры через общий backend для UI/CLI.
-[STUDIO-BACKEND5](src/Verification/BackendPlayback.md) добавляет непрерывный просмотр выбранного CFR-клипа со звуком, play/pause и seek. [STUDIO-BACKEND6](src/Verification/BackendTrim.md) подключает trim в UI/CLI с одной guarded записью и scenario reflow. Backend export остаётся следующим этапом.
+[STUDIO-BACKEND5](src/Verification/BackendPlayback.md) добавляет непрерывный просмотр выбранного CFR-клипа со звуком, play/pause и seek. [STUDIO-BACKEND6](src/Verification/BackendTrim.md) подключает trim в UI/CLI с одной guarded записью и scenario reflow.
+CPU-экспорт сохранённого монтажа schema2 доступен по HTTP/CLI с прогрессом, отменой, recovery и проверкой SHA MP4. [STUDIO-BACKEND7](src/Verification/BackendExport.md).
 [Приёмка закрытых заявок TrueMoon](src/Verification/FrameworkRequests.md): matching пакеты, strict XML и сквозные проверки.
 Исторические обозначения 0.15 ниже описывают прежние этапы.
 

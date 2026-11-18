@@ -104,9 +104,18 @@ internal sealed class BackendMediaDecoder(string ffmpegExecutable, string ffprob
 
     internal static string[] Input(string path, bool audio = false)
     {
+        var format = LocalInputFormat(path, audio);
+        var arguments = new List<string> { "-protocol_whitelist", "file,pipe", "-f", format };
+        if (format == "mov") arguments.AddRange(["-enable_drefs", "0", "-use_absolute_path", "0"]);
+        arguments.AddRange(["-probesize", "5242880", "-analyzeduration", "5000000", "-i", path]);
+        return arguments.ToArray();
+    }
+
+    internal static string LocalInputFormat(string path, bool audio)
+    {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) || path.StartsWith("\\\\", StringComparison.Ordinal) ||
             path.Contains('\0')) throw new UnauthorizedAccessException("A resolved local media path is required.");
-        var format = Path.GetExtension(path).ToLowerInvariant() switch
+        return Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".mp4" or ".m4v" or ".mov" or ".3gp" => "mov",
             ".mkv" or ".webm" => "matroska",
@@ -119,10 +128,6 @@ internal sealed class BackendMediaDecoder(string ffmpegExecutable, string ffprob
             ".aac" when audio => "aac",
             _ => throw new InvalidDataException("Unsupported local video container.")
         };
-        var arguments = new List<string> { "-protocol_whitelist", "file,pipe", "-f", format };
-        if (format == "mov") arguments.AddRange(["-enable_drefs", "0", "-use_absolute_path", "0"]);
-        arguments.AddRange(["-probesize", "5242880", "-analyzeduration", "5000000", "-i", path]);
-        return arguments.ToArray();
     }
 
     internal BackendPlaybackChild Stream(IEnumerable<string> arguments, CancellationToken token) => new(ffmpegExecutable, arguments, _start, token);
@@ -137,6 +142,27 @@ internal sealed class BackendMediaDecoder(string ffmpegExecutable, string ffprob
         var streams = document.RootElement.GetProperty("streams");
         if (streams.ValueKind != JsonValueKind.Array || streams.GetArrayLength() > 1) throw new InvalidDataException("Invalid audio stream metadata.");
         return streams.GetArrayLength() == 1 && streams[0].GetProperty("codec_type").GetString() == "audio";
+    }
+
+    internal async Task<double> ProbeAudioDurationAsync(string path, int stream, CancellationToken token)
+    {
+        if (stream is < 0 or > 63) throw new InvalidDataException("Invalid audio stream ordinal.");
+        var arguments = new List<string> { "-v", "error", "-threads", "1", "-max_alloc", "67108864" };
+        arguments.AddRange(Input(path, audio: true));
+        arguments.AddRange(["-select_streams", $"a:{stream}", "-show_entries",
+            "stream=codec_type,duration:format=duration", "-of", "json"]);
+        using var document = JsonDocument.Parse(await RunAsync(ffprobeExecutable, arguments, MaxProbeBytes, token).ConfigureAwait(false));
+        var root = document.RootElement;
+        var streams = root.GetProperty("streams");
+        if (streams.ValueKind != JsonValueKind.Array || streams.GetArrayLength() != 1 ||
+            streams[0].GetProperty("codec_type").GetString() != "audio")
+            throw new InvalidDataException("The selected export audio stream is missing.");
+        var value = streams[0].TryGetProperty("duration", out var duration) && duration.GetString() is { } known && known != "N/A"
+            ? known : root.GetProperty("format").GetProperty("duration").GetString();
+        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ||
+            !double.IsFinite(seconds) || seconds is <= 0 or > 86400)
+            throw new InvalidDataException("Invalid export audio duration.");
+        return seconds;
     }
 
     private async Task<byte[]> RunAsync(string executable, IEnumerable<string> arguments, int outputLimit, CancellationToken token)

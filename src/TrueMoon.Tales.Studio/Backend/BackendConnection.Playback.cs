@@ -40,10 +40,15 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
     public async Task<BackendPlaybackReply> ReadPlaybackAsync(BackendPlaybackReply opened, CancellationToken token)
     {
         if (!ValidPlaybackId(opened.SessionId)) throw new InvalidDataException("Invalid playback capability.");
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        token.ThrowIfCancellationRequested();
+        // A video stop sends ClosePlayback to interrupt this known session. Keep its UI
+        // cancellation out of writes on the shared pipe, where an interrupted frame resets the connection.
+        using var deadline = opened.Kind == "video" ? new CancellationTokenSource() : CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(opened.Kind == "audio" ? 50 : 12));
         await PlaybackIdentityAsync(deadline.Token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
         var reply = await TransportAsync(() => service.ReadPlaybackAsync(options.SessionKey, opened.SessionId, deadline.Token)).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
         ValidatePlaybackRead(reply, opened);
         return reply;
     }

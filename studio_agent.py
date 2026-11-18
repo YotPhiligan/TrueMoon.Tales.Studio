@@ -1,6 +1,7 @@
 """Small standard-library CLI for an external local agent. Never retries writes."""
 from __future__ import annotations
-import argparse, base64, hashlib, json, math, os, struct, sys, zlib
+import argparse, base64, hashlib, json, math, os, struct, sys, tempfile, time, zlib
+from http.client import IncompleteRead
 from pathlib import Path
 from urllib import error, parse, request
 
@@ -60,6 +61,11 @@ class BackendClient(StudioClient):
         self.opener=request.build_opener(request.ProxyHandler({}),_NoBackendRedirect())
 
     def call(self, method, path, body=None):
+        export_operation = _EXPORT_ROUTES.get(path)
+        if export_operation is not None:
+            if method != 'POST':
+                raise ClientError('Backend export требует POST.')
+            _backend_export_query(export_operation, body)
         if path=='/api/backend/v1/trim-clip':
             if method!='POST':raise ClientError('Backend trim требует POST.')
             _backend_trim_query(body)
@@ -74,9 +80,15 @@ class BackendClient(StudioClient):
         req=request.Request(self.url+path,data=data,headers=headers,method=method)
         try:
             with self.opener.open(req,timeout=15) as response:
-                encoded=response.read(2*1024*1024+1)
-                if len(encoded)>2*1024*1024:raise ClientError('Слишком большой ответ backend. Перечитайте проект перед следующей записью.')
-                snapshot=json.loads(encoded,object_pairs_hook=_backend_json_object)
+                if export_operation == 'chunk':
+                    return _backend_export_chunk(response)
+                limit = 16 * 1024 if export_operation else 2 * 1024 * 1024
+                encoded = response.read(limit + 1)
+                if len(encoded) > limit:
+                    raise ClientError('Слишком большой ответ backend. Перечитайте состояние перед следующей записью.')
+                snapshot = json.loads(encoded, object_pairs_hook=_backend_json_object)
+            if export_operation is not None:
+                return _backend_export_response(snapshot, export_operation, body)
             if not isinstance(snapshot,dict) or type(snapshot.get('api_version')) is not int or snapshot['api_version']!=1 or type(snapshot.get('schema_version')) is not int or snapshot['schema_version']!=2:
                 raise ValueError('Unsupported backend envelope')
             if path in ['/api/backend/v1/media-info','/api/backend/v1/frame']:
@@ -92,8 +104,8 @@ class BackendClient(StudioClient):
             try:message=json.loads(exc.read(4096)).get('error',str(exc))
             except (ValueError,OSError,AttributeError):message=str(exc)
             raise ClientError(message,exc.code) from exc
-        except (OSError,ValueError) as exc:
-            raise ClientError('Ответ backend не получен или недостоверен. Запись автоматически не повторяется; перечитайте проект для сверки результата.') from exc
+        except (OSError, ValueError, IncompleteRead) as exc:
+            raise ClientError('Ответ backend не получен или недостоверен. Перечитайте состояние проекта или задания для сверки результата.') from exc
 
 
 
@@ -108,6 +120,145 @@ def _backend_json_object(pairs):
 def _sha256_text(value):
     return isinstance(value,str) and len(value)==64 and all(c in '0123456789abcdefABCDEF' for c in value)
 
+
+
+_EXPORT_ROUTES = {f'/api/backend/v1/export-{name}': name for name in ('start', 'status', 'cancel', 'recover', 'chunk')}
+_EXPORT_PROFILES = ('draft', 'project', 'final')
+_EXPORT_STATES = ('running', 'stopping', 'completed', 'cancelled', 'failed', 'interrupted')
+_EXPORT_CHUNK_SIZE = 256 * 1024
+_EXPORT_MAX_SIZE = 1024 * 1024 * 1024
+
+
+def _export_id(value):
+    return (isinstance(value, str) and len(value) == 39 and value.startswith('export-')
+            and all(c in '0123456789abcdef' for c in value[7:]))
+
+
+def _bounded_int(value, minimum, maximum=2**63-1):
+    return type(value) is int and minimum <= value <= maximum
+
+
+def _backend_export_query(operation, body):
+    fields = {
+        'start': {'client_key', 'profile', 'expected_revision', 'fingerprint'},
+        'status': {'id'},
+        'cancel': {'id', 'expected_job_revision'},
+        'recover': {'id'},
+        'chunk': {'id', 'artifact_sha256', 'offset'},
+    }
+    if not isinstance(body, dict) or body.keys() != fields[operation]:
+        raise ClientError('Некорректные поля запроса экспорта.')
+    if operation == 'start':
+        key = body['client_key']
+        if (not isinstance(key, str) or not 16 <= len(key) <= 80
+                or not key.isascii() or not all(c.isalnum() or c in '_-' for c in key)):
+            raise ClientError('--client-key должен содержать от 16 до 80 латинских букв, цифр, дефисов и подчёркиваний.')
+        if (body['profile'] not in _EXPORT_PROFILES or not _bounded_int(body['expected_revision'], 0)
+                or not _sha256_text(body['fingerprint'])):
+            raise ClientError('Нужны профиль и observed --revision/--sha256 из backend-project.')
+        return
+    if not _export_id(body['id']):
+        raise ClientError('Нужен действительный ID экспорта.')
+    if operation == 'cancel' and not _bounded_int(body['expected_job_revision'], 1):
+        raise ClientError('Нужна --job-revision из статуса экспорта.')
+    if operation == 'chunk' and (not _sha256_text(body['artifact_sha256'])
+                                 or not _bounded_int(body['offset'], 0, _EXPORT_MAX_SIZE - 1)):
+        raise ClientError('Нужны SHA MP4 и допустимое смещение в байтах.')
+
+
+def _backend_export_response(job, operation, body):
+    fields = {'version', 'id', 'project_id', 'project_revision', 'project_fingerprint', 'profile', 'revision', 'state',
+              'request_sha256', 'frames', 'fps', 'artifact_size_bytes', 'artifact_sha256', 'error_code', 'progress_percent'}
+    if not isinstance(job, dict) or job.keys() != fields or not _bounded_int(job['version'], 1, 1):
+        raise ValueError('Unsupported export job envelope')
+    if (not _export_id(job['id']) or not isinstance(job['project_id'], str) or not job['project_id'].strip()
+            or not _bounded_int(job['project_revision'], 0) or not _bounded_int(job['revision'], 1)
+            or not _bounded_int(job['frames'], 1, 2**31-1) or not _backend_number(job['fps']) or not 0 < job['fps'] <= 240
+            or not _sha256_text(job['project_fingerprint']) or not _sha256_text(job['request_sha256'])
+            or job['profile'] not in _EXPORT_PROFILES or job['state'] not in _EXPORT_STATES
+            or (job['error_code'] is not None and not isinstance(job['error_code'], str))
+            or (job['progress_percent'] is not None and not _bounded_int(job['progress_percent'], 0, 100))):
+        raise ValueError('Invalid export job metadata')
+    size, digest = job['artifact_size_bytes'], job['artifact_sha256']
+    if job['state'] == 'completed':
+        if not _bounded_int(size, 1, _EXPORT_MAX_SIZE) or not _sha256_text(digest):
+            raise ValueError('Invalid completed export artifact')
+    elif size is not None or digest is not None:
+        raise ValueError('Unexpected artifact for unfinished export')
+    if operation == 'start':
+        if (job['project_revision'] != body['expected_revision'] or job['profile'] != body['profile']
+                or job['project_fingerprint'].lower() != body['fingerprint'].lower()):
+            raise ValueError('Export reply does not match the submitted snapshot')
+    elif job['id'] != body['id']:
+        raise ValueError('Unexpected export ID')
+    if operation == 'cancel' and (job['revision'] <= body['expected_job_revision']
+                                  or job['state'] not in ('stopping', 'cancelled')):
+        raise ValueError('Invalid export cancellation reply')
+    return job
+
+
+def _backend_export_chunk(response):
+    length = response.headers.get('Content-Length')
+    content_type = response.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+    if content_type != 'application/octet-stream' or not length or not length.isascii() or not length.isdecimal():
+        raise ValueError('Invalid artifact chunk headers')
+    if len(length) > len(str(_EXPORT_CHUNK_SIZE)) or not 1 <= int(length) <= _EXPORT_CHUNK_SIZE:
+        raise ValueError('Artifact chunk exceeds its byte limit')
+    data = response.read(_EXPORT_CHUNK_SIZE + 1)
+    if len(data) != int(length):
+        raise ValueError('Artifact chunk length does not match the response')
+    return data
+
+
+def _backend_export_destination(value):
+    output = Path(value).expanduser().absolute()
+    if os.name == 'nt':
+        drive = output.drive
+        if (len(drive) != 2 or drive[1] != ':' or
+                any(':' in part or part.endswith(('.', ' ')) or Path(part).is_reserved() for part in output.parts[1:])):
+            raise ClientError('--output должен указывать на локальный MP4 с обычным именем файла.')
+    if output.suffix.lower() != '.mp4' or not output.parent.is_dir() or os.path.lexists(output):
+        raise ClientError('--output должен указывать на новый MP4 в существующем каталоге.')
+    return output
+
+
+def _backend_download_export(client, export_id, sha256, output):
+    if not _sha256_text(sha256):
+        raise ClientError('Укажите SHA256 готового MP4 из статуса экспорта.')
+    job = client.call('POST', '/api/backend/v1/export-status', {'id': export_id})
+    if job['state'] != 'completed' or job['artifact_sha256'].lower() != sha256.lower():
+        raise ClientError('Готовый MP4 с этим SHA256 недоступен.')
+    size = job['artifact_size_bytes']
+    offset = 0
+    digest = hashlib.sha256()
+    deadline = time.monotonic() + 300
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output.parent, prefix='.studio-export-', suffix='.tmp', delete=False) as handle:
+            temporary = Path(handle.name)
+            while offset < size:
+                if time.monotonic() >= deadline:
+                    raise ClientError('Истекло время получения MP4.')
+                chunk = client.call('POST', '/api/backend/v1/export-chunk',
+                                    {'id': export_id, 'artifact_sha256': sha256, 'offset': offset})
+                if len(chunk) != min(_EXPORT_CHUNK_SIZE, size - offset):
+                    raise ClientError('Backend вернул неожиданный размер фрагмента MP4.')
+                handle.write(chunk)
+                digest.update(chunk)
+                offset += len(chunk)
+            if digest.hexdigest() != sha256.lower():
+                raise ClientError('SHA256 полученного MP4 не совпал с ожидаемым.')
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Publish the verified file in one step and fail if a destination appeared during the transfer.
+        if os.name == 'nt':
+            temporary.rename(output)
+        else:
+            os.link(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return {'id': export_id, 'artifact_sha256': digest.hexdigest(), 'artifact_size_bytes': size, 'output_path': str(output)}
 
 
 def _backend_number(value):
@@ -244,6 +395,19 @@ def parser():
     sub.add_argument('--source-out',type=float,required=True)
     sub.add_argument('--start','--start-frame',dest='start_frame',type=int,required=True)
     sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
+    sub = commands.add_parser('backend-export-start')
+    sub.add_argument('--client-key', required=True)
+    sub.add_argument('--profile', choices=_EXPORT_PROFILES, default='draft')
+    sub.add_argument('--revision', type=int, required=True)
+    sub.add_argument('--sha256', required=True)
+    for name in ('backend-export-status', 'backend-export-cancel', 'backend-export-recover', 'backend-export-download'):
+        sub = commands.add_parser(name)
+        sub.add_argument('--id', required=True)
+        if name == 'backend-export-cancel':
+            sub.add_argument('--job-revision', type=int, required=True)
+        if name == 'backend-export-download':
+            sub.add_argument('--sha256', required=True)
+            sub.add_argument('--output', required=True)
     for name in ['backend-media','backend-frame']:
         sub=commands.add_parser(name)
         sub.add_argument('--asset',required=True);sub.add_argument('--revision',type=int,required=True);sub.add_argument('--sha256',required=True)
@@ -308,6 +472,20 @@ def execute(client, args):
         output=_backend_output_path(args.output)
         body['frame']=args.frame
         return _backend_save_frame(client.call('POST','/api/backend/v1/frame',body),output)
+    if command.startswith('backend-export-'):
+        if args.project:
+            raise ClientError('Проект для экспорта выбирает владелец --serve-project.')
+        operation = command.removeprefix('backend-export-')
+        if operation == 'download':
+            return _backend_download_export(client, args.id, args.sha256, _backend_export_destination(args.output))
+        if operation == 'start':
+            body = {'client_key': args.client_key, 'profile': args.profile, 'expected_revision': args.revision,
+                    'fingerprint': args.sha256}
+        else:
+            body = {'id': args.id}
+            if operation == 'cancel':
+                body['expected_job_revision'] = args.job_revision
+        return client.call('POST', f'/api/backend/v1/export-{operation}', body)
     if command == 'doctor':
         health = client.call('GET', '/api/health')
         if health.get('app') != 'true-moon-studio':

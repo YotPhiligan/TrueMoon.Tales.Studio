@@ -3,6 +3,36 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Accepts one immutable CPU export request bound to the observed project.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="clientKey">Durable submission key.</param>
+    /// <param name="profile">Export encoding profile.</param><param name="expectedRevision">Observed project revision.</param>
+    /// <param name="fingerprint">Observed project SHA256.</param><param name="cancellationToken">Call deadline.</param>
+    /// <returns>The accepted job, its existing status after duplicate submission, or a refusal.</returns>
+    Task<BackendExportReply> StartExportAsync(string sessionKey, string clientKey, string profile, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads the durable status of one export owned by the selected project.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="id">Export job identity.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Job status or a refusal.</returns>
+    Task<BackendExportReply> ExportStatusAsync(string sessionKey, string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Requests cancellation of the owned export if its job revision still matches.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="id">Export job identity.</param>
+    /// <param name="expectedJobRevision">Observed job revision, independent of the project revision.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>The persisted cancellation request or a refusal.</returns>
+    Task<BackendExportReply> CancelExportAsync(string sessionKey, string id, long expectedJobRevision, CancellationToken cancellationToken = default);
+
+    /// <summary>Reconciles persisted job state with verified local output without relaunching any worker.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="id">Export job identity.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>The reconciled job or a refusal.</returns>
+    Task<BackendExportReply> RecoverExportAsync(string sessionKey, string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads a bounded MP4 range belonging to the completed job and expected artifact SHA256.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="id">Export job identity.</param>
+    /// <param name="artifactSha256">Published MP4 digest.</param><param name="artifactOffset">First byte of the range.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Artifact range and job status, or a refusal.</returns>
+    Task<BackendExportReply> ExportChunkAsync(string sessionKey, string id, string artifactSha256, long artifactOffset, CancellationToken cancellationToken = default);
+
     /// <summary>Trims one saved clip and projects its montage with one optimistic commit, or no commit for a no-op.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="clipId">Existing montage clip identity.</param>
     /// <param name="sourceInFrame">Inclusive source position on the project frame grid.</param>

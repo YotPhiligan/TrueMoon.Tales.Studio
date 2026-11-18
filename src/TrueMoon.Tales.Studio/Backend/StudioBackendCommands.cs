@@ -138,6 +138,7 @@ internal sealed partial class StudioBackendService
     }
     public void Dispose()
     {
+        _exports.Dispose();
         _mediaStopping.Cancel();
         _playbackGate.Wait();
         try { ClosePlaybackCoreAsync().GetAwaiter().GetResult(); }

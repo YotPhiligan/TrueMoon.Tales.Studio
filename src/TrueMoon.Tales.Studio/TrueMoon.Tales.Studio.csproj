@@ -20,4 +20,10 @@
         <PackageReference Include="NAudio.WinMM" />
     </ItemGroup>
 
+    <ItemGroup>
+        <Content Include="../../studio/**/*.py" Link="ExportWorker/studio/%(RecursiveDir)%(Filename)%(Extension)"
+                 CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="ExportWorker/RunExport.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

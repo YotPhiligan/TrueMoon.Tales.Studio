@@ -77,6 +77,11 @@ public sealed class BackendConnectionTests
 
     private sealed class UnresponsiveService : IStudioBackend
     {
+        public Task<BackendExportReply> StartExportAsync(string key, string clientKey, string profile, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendExportReply> ExportStatusAsync(string key, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendExportReply> CancelExportAsync(string key, string id, long revision, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendExportReply> RecoverExportAsync(string key, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendExportReply> ExportChunkAsync(string key, string id, string sha, long artifactOffset, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> TrimClipAsync(string key, string id, double sourceInFrame, double sourceOutFrame, int start, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendPlaybackReply> OpenPlaybackAsync(string key, string clipId, string kind, int localFrame, long revision, string fingerprint, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendPlaybackReply> ReadPlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();

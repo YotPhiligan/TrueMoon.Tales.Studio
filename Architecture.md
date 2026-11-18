@@ -10,7 +10,7 @@ STUDIO-BACKEND4–6 реализуют trusted media resolver и CPU-декод�
 native/music/events. Protocol5 передаёт bounded raw memory и SHA; UI хранит
 подготовленный PCM, управляет play/pause/seek и локальным звуковым устройством.
 HTTP/CLI используют тот же backend/writer для своих маршрутов; playback transport
-этого среза — Enerit. STUDIO-BACKEND6 добавляет trim с общей UI/backend проекцией фактических длин и guarded commit. Backend export и полный монтаж нескольких клипов ещё открыты.
+этого среза — Enerit. STUDIO-BACKEND6 добавляет trim с общей UI/backend проекцией фактических длин и guarded commit. STUDIO-BACKEND7 передаёт сохранённый монтаж в управляемый CPU worker через общий backend. Артефакты и статусы живут отдельно от проекта. [Контракт экспорта](src/Verification/BackendExport.md).
 [Контракт и границы](src/Verification/BackendPlayback.md).
 
 ## Целевая модель запуска

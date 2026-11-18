@@ -16,11 +16,12 @@ Mithril/Enerit с schema2, переносом клипа и медиапредп
 [STUDIO-BACKEND4: media resolver/aliases, кадры и CLI PNG](Verification/BackendMedia.md).
 [STUDIO-BACKEND5: непрерывное видео/звук, play/pause и seek](Verification/BackendPlayback.md).
 [STUDIO-BACKEND6: обрезка через общий backend, UI/CLI и CPU MP4](Verification/BackendTrim.md).
+[STUDIO-BACKEND7: CPU MP4 через HTTP/CLI, статус, отмена и recovery](Verification/BackendExport.md).
 [Shift+F10, перетаскивание курсора и краёв клипа](TimelineDrag.md).
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.17.6-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.18.1-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
@@ -30,8 +31,8 @@ Mithril/Enerit с schema2, переносом клипа и медиапредп
 --config <config.json>`. В доверенном config нужны отдельные `project_write_roots`
 для каталога этой копии. `--recover-project` — отдельное явное восстановление.
 Backend-редактор выполняет перенос, обрезку и просмотр выбранного CFR-клипа со
-звуком, play/pause и seek. Экспорт через backend ещё не подключён. Python HTTP продолжает
-обслуживать schema 1 и отклоняет schema 2.
+звуком, play/pause и seek. CPU-экспорт schema2 запускается по HTTP/CLI при
+настроенном runtime. Python HTTP продолжает обслуживать schema 1 и отклоняет schema 2.
 Команды и правила передачи writer — в [отчёте](Verification/BackendMove.md#запуск).
 
 HTTP/CLI schema2: `--serve-project <каталог> --config <config.json>` запускает

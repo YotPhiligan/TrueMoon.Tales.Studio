@@ -1,0 +1,68 @@
+using System.Text.Json;
+using TrueMoon.Tales.Studio.Backend.Export;
+using TrueMoon.Tales.Studio.Persistence;
+
+namespace TrueMoon.Tales.Studio.Backend;
+
+internal sealed partial class StudioBackendService
+{
+    private readonly BackendExportJobs _exports = new(options);
+
+    public Task<BackendExportReply> StartExportAsync(string sessionKey, string clientKey, string profile, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default) => ExecuteExportAsync(sessionKey, write: true, async token =>
+        {
+            async Task<ProjectFileDocument> Baseline(CancellationToken observeToken)
+            {
+                var document = await ObserveAsync(expectedRevision, fingerprint, observeToken).ConfigureAwait(false);
+                if (document.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+                return document;
+            }
+
+            return await _exports.StartAsync(clientKey, profile, expectedRevision, fingerprint, Baseline, token).ConfigureAwait(false);
+        }, cancellationToken);
+
+    public Task<BackendExportReply> ExportStatusAsync(string sessionKey, string id, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false, token => _exports.StatusAsync(id, token), cancellationToken);
+
+    public Task<BackendExportReply> CancelExportAsync(string sessionKey, string id, long expectedJobRevision, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: true, token => _exports.CancelAsync(id, expectedJobRevision, token), cancellationToken);
+
+    public Task<BackendExportReply> RecoverExportAsync(string sessionKey, string id, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: true, token => _exports.RecoverAsync(id, token), cancellationToken);
+
+    public Task<BackendExportReply> ExportChunkAsync(string sessionKey, string id, string artifactSha256, long artifactOffset,
+        CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false, token => _exports.ChunkAsync(id, artifactSha256, artifactOffset, token), cancellationToken);
+
+    private async Task<BackendExportReply> ExecuteExportAsync(string key, bool write,
+        Func<CancellationToken, Task<BackendExportReply>> execute, CancellationToken token)
+    {
+        Authorize(key);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        var acquired = false;
+        try
+        {
+            if (write)
+            {
+                await _gate.WaitAsync(deadline.Token).ConfigureAwait(false);
+                acquired = true;
+                RequireWriter();
+            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return await execute(deadline.Token).ConfigureAwait(false);
+        }
+        catch (BackendExportException error) { return new() { ErrorCode = error.Code }; }
+        catch (WriterRequiredException error) { return new() { ErrorCode = error.Message }; }
+        catch (ProjectRevisionConflictException) { return new() { ErrorCode = "revision_conflict" }; }
+        catch (ProjectMigrationRequiredException) { return new() { ErrorCode = "migration_required" }; }
+        catch (ProjectRecoveryRequiredException) { return new() { ErrorCode = "recovery_required" }; }
+        catch (UnauthorizedAccessException) { return new() { ErrorCode = "access_denied" }; }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested) { return new() { ErrorCode = "export_timeout" }; }
+        catch (Exception error) when (error is JsonException or InvalidDataException or ArgumentException or FormatException or KeyNotFoundException or OverflowException)
+        { return new() { ErrorCode = "invalid_export" }; }
+        catch (Exception error) when (error is IOException or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
+        { return new() { ErrorCode = "export_unavailable" }; }
+        finally { if (acquired) _gate.Release(); }
+    }
+}

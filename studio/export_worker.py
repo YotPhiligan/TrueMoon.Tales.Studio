@@ -1,6 +1,6 @@
 """Bounded, streaming CPU renderer. Invoked only by the explicit export action."""
 from pathlib import Path
-import fractions,hashlib,json,math,subprocess,sys,time,traceback
+import fractions,hashlib,json,math,stat,subprocess,sys,time,traceback
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from studio.model import atomic,digest
@@ -11,8 +11,10 @@ from studio.paths import check_export_path
 
 
 class DraftRenderer:
-    def __init__(self,folder):
-        self.folder=Path(folder).resolve();self.request=json.loads((self.folder/'Request.json').read_text(encoding='utf-8'))
+    def __init__(self,folder,*,request_data=None):
+        self.folder=Path(folder).resolve()
+        self.request=json.loads(request_data if request_data is not None else (self.folder/'Request.json').read_text(encoding='utf-8'))
+        self.backend_mode=request_data is not None
         self.book=Path(self.request['book'])  # Logical legacy namespace; the frozen policy guards actual IO.
         check_export_path(self.request,self.folder,write=True)
         self.started=time.monotonic();self.deadline=self.started+self.request['timeout_seconds'];self.last_progress=0
@@ -31,13 +33,39 @@ class DraftRenderer:
             self.last_progress=time.monotonic()
     def inputs(self):
         result={}
+        by_path={}
         for aid,a in self.request['assets'].items():
-            self.check();path=Path(a['path']).resolve()
-            check_export_path(self.request,path)
+            self.check();path=self.input_path(a)
             if not path.is_file():raise ValueError('Материал экспорта недоступен: '+str(path))
-            result[aid]=digest(path)
-            if a.get('expected_sha256') and result[aid]!=a['expected_sha256']:raise ValueError('Слой титра изменился после подготовки экспорта.')
+            if path not in by_path:by_path[path]=digest(path)
+            result[aid]=by_path[path]
+            expected=a.get('expected_sha256')
+            if (self.backend_mode or expected) and result[aid]!=expected:
+                raise ValueError('Материал изменился после подготовки экспорта.' if self.backend_mode
+                                 else 'Слой титра изменился после подготовки экспорта.')
         return result
+    def input_path(self,asset):
+        path=Path(asset['path'])
+        if self.backend_mode:
+            if not path.is_absolute():raise ValueError('Expected a resolved export input.')
+            for entry in (path,*path.parents):
+                metadata=entry.lstat()
+                if stat.S_ISLNK(metadata.st_mode) or getattr(metadata,'st_file_attributes',0)&stat.FILE_ATTRIBUTE_REPARSE_POINT:
+                    raise ValueError('Linked export inputs are forbidden.')
+        return check_export_path(self.request,path)
+    def input_format(self,asset):
+        if not self.backend_mode:return None,{}
+        container=asset.get('format')
+        if container not in {'mov','matroska','avi','wav','mp3','flac','ogg','aac'}:
+            raise ValueError('Unsupported export input container.')
+        options={'protocol_whitelist':'file,pipe'}
+        if container=='mov':options.update(enable_drefs='0',use_absolute_path='0')
+        return container,options
+    def input_arguments(self,asset):
+        container,options=self.input_format(asset)
+        args=['-f',container] if container else []
+        for name,value in options.items():args.extend(['-'+name,value])
+        return [*args,'-i',str(self.input_path(asset))]
     def command(self,args):
         self.check()
         with (self.folder/'FFmpeg.log').open('ab') as log:
@@ -54,7 +82,12 @@ class DraftRenderer:
         titles=TitleCompositor(self.request)
         try:
             for part in parts(self.request):
-                clip=part['clip'];decoder=SourceFrames(self.request['assets'][clip['asset_id']]['path'],clip['source_in_frame']/self.fps) if clip else None
+                clip=part['clip'];decoder=None
+                if clip:
+                    asset=self.request['assets'][clip['asset_id']]
+                    container,options=self.input_format(asset)
+                    decoder=SourceFrames(str(self.input_path(asset)),clip['source_in_frame']/self.fps,
+                                         container=container,options=options)
                 try:
                     cached=None;pixels=black
                     for index in range(part['start_frame'],part['start_frame']+part['duration_frames']):
@@ -81,17 +114,20 @@ class DraftRenderer:
         for index,part in enumerate(all_parts):
             self.progress('Звук клипов',75+15*index/max(1,len(all_parts)),True)
             clip=part['clip'];name=f'Audio-{index:04}.wav';files.append(name);target=round((part['start_frame']+part['duration_frames'])/self.fps*48000)-round(part['start_frame']/self.fps*48000)
-            path=self.request['assets'][clip['asset_id']]['path'] if clip and not clip.get('mute_native_audio') else None
+            asset=self.request['assets'][clip['asset_id']] if clip and not clip.get('mute_native_audio') else None
             has_audio=False
-            if path:
-                with av.open(path) as source:has_audio=bool(source.streams.audio)
+            if asset:
+                container,options=self.input_format(asset)
+                with av.open(str(self.input_path(asset)),format=container,options=options) as source:
+                    has_audio=bool(source.streams.audio)
             if has_audio:
                 rate=clip['speed'];tempos=[]
                 while rate<.5:tempos.append('atempo=0.5');rate/=.5
                 while rate>2:tempos.append('atempo=2');rate/=2
-                tempos.append(f'atempo={rate:.12g}')
-                filters=f"atrim=start={clip['source_in_frame']/self.fps:.12f}:end={clip['source_out_frame']/self.fps:.12f},asetpts=PTS-STARTPTS,"+','.join(tempos)+f',aresample=48000,apad,atrim=end_sample={target}'
-                args=['-threads','2','-i',path,'-map','0:a:0','-vn','-af',filters]
+                if rate!=1 or not self.backend_mode:tempos.append(f'atempo={rate:.12g}')
+                filters=','.join([f"atrim=start={clip['source_in_frame']/self.fps:.12f}:end={clip['source_out_frame']/self.fps:.12f}",
+                                  'asetpts=PTS-STARTPTS',*tempos,'aresample=48000','apad',f'atrim=end_sample={target}'])
+                args=['-threads','2',*self.input_arguments(asset),'-map','0:a:0','-vn','-af',filters]
             else:args=['-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-af',f'atrim=end_sample={target}']
             self.command([*args,'-ar','48000','-ac','2','-c:a','pcm_s16le','-n',str(self.folder/name)])
         (self.folder/'Audio.concat.txt').write_text(''.join("file '"+name+"'\n" for name in files),encoding='utf-8')
@@ -102,13 +138,13 @@ class DraftRenderer:
             args+=['-f','concat','-safe','1','-i',str(self.folder/'Audio.concat.txt')]
             filters.append(f'[{input_index}:a]apad,atrim=end_sample={self.samples},asetpts=PTS-STARTPTS[native]');labels.append('[native]');input_index+=1
         if music and not music['muted'] and music['gain']>0:
-            args+=['-i',self.request['assets'][music['asset_id']]['path']]
+            args+=self.input_arguments(self.request['assets'][music['asset_id']])
             filters.append(f"[{input_index}:a]atrim=start={music['source_in_frame']/self.fps:.12f}:duration={music['duration_frames']/self.fps:.12f},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={music['gain']:.12g},adelay={round(music['start_frame']/self.fps*48000)}S:all=1,apad,atrim=end_sample={self.samples}[music]")
             labels.append('[music]')
             input_index+=1
         for i,e in enumerate(self.request.get('sounds',[])):
             if e['muted'] or e['gain']==0:continue
-            args+=['-i',self.request['assets'][e['asset_id']]['path']]
+            args+=self.input_arguments(self.request['assets'][e['asset_id']])
             label=f'event{i}'
             filters.append(f"[{input_index}:a:{e['stream']}]atrim=start={e['source_in_frame']/self.fps:.12f}:duration={e['duration_frames']/self.fps:.12f},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={e['gain']:.12g},adelay={round(e['start_frame']/self.fps*48000)}S:all=1,apad,atrim=end_sample={self.samples}[{label}]")
             labels.append(f'[{label}]');input_index+=1
@@ -138,9 +174,9 @@ class DraftRenderer:
 
 class SourceFrames:
     """Keep only the current and next decoded frames; select the frame containing t."""
-    def __init__(self,path,start):
+    def __init__(self,path,start,*,container=None,options=None):
         import av
-        self.container=av.open(path);self.stream=self.container.streams.video[0];self.stream.thread_type='SLICE';self.stream.codec_context.thread_count=2
+        self.container=av.open(path,format=container,options=options);self.stream=self.container.streams.video[0];self.stream.thread_type='SLICE';self.stream.codec_context.thread_count=2
         self.origin=(self.container.start_time or 0)/av.time_base
         if start>0:self.container.seek(max(0,int((start+self.origin)/self.stream.time_base)),stream=self.stream,backward=True)
         self.decoder=iter(self.container.decode(self.stream));self.current=next(self.decoder);self.next=next(self.decoder,None)

@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 namespace TrueMoon.Tales.Studio.Backend.Http;
 
 // The parent owns the HTTP listener; all project I/O stays in the same owned Enerit backend as the UI.
-internal sealed class BackendHttpServer(BackendConnection backend, int port = 0) : IAsyncDisposable
+internal sealed partial class BackendHttpServer(BackendConnection backend, int port = 0) : IAsyncDisposable
 {
     internal const string ProjectRoute = "/api/backend/v1/project";
     internal const string MoveRoute = "/api/backend/v1/move-clip";
@@ -146,15 +146,20 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
                     : await backend.MediaInfoAsync(request.AssetId, request.ExpectedRevision, request.Fingerprint, deadline.Token).ConfigureAwait(false);
                 await context.Response.WriteAsJsonAsync(new BackendHttpMediaSnapshot(1, 2, result), Json, deadline.Token).ConfigureAwait(false);
             }
+            else if (path is ExportStartRoute or ExportStatusRoute or ExportCancelRoute or ExportRecoverRoute or ExportChunkRoute)
+                await HandleExportAsync(context, path, deadline.Token).ConfigureAwait(false);
             else await Error(context, 404, "not_found");
         }
         catch (BackendCommandException error)
         {
             var status = error.Code switch
             {
-                "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or "recovery_conflict" => 409,
-                "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" => 422, "access_denied" or "write_not_enabled" => 403,
-                "project_not_found" or "media_not_found" => 404, "media_busy" => 429, "media_timeout" => 504,
+                "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or
+                    "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" => 409,
+                "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" => 422,
+                "access_denied" or "write_not_enabled" => 403,
+                "project_not_found" or "media_not_found" or "export_not_found" => 404,
+                "media_busy" or "export_busy" => 429, "media_timeout" or "export_timeout" => 504,
                 "project_too_large" => 413, _ => 503
             };
             await Error(context, status, error.Code, true);
@@ -163,7 +168,7 @@ internal sealed class BackendHttpServer(BackendConnection backend, int port = 0)
         catch (JsonException) { await Error(context, 400, "invalid_request"); }
         catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested) { await Error(context, 504, "deadline_exceeded", true); }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
-        catch (Exception error) when (error is IOException or InvalidOperationException)
+        catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException)
         { await Error(context, 503, "backend_unavailable", true); }
         finally { _slots.Release(); }
     }

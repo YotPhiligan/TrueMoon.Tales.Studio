@@ -59,6 +59,11 @@ public sealed class BackendLostReplyTests
     // Only fault injection is doubled: the invocation, process, store and UI are real.
     private sealed class DropReply(IStudioBackend inner) : IStudioBackend
     {
+        public Task<BackendExportReply> StartExportAsync(string key, string clientKey, string profile, long revision, string hash, CancellationToken cancellationToken = default) => inner.StartExportAsync(key, clientKey, profile, revision, hash, cancellationToken);
+        public Task<BackendExportReply> ExportStatusAsync(string key, string id, CancellationToken cancellationToken = default) => inner.ExportStatusAsync(key, id, cancellationToken);
+        public Task<BackendExportReply> CancelExportAsync(string key, string id, long revision, CancellationToken cancellationToken = default) => inner.CancelExportAsync(key, id, revision, cancellationToken);
+        public Task<BackendExportReply> RecoverExportAsync(string key, string id, CancellationToken cancellationToken = default) => inner.RecoverExportAsync(key, id, cancellationToken);
+        public Task<BackendExportReply> ExportChunkAsync(string key, string id, string sha, long artifactOffset, CancellationToken cancellationToken = default) => inner.ExportChunkAsync(key, id, sha, artifactOffset, cancellationToken);
         public Task<BackendProjectReply> TrimClipAsync(string key, string id, double sourceInFrame, double sourceOutFrame, int start, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.TrimClipAsync(key, id, sourceInFrame, sourceOutFrame, start, revision, fingerprint, cancellationToken);
         public Task<BackendPlaybackReply> OpenPlaybackAsync(string key, string clipId, string kind, int localFrame, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.OpenPlaybackAsync(key, clipId, kind, localFrame, revision, fingerprint, cancellationToken);
         public Task<BackendPlaybackReply> ReadPlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => inner.ReadPlaybackAsync(key, id, cancellationToken);

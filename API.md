@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame; protocol4 описан в STUDIO-BACKEND5; текущий protocol5 — в STUDIO-BACKEND6 ниже. HTTP APIv1 и storage schema2 /
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, текущий protocol6 — в STUDIO-BACKEND7 ниже. HTTP APIv1 и storage schema2 /
 ProjectContractv1 сохранены; прежние protocol2 записи ниже относятся к BACKEND2/3.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
@@ -88,7 +88,7 @@ STUDIO-BACKEND5 добавляет Enerit protocol4 OpenPlayback/ReadPlayback/Cl
 CLI сохраняются; HTTP playback endpoint этим этапом не вводится.
 [Контракт и границы](src/Verification/BackendPlayback.md).
 
-STUDIO-BACKEND6: текущий Enerit protocol5 добавляет TrimClipAsync; HTTPv1
+STUDIO-BACKEND6 добавляет TrimClipAsync в Enerit protocol5. HTTPv1
 получает POST `/api/backend/v1/trim-clip` с clip_id, source_in_frame,
 source_out_frame, start_frame, expected_revision, fingerprint. Source-in/out —
 конечные неотрицательные числа в кадрах проекта, start — целый абсолютный кадр.
@@ -96,6 +96,28 @@ source_out_frame, start_frame, expected_revision, fingerprint. Source-in/out —
 invalid_trim422. CLI: `backend-trim --clip ID --source-in N --source-out N
 --start N --revision R --sha256 SHA`; URL/token задаются как у backend-move.
 [Контракт и проверки](src/Verification/BackendTrim.md).
+
+## CPU MP4 для schema2
+
+STUDIO-BACKEND7 добавляет экспорт через Enerit protocol6 к тому же владельцу
+проекта. Все запросы ниже — POST с JSON и обычным `X-Studio-Token`. Префикс
+маршрутов — `/api/backend/v1/`.
+
+| Маршрут | Обязательные поля |
+|---|---|
+| `export-start` | `client_key`, `profile` (draft/project/final), `expected_revision`, `fingerprint` сохранённого проекта |
+| `export-status` | `id` |
+| `export-cancel` | `id`, `expected_job_revision` |
+| `export-recover` | `id` |
+| `export-chunk` | `id`, `artifact_sha256`, `offset` в байтах |
+
+Запуск, отмена и recovery требуют writer-сессию. Повтор запуска с тем же
+ключом и исходными данными возвращает сохранённое задание, включая terminal
+status. Тот же ключ для другого профиля или baseline даёт конфликт. Статус
+содержит отдельную ревизию, SHA запроса, прогресс и метаданные завершённого
+MP4. Chunk выдаёт до 256 КиБ бинарных данных с `Content-Length`. CLI сверяет
+размер и итоговый SHA перед созданием нового файла. Настройка, ошибки и
+полный пример цикла приведены в [контракте экспорта](src/Verification/BackendExport.md).
 
 ## Сессия и версия
 
