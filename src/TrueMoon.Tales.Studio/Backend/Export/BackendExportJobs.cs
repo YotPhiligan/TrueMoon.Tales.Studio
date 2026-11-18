@@ -192,6 +192,33 @@ internal sealed class BackendExportJobs : IDisposable
         finally { _gate.Release(); }
     }
 
+    internal async Task<(BackendExportStatus Job, FileStream File)> OpenReviewAsync(string id, long revision, string fingerprint, CancellationToken token)
+    {
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            var storage = _storage.Value;
+            var directory = storage.JobDirectory(id);
+            var job = Load(storage, directory, id);
+            if (job.State != "completed") throw new BackendExportException("export_not_ready");
+            if (job.ProjectRevision != revision || !EqualHash(job.ProjectFingerprint, fingerprint))
+                throw new BackendExportException("export_conflict");
+            // Keep the verified bytes pinned while FFmpeg opens the same authorized file.
+            var path = storage.Check(Path.Combine(directory, "Draft.mp4"));
+            var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, FileOptions.Asynchronous);
+            try
+            {
+                if (file.Length != job.ArtifactSizeBytes ||
+                    !EqualHash(Convert.ToHexString(await SHA256.HashDataAsync(file, token).ConfigureAwait(false)), job.ArtifactSha256))
+                    throw new BackendExportException("invalid_export_artifact");
+                storage.Check(path);
+                return (job, file);
+            }
+            catch { await file.DisposeAsync().ConfigureAwait(false); throw; }
+        }
+        finally { _gate.Release(); }
+    }
+
     private async Task RunAsync(BackendExportStorage storage, ActiveJob job)
     {
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(job.Stop.Token, _shutdown.Token);

@@ -21,7 +21,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         {
             return await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, token).ConfigureAwait(false);
         }
-        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ScenarioEditException)
         {
             throw new InvalidDataException("Invalid saved metadata for CPU export.", error);
         }
@@ -43,7 +43,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         if (montage.Clips.Length is < 1 or > 2000 || montage.Windows.Length > 200)
             throw new InvalidDataException("CPU export requires a saved montage with 1 to 2000 clips and at most 200 windows.");
         RequireEmpty(montage.Properties, "titles");
-        RequireEmpty(montage.Properties, "transitions");
+        var transitionWindows = BackendBlackTransitions.Compile(montage);
 
         var windows = montage.Windows.OrderBy(row => row.StartFrame).ToArray();
         int frames = 0;
@@ -109,7 +109,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 preset = final ? "medium" : "veryfast", crf = final ? 18 : 25,
                 audio_codec = "aac", audio_bitrate_kbps = final ? 320 : 192
             },
-            clips = placements, music, clip_audio = clipAudio, sounds, assets = registry.Assets, timeout_seconds = 300
+            clips = placements, transition_windows = transitionWindows, music, clip_audio = clipAudio, sounds, assets = registry.Assets, timeout_seconds = 300
         }, Json);
         token.ThrowIfCancellationRequested();
         return new(request, frames, fps, size[0], size[1]);

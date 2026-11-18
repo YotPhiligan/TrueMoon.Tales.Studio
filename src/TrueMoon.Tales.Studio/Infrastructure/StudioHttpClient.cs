@@ -13,6 +13,9 @@ internal interface ISceneService
     bool SupportsTrim => SupportsPreview;
     bool UsesTrimLayout => false;
     bool PreviewOptional => false;
+    bool SupportsMontageEdits => false;
+    Task<EditorOpening> EditMontageAsync(Backend.ScenarioCommand command, string? clipId, CancellationToken token) =>
+        throw new NotSupportedException();
     Uri Media(string assetId);
     Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken);
     async Task<EditorOpening> OpenEditorAsync(string? clipId, CancellationToken cancellationToken) =>

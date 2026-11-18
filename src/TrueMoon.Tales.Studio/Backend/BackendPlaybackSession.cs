@@ -17,6 +17,7 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
     private readonly List<FileStream> _leases;
     private readonly Task _producer;
     private readonly BackendPlaybackReply _metadata;
+    private readonly int _nativeOffset;
     private readonly Action _validatePaths;
     private int _disposed;
     internal string Id => _metadata.SessionId;
@@ -29,9 +30,10 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
 
     internal BackendPlaybackSession(BackendMediaDecoder decoder, SceneSnapshot scene, BackendVideoInfo video,
         string videoPath, IReadOnlyList<(AudioSlice Slice, string Path)> audio, List<FileStream> leases,
-        string kind, int localFrame, string fingerprint, CancellationToken stopping, Action validatePaths)
+        string kind, int localFrame, string fingerprint, CancellationToken stopping, Action validatePaths, int nativeOffset = 0)
     {
         _leases = leases;
+        _nativeOffset = nativeOffset;
         _validatePaths = validatePaths;
         _stop = CancellationTokenSource.CreateLinkedTokenSource(stopping, _idle.Token);
         _stop.CancelAfter(TimeSpan.FromMinutes(12));
@@ -110,7 +112,7 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
                 previous++;
                 if (previous == desired) pixels = scratch.ToArray();
             }
-            var reply = Metadata(); reply.LocalFrame = frame; reply.NativeFrame = desired; reply.Data = pixels!;
+            var reply = Metadata(); reply.LocalFrame = frame; reply.NativeFrame = desired - _nativeOffset; reply.Data = pixels!;
             reply.DataSha256 = Convert.ToHexString(SHA256.HashData(reply.Data));
             await _queue.Writer.WriteAsync(reply, token).ConfigureAwait(false);
         }

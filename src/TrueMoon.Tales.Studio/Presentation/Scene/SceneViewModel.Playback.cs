@@ -25,16 +25,21 @@ internal sealed partial class SceneViewModel
 
     private void PreparePlayback(SceneSnapshot scene)
     {
-        PausePlayback();
-        _playCursor = false;
-        _audioScope?.Cancel(); _audioScope?.Dispose(); _audioScope = null;
-        if (_audioPreparation is { } old) Observe(old);
-        _audioPreparation = null; _audio = null;
+        ClearPreparedPlayback();
         // A missing/unsupported video keeps metadata editing available; it cannot start a clip preview.
         if (_playback is null || Pixels is null) return;
         _audioScope = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
         MediaStatus = "Подготовка звуковой волны…";
         _audioPreparation = _playback.PrepareAsync(scene, _audioScope.Token);
+    }
+
+    private void ClearPreparedPlayback()
+    {
+        PausePlayback();
+        _playCursor = false;
+        _audioScope?.Cancel(); _audioScope?.Dispose(); _audioScope = null;
+        if (_audioPreparation is { } old) Observe(old);
+        _audioPreparation = null; _audio = null;
     }
 
     private bool PollPlayback(TimeSpan elapsed)

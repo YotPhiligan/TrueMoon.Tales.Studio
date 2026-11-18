@@ -18,6 +18,9 @@ internal static class BackendScenarioEdit
         RelinkVideo edit => await RelinkAsync(project, edit, probe, token).ConfigureAwait(false),
         PlaceClip edit => await PlaceAsync(project, edit, probe, token).ConfigureAwait(false),
         AssignTake edit => await AssignAsync(project, edit, probe, token).ConfigureAwait(false),
+        SplitMontageClip edit => BackendMontageEdits.Split(project, edit),
+        RemoveMontageClip edit => BackendMontageEdits.Remove(project, edit),
+        SetBlackTransition edit => BackendBlackTransitions.Apply(project, edit),
         _ => throw Invalid()
     };
 
@@ -27,7 +30,7 @@ internal static class BackendScenarioEdit
         project.Montage.Properties.TryGetValue(ExplicitWindows, out var value) && value.ValueKind == JsonValueKind.Array
             ? value.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()!).ToArray() : [];
 
-    private static ProjectContract MarkExplicit(ProjectContract project, IEnumerable<string> windowIds)
+    internal static ProjectContract MarkExplicit(ProjectContract project, IEnumerable<string> windowIds)
     {
         var old = ManualWindows(project);
         var ids = old.Union(windowIds, StringComparer.Ordinal).ToArray();

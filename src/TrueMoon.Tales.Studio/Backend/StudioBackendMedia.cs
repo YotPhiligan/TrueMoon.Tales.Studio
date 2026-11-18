@@ -1,4 +1,5 @@
 using TrueMoon.Tales.Studio.Persistence;
+using TrueMoon.Tales.Studio.Backend.Export;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -36,7 +37,16 @@ internal sealed partial class StudioBackendService
             var document = await ObserveAsync(revision, fingerprint, timeout.Token).ConfigureAwait(false);
             if (document.SchemaVersion != 2) return new() { ErrorCode = "migration_required" };
             if (media is null) return new() { ErrorCode = "decoder_unavailable" };
-            var reply = await media.ReadAsync(document.Project, assetId, frame, timeout.Token).ConfigureAwait(false);
+            BackendMediaReply reply;
+            if (BackendRenderedMontage.IsReview(assetId))
+            {
+                var (id, start) = BackendRenderedMontage.Parse(assetId);
+                var (job, file) = await _exports.OpenReviewAsync(id, revision, fingerprint, timeout.Token).ConfigureAwait(false);
+                await using var owned = file;
+                var review = BackendRenderedMontage.Resolve(assetId, document.Project, job, start);
+                reply = await media.ReadReviewedAsync(review, file.Name, frame, timeout.Token).ConfigureAwait(false);
+            }
+            else reply = await media.ReadAsync(document.Project, assetId, frame, timeout.Token).ConfigureAwait(false);
             if (reply.ErrorCode.Length != 0) return reply;
             // A concurrent move cannot silently label a frame with a different project baseline.
             await ObserveAsync(revision, fingerprint, timeout.Token).ConfigureAwait(false);
@@ -46,6 +56,9 @@ internal sealed partial class StudioBackendService
         catch (ProjectRevisionConflictException) { return new() { ErrorCode = "revision_conflict" }; }
         catch (ProjectRecoveryRequiredException) { return new() { ErrorCode = "recovery_required" }; }
         catch (UnauthorizedAccessException) { return new() { ErrorCode = "access_denied" }; }
+        catch (BackendExportException error) { return new() { ErrorCode = error.Code }; }
+        catch (FileNotFoundException) { return new() { ErrorCode = "media_not_found" }; }
+        catch (InvalidDataException) { return new() { ErrorCode = "invalid_media" }; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested) { return new() { ErrorCode = "media_timeout" }; }
         catch (ArgumentException) { return new() { ErrorCode = "invalid_request" }; }
         catch (IOException) { return new() { ErrorCode = "project_io_error" }; }

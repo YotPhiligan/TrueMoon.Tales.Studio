@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Backend.Export;
 using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -18,10 +19,25 @@ internal sealed partial class StudioBackendService
             var baseline = await ObserveAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
             if (baseline.SchemaVersion != 2) return new() { ErrorCode = "migration_required" };
             if (media is null) return new() { ErrorCode = "decoder_unavailable" };
-            _playback = await media.OpenPlaybackAsync(baseline.Project, clipId, kind, localFrame, fingerprint, token, _mediaStopping.Token).ConfigureAwait(false);
+            _playback = BackendRenderedMontage.IsReview(clipId)
+                ? await OpenReviewedPlaybackAsync(baseline, clipId, kind, localFrame, token).ConfigureAwait(false)
+                : await media.OpenPlaybackAsync(baseline.Project, clipId, kind, localFrame, fingerprint, token, _mediaStopping.Token).ConfigureAwait(false);
             await ObserveAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
             return _playback.Metadata();
         }, cancellationToken);
+
+    private async Task<BackendPlaybackSession> OpenReviewedPlaybackAsync(ProjectFileDocument baseline, string key, string kind, int localFrame,
+        CancellationToken token)
+    {
+        var (id, start) = BackendRenderedMontage.Parse(key);
+        var (job, file) = await _exports.OpenReviewAsync(id, baseline.Project.Revision, baseline.Fingerprint, token).ConfigureAwait(false);
+        try
+        {
+            var review = BackendRenderedMontage.Resolve(key, baseline.Project, job, start);
+            return await media!.OpenReviewedAsync(review, file, kind, localFrame, token, _mediaStopping.Token).ConfigureAwait(false);
+        }
+        catch { await file.DisposeAsync().ConfigureAwait(false); throw; }
+    }
 
     public Task<BackendPlaybackReply> ReadPlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default) =>
         PlaybackOperationAsync(sessionKey, async token =>
@@ -65,6 +81,7 @@ internal sealed partial class StudioBackendService
             if (error is OperationCanceledException && token.IsCancellationRequested) throw;
             return new() { ErrorCode = error switch
             {
+                BackendExportException export => export.Code,
                 ProjectRevisionConflictException => "revision_conflict", ProjectRecoveryRequiredException => "recovery_required",
                 UnauthorizedAccessException => "access_denied", OperationCanceledException => "media_timeout",
                 FileNotFoundException or DirectoryNotFoundException => "media_not_found", Win32Exception => "decoder_unavailable",

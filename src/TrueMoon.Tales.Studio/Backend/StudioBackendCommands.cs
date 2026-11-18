@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
 using TrueMoon.Tales.Studio.Persistence;
 
@@ -8,6 +9,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 internal sealed partial class StudioBackendService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly MontageUndoHistory _montageHistory = new();
     private ProjectWriterLease? _writer;
     private bool _disposed;
 
@@ -37,7 +39,7 @@ internal sealed partial class StudioBackendService
             if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);
             if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
                 return Failure("project_too_large");
-            return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false));
+            return await SaveMontageAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
 
     public Task<BackendProjectReply> TrimClipAsync(string sessionKey, string clipId, double sourceInFrame, double sourceOutFrame,
@@ -61,7 +63,7 @@ internal sealed partial class StudioBackendService
             draft = BackendTrim.Apply(baseline.Project, active, clipId, sourceInFrame, sourceOutFrame, startFrame, capacity);
             if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
                 return Failure("project_too_large");
-            return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false));
+            return await SaveMontageAsync(baseline, draft, expectedRevision, "studio:enerit", cancellationToken).ConfigureAwait(false);
         }, cancellationToken);
 
     public Task<BackendProjectReply> MigrateProjectAsync(string sessionKey, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
@@ -111,6 +113,7 @@ internal sealed partial class StudioBackendService
         catch (ProjectStoreBusyException) { return Failure("writer_busy"); }
         catch (InvalidMoveException) { return Failure("invalid_move"); }
         catch (InvalidTrimException) { return Failure("invalid_trim"); }
+        catch (ScenarioEditException error) { return Failure(error.Code); }
         catch (UnauthorizedAccessException) { return Failure("access_denied"); }
         catch (FileNotFoundException) { return Failure("project_not_found"); }
         catch (DirectoryNotFoundException) { return Failure("project_not_found"); }
@@ -132,11 +135,23 @@ internal sealed partial class StudioBackendService
             scenario.ValueKind == JsonValueKind.Object && scenario.EnumerateObject().Any();
     }
 
-    private static BackendProjectReply Reply(ProjectFileDocument document)
+    private async Task<BackendProjectReply> SaveMontageAsync(ProjectFileDocument baseline, ProjectContract draft,
+        long expectedRevision, string actor, CancellationToken token)
+    {
+        BackendBlackTransitions.Validate(draft.Montage);
+        var saved = await store.SaveAsync(baseline, draft, expectedRevision, actor, token).ConfigureAwait(false);
+        _montageHistory.Record(baseline, saved);
+        return Reply(saved);
+    }
+
+    private BackendProjectReply Reply(ProjectFileDocument document)
     {
         var json = ProjectContractJson.Serialize(document.Project);
+        // Enerit's string codec uses UTF-16. Reserve space for the reply envelope.
         if (Encoding.Unicode.GetByteCount(json) > MaxProjectBytes) return Failure("project_too_large");
-        return new() { SchemaVersion = document.SchemaVersion, Fingerprint = document.Fingerprint, ProjectJson = json, ScenarioActive = ScenarioActive(document) };
+        var (undo, redo) = _montageHistory.Available(document.Fingerprint);
+        return new() { SchemaVersion = document.SchemaVersion, Fingerprint = document.Fingerprint, ProjectJson = json,
+            ScenarioActive = ScenarioActive(document), CanUndoMontage = undo, CanRedoMontage = redo };
     }
     public void Dispose()
     {

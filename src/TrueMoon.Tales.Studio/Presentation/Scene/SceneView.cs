@@ -18,6 +18,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     internal static readonly ViewStyleRole<VStack> StackRole = new("studio.stack");
     private readonly SceneViewModel _model;
     private readonly SceneExport? _export;
+    private readonly MontageTools? _montageTools;
     private readonly ScenarioWorkspace? _scenario;
     private readonly ContentControl _page = new();
     private readonly Button? _scenarioButton;
@@ -30,6 +31,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private readonly Button _play;
     private readonly Button _previewMontage, _previewSource, _timelineWidth, _exportButton;
     private SceneExportPanel? _exportPanel;
+    private RenderedReviewPanel? _review;
     private bool _openExport;
     private readonly Text _status = new(), _revision = new(), _edit = new(), _sourceStart = new(), _sourceEnd = new(), _duration = new();
     private readonly Text _savedRange = new(), _editProblem = new();
@@ -89,13 +91,15 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 Command("К началу", StudioCommand.ReturnToClip), Command("Пред. кадр", StudioCommand.Previous),
                 Command("След. кадр", StudioCommand.Next), Command("К концу", StudioCommand.End))));
         SaveButton = Command("Сохранить обрезку", StudioCommand.Save);
+        _montageTools = model.SupportsMontageEdits ? new(model, Refresh) : null;
         Inspector = Border.Create().WithRole(PaneRole).Content(new InspectorLayout(
             Stack(Text.Plain("Монтажный клип").WithRole(CaptionRole), _edit),
-            ScrollViewer.Create().Content(Stack(
+            ScrollViewer.Create().Content(Stack([
                 _savedRange.WithRole(MutedRole), _editProblem,
                 Text.Plain("Вход · кадры источника").WithRole(MutedRole), ValueBox(_sourceStart), Command("Начало по кадру", StudioCommand.SetStart),
                 Text.Plain("Выход · не включается").WithRole(MutedRole), ValueBox(_sourceEnd), Command("Конец после кадра", StudioCommand.SetEnd),
-                Text.Plain("Длина на шкале").WithRole(MutedRole), _duration)),
+                Text.Plain("Длина на шкале").WithRole(MutedRole), _duration,
+                .. (_montageTools is null ? Array.Empty<Element>() : new Element[] { _montageTools })])),
             Stack(SaveButton, Command("Отменить черновик", StudioCommand.Cancel))));
         _strip = new(model, Refresh) { AccessibleName = "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена" };
         _timelineWidth = Command("Компактно", StudioCommand.WideTimeline);
@@ -142,6 +146,25 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         _scenario?.ClearPreview();
         _page.SetContent(Overlays);
+        _model.Open();
+        Refresh();
+    }
+
+    private void OpenReview(bool segment)
+    {
+        if (_export?.CanReview(_model.Scene) != true || !_model.CanReload) return;
+        Overlays.Close();
+        _review = _export.Review(_model, segment, CloseReview);
+        _page.SetContent(_review);
+    }
+
+    private void CloseReview()
+    {
+        var review = _review;
+        if (review is null) return;
+        _review = null;
+        _page.SetContent(Overlays);
+        review.Dispose();
         _model.Open();
         Refresh();
     }
@@ -203,7 +226,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             {
                 _model.PausePlayback();
                 if (_export.CanInspect) _export.Inspect();
-                var panel = new SceneExportPanel(_export, _model, () => Overlays.Close());
+                var panel = new SceneExportPanel(_export, _model, () => Overlays.Close(), OpenReview);
                 Overlays.Open(_exportButton, panel, _exportButton.Bounds, context, _exportButton);
                 _exportPanel = panel;
                 panel.FocusFirst(context);
@@ -252,7 +275,15 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     public int InputPriority => -10;
     public bool PreviewInput(UiInput input, IInputContext context)
     {
+        if (_review is not null)
+        {
+            if (input.Kind == InputKind.FocusLost) _review.Pause();
+            if (input.Kind != InputKind.KeyDown || input.Key != UiKey.Escape) return false;
+            CloseReview();
+            return true;
+        }
         if (ScenarioVisible) return false;
+        if (input.Kind == InputKind.KeyDown && input.Key == UiKey.Escape && _montageTools?.CancelDelete() == true) return true;
         if (input.Kind == InputKind.FocusLost) { _model.PausePlayback(); Refresh(); }
         if (_strip.IsDragging)
         {
@@ -411,6 +442,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             SyncRows(_takeButtons, _takes, [], SelectTake, false);
         }
         _exportPanel?.Refresh();
+        _montageTools?.Refresh();
         _header?.Refresh(); _commands.Refresh(); _strip.Invalidate(); _layout.Sync();
     }
 
@@ -437,8 +469,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Overlays.Closed -= ContextClosed;
         _export?.Dispose();
         _preview.Source = null; _image?.Dispose(); _image = null;
-        if (ScenarioVisible) Overlays.Dispose();
-        else _scenario?.Dispose();
+        if (ScenarioVisible || _review is not null) Overlays.Dispose();
+        if (!ScenarioVisible) _scenario?.Dispose();
         base.Dispose();
     }
 }

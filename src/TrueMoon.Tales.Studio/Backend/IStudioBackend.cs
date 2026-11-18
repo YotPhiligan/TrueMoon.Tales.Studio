@@ -160,4 +160,8 @@ public sealed class BackendProjectReply
     public string ProjectJson { get; set; } = "";
     /// <summary>Whether the retained legacy scenario controls ordering, gaps and anchors.</summary>
     public bool ScenarioActive { get; set; }
+    /// <summary>Whether the current writer can undo a saved montage edit at this fingerprint.</summary>
+    public bool CanUndoMontage { get; set; }
+    /// <summary>Whether the current writer can redo a saved montage edit at this fingerprint.</summary>
+    public bool CanRedoMontage { get; set; }
 }

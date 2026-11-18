@@ -26,6 +26,20 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
     internal bool MayInterrupt => Running || _unresolved;
     internal bool NeedsFrame => Busy || _track;
     internal bool CanCheck => _loaded && !Busy && !Running && !_unresolved;
+
+    internal bool CanReview(SceneSnapshot? scene) => !Busy && Job is { State: "completed" } job && scene is not null &&
+        scene.Revision == job.ProjectRevision && scene.Fps == job.Fps &&
+        string.Equals(scene.Fingerprint, job.ProjectFingerprint, StringComparison.OrdinalIgnoreCase);
+
+    internal RenderedReviewPanel Review(SceneViewModel model, bool segment, Action close)
+    {
+        var scene = model.Scene!;
+        var job = Job!;
+        var key = BackendRenderedMontage.Identifier(job.Id, segment ? scene.Segment.StartFrame : null);
+        var review = new BackendRenderedMontage(key, segment ? scene.Segment.StartFrame : 0,
+            segment ? scene.Segment.DurationFrames : job.Frames, job.Fps, scene.Revision, job.ProjectFingerprint);
+        return new(model.ReviewPlayer(review, backend), segment, close);
+    }
     internal bool CanInspect => !Busy && (_key is not null || !_loaded);
     internal bool HasError { get; private set; }
     internal string? SavedFile { get; private set; }

@@ -17,12 +17,25 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
     public bool SupportsTrim => true;
     public bool UsesTrimLayout => true;
     public bool PreviewOptional => true;
+    public bool SupportsMontageEdits => true;
     public async Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken) =>
         Map(await OpenOwnedAsync(cancellationToken).ConfigureAwait(false), clipId);
 
-    public async Task<EditorOpening> OpenEditorAsync(string? clipId, CancellationToken cancellationToken)
+    public async Task<EditorOpening> OpenEditorAsync(string? clipId, CancellationToken cancellationToken) =>
+        Opening(await OpenOwnedAsync(cancellationToken).ConfigureAwait(false), clipId);
+
+    public async Task<EditorOpening> EditMontageAsync(ScenarioCommand command, string? clipId, CancellationToken token)
     {
-        var snapshot = await OpenOwnedAsync(cancellationToken).ConfigureAwait(false);
+        var before = _snapshot ?? throw new InvalidOperationException("Open the project first.");
+        var after = await backend.EditScenarioAsync(command, before, token).ConfigureAwait(false);
+        var selected = after.Project.Montage.Clips.Any(row => row.Id == clipId && row.TakeId is not null &&
+            after.Project.Sources.Any(source => source.Id == row.SourceId &&
+                source.Takes.Any(take => take.Id == row.TakeId && take.VideoAssetId is not null))) ? clipId : null;
+        return Opening(after, selected);
+    }
+
+    private EditorOpening Opening(OpenedBackendProject snapshot, string? clipId)
+    {
         var project = snapshot.Project;
         if (BackendSceneMapping.HasVideoClip(project)) return new(Map(snapshot, clipId));
         _snapshot = snapshot;
@@ -31,7 +44,7 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
             size[0].ValueKind == JsonValueKind.Number && size[1].ValueKind == JsonValueKind.Number &&
             size[0].TryGetInt32(out var width) && size[1].TryGetInt32(out var height) && width > 0 && height > 0
             ? $"{width} × {height}" : null;
-        return new(null, new(project.Name, project.Revision, project.Fps, dimensions));
+        return new(null, new(project.Name, project.Revision, project.Fps, dimensions, snapshot.CanUndoMontage, snapshot.CanRedoMontage));
     }
 
     private async Task<OpenedBackendProject> OpenOwnedAsync(CancellationToken cancellationToken)
@@ -50,7 +63,10 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
     private SceneSnapshot Map(OpenedBackendProject snapshot, string? clipId)
     {
         _snapshot = snapshot;
-        return BackendSceneMapping.Map(snapshot.Project, snapshot.ScenarioActive, clipId) with { Fingerprint = snapshot.Fingerprint };
+        return BackendSceneMapping.Map(snapshot.Project, snapshot.ScenarioActive, clipId) with
+        {
+            Fingerprint = snapshot.Fingerprint, CanUndoMontage = snapshot.CanUndoMontage, CanRedoMontage = snapshot.CanRedoMontage
+        };
     }
     public async Task<MediaInfo> MediaInfoAsync(Take take, CancellationToken cancellationToken)
     {

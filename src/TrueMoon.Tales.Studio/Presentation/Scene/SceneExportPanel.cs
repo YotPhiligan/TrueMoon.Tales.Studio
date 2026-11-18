@@ -12,11 +12,13 @@ internal sealed class SceneExportPanel : Border
     private readonly TextBox _name = new() { Value = "montage.mp4", AccessibleName = "Имя нового файла MP4" };
     private readonly Button[] _profiles;
     private readonly Button _check, _start, _statusButton, _cancel, _recover, _save, _close;
+    private readonly Button _reviewSegment, _reviewProject;
+    private readonly HStack _review;
     private readonly Element[] _tabOrder;
     private static readonly string[] Profiles = ["draft", "project", "final"];
     protected override Color ThemeBackground => Theme.Surface;
 
-    internal SceneExportPanel(SceneExport export, SceneViewModel scene, Action close)
+    internal SceneExportPanel(SceneExport export, SceneViewModel scene, Action close, Action<bool>? review = null)
     {
         _export = export; _scene = scene;
         Width = 510; Padding = new Thickness(16);
@@ -30,12 +32,17 @@ internal sealed class SceneExportPanel : Border
         _recover = ActionButton("Восстановить", export.Recover);
         _save = ActionButton("Сохранить MP4", () => export.SaveFile(_name.Value));
         _close = ActionButton("Закрыть", close);
-        _tabOrder = [.. _profiles, _check, _start, _statusButton, _cancel, _recover, _destination, _name, _save, _close];
+        _reviewSegment = ActionButton("Смотреть сегмент", () => review?.Invoke(true));
+        _reviewProject = ActionButton("Смотреть проект", () => review?.Invoke(false));
+        _review = Row(_reviewSegment, _reviewProject);
+        _review.IsVisible = review is not null;
+        _tabOrder = [.. _profiles, _check, _start, _statusButton, _cancel, _recover, _reviewSegment, _reviewProject, _destination, _name, _save, _close];
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(
             Text.Plain("Экспорт MP4").WithRole(SceneView.CaptionRole),
             Row(_profiles), _summary, _progress, _status,
             Row(_check, _start),
             Row(_statusButton, _cancel, _recover),
+            _review,
             Text.Plain("Каталог экспорта").WithRole(SceneView.MutedRole), _destination,
             Text.Plain("Имя нового файла").WithRole(SceneView.MutedRole), _name,
             Row(_save, _close)));
@@ -62,6 +69,7 @@ internal sealed class SceneExportPanel : Border
         _start.IsEnabled = CanCheckScene && _export.CanStart(_scene.Scene);
         _start.Tone = ControlTone.Accent;
         var job = _export.Job;
+        _reviewSegment.IsEnabled = _reviewProject.IsEnabled = _review.IsVisible && CanCheckScene && _export.CanReview(_scene.Scene);
         _statusButton.IsEnabled = _export.CanInspect;
         _cancel.IsEnabled = !_export.Busy && job?.State == "running";
         _recover.IsEnabled = !_export.Busy && job?.State is "running" or "stopping" or "completed";

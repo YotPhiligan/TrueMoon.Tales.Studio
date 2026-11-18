@@ -158,6 +158,27 @@ public sealed class ProjectStore
         return CommitAsync(baseline, frozen, expectedRevision, actor, cancellationToken);
     }
 
+    /// <summary>Restores a previously observed snapshot as a new revision of the same project.</summary>
+    /// <param name="baseline">Current opened project and exact-content token.</param>
+    /// <param name="snapshot">Historical snapshot owned by the writer at the same project location.</param>
+    /// <param name="expectedRevision">Revision of the current baseline.</param>
+    /// <param name="actor">Author of the new history entry.</param>
+    /// <param name="cancellationToken">Cancellation before durable commit intent.</param>
+    /// <returns>The new revision with the historical document content.</returns>
+    public Task<ProjectFileDocument> RestoreSnapshotAsync(ProjectFileDocument baseline, ProjectFileDocument snapshot,
+        long expectedRevision, string actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (baseline.SchemaVersion != 2 || snapshot.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+        if (snapshot.FilePath is null || !string.Equals(baseline.FilePath, snapshot.FilePath, ProjectPathPolicy.Comparison) ||
+            baseline.Project.Id != snapshot.Project.Id)
+            throw new InvalidOperationException("Snapshot belongs to another project.");
+        // Decode the owned envelope, not caller-mutable arrays in the detached DTO.
+        var frozen = ProjectFileCodec.Read(snapshot.OriginalDocument.GetRawText());
+        return CommitAsync(baseline, frozen.Project, expectedRevision, actor, cancellationToken, frozen);
+    }
+
     /// <summary>Explicitly completes a published commit, or recognizes an already installed replacement.</summary>
     /// <param name="cancellationToken">Cancellation before exclusive recovery starts.</param>
     /// <returns>The recovered baseline; unrelated content is never replaced.</returns>
@@ -208,7 +229,7 @@ public sealed class ProjectStore
     }
 
     private async Task<ProjectFileDocument> CommitAsync(ProjectFileDocument baseline, ProjectContract? draft,
-        long expected, string actor, CancellationToken cancellationToken)
+        long expected, string actor, CancellationToken cancellationToken, ProjectFileDocument? restore = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(actor);
@@ -228,7 +249,7 @@ public sealed class ProjectStore
         if (current.SchemaVersion != baseline.SchemaVersion || current.Project.Id != baseline.Project.Id)
             throw new ProjectRevisionConflictException(expected, current.Project.Revision);
         var next = (draft ?? current.Project) with { Revision = expected + 1 };
-        var encoded = draft is null ? ProjectFileCodec.SerializeMigration(current, next) : ProjectFileCodec.Serialize(current, next);
+        var encoded = draft is null ? ProjectFileCodec.SerializeMigration(current, next) : ProjectFileCodec.Serialize(restore ?? current, next);
         var transactionId = Guid.NewGuid().ToString("N");
         var envelope = JsonNode.Parse(encoded)!.AsObject();
         var audit = envelope["last_write"] switch
@@ -239,7 +260,7 @@ public sealed class ProjectStore
         };
         audit["actor"] = actor;
         audit["at"] = _time.GetUtcNow().ToString("O");
-        audit["operation"] = draft is null ? "migrate" : "save";
+        audit["operation"] = restore is not null ? "restore" : draft is null ? "migrate" : "save";
         audit["revision"] = next.Revision;
         audit["transaction_id"] = transactionId;
         if (envelope["last_write"] is null) envelope["last_write"] = audit;

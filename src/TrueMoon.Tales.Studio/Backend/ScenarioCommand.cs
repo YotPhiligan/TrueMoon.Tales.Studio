@@ -11,6 +11,11 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(RelinkVideo), "relink_video")]
 [JsonDerivedType(typeof(PlaceClip), "place_clip")]
 [JsonDerivedType(typeof(AssignTake), "assign_take")]
+[JsonDerivedType(typeof(SplitMontageClip), "split_clip")]
+[JsonDerivedType(typeof(RemoveMontageClip), "remove_clip")]
+[JsonDerivedType(typeof(UndoMontage), "undo_montage")]
+[JsonDerivedType(typeof(RedoMontage), "redo_montage")]
+[JsonDerivedType(typeof(SetBlackTransition), "set_black_transition")]
 internal abstract record ScenarioCommand
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -35,6 +40,11 @@ internal sealed record RelinkVideo(string SourceId, string TakeId, string Refere
 internal sealed record PlaceClip(string SegmentId, string ActionId, string SourceId, string TakeId,
     int Start, int Duration, int SourceIn) : ScenarioCommand;
 internal sealed record AssignTake(string ClipId, string TakeId) : ScenarioCommand;
+internal sealed record SplitMontageClip(string ClipId, int Frame) : ScenarioCommand;
+internal sealed record RemoveMontageClip(string ClipId) : ScenarioCommand;
+internal sealed record UndoMontage : ScenarioCommand;
+internal sealed record RedoMontage : ScenarioCommand;
+internal sealed record SetBlackTransition(string LeftId, string RightId, int FadeOut, int Pause, int FadeIn) : ScenarioCommand;
 
 internal sealed class ScenarioEditException(string code) : IOException(code)
 {

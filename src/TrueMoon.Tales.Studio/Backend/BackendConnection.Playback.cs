@@ -16,9 +16,9 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
     public async Task<BackendPlaybackReply> OpenPlaybackAsync(SceneSnapshot scene, string kind, int localFrame, CancellationToken token)
     {
         ValidateScene(scene, kind, localFrame);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12));
         await PlaybackIdentityAsync(deadline.Token).ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
         // A lost Open reply has no resource ID to close: the backend's 20-second idle lease
         // bounds that ambiguity. Do not replay Open or guess/close another resource.
         var reply = await TransportAsync(() => service.OpenPlaybackAsync(options.SessionKey, scene.Clip.Id,
@@ -41,10 +41,9 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
     {
         if (!ValidPlaybackId(opened.SessionId)) throw new InvalidDataException("Invalid playback capability.");
         token.ThrowIfCancellationRequested();
-        // A video stop sends ClosePlayback to interrupt this known session. Keep its UI
-        // cancellation out of writes on the shared pipe, where an interrupted frame resets the connection.
-        using var deadline = opened.Kind == "video" ? new CancellationTokenSource() : CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(opened.Kind == "audio" ? 50 : 12));
+        // Keep caller cancellation out of writes on the shared pipe. The owner closes the
+        // identified session even when the caller stops waiting for its samples or frames.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(opened.Kind == "audio" ? 50 : 12));
         await PlaybackIdentityAsync(deadline.Token).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         var reply = await TransportAsync(() => service.ReadPlaybackAsync(options.SessionKey, opened.SessionId, deadline.Token)).ConfigureAwait(false);

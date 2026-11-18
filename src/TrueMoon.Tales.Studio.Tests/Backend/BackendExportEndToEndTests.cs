@@ -19,6 +19,190 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 public sealed class BackendExportEndToEndTests
 {
     [BackendMediaFact]
+    public async Task Montage_FromRaster_EditsAndReviewsVerifiedProjectAndSegment()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        await using var session = await files.OpenAsync(workspace: true);
+        var backend = session.Connection;
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        var initial = backend.OpenAsync().GetAwaiter().GetResult();
+        var initialBytes = File.ReadAllBytes(files.ProjectPath);
+        var initialHistory = files.History();
+        Assert.Equal("clip-main", model.Scene!.Clip.Id);
+        Assert.Contains(24, model.Scene.MarkerFrames!);
+
+        model.SeekTimeline(24);
+        host.PumpUntil(() => model.Idle && model.SplitFrame == 24);
+        ClickInspector(host, "Разрезать по курсору");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 13 || model.HasError);
+        Ready(host, model);
+        var split = backend.OpenAsync().GetAwaiter().GetResult();
+        var halves = split.Project.Montage.Clips.Where(row => row.WindowId == model.Scene!.Segment.Id).ToArray();
+        Assert.Collection(halves,
+            left => { Assert.Equal("clip-main", left.Id); Assert.Equal(12, left.DurationFrames); Assert.Equal(12d, left.SourceOutFrame); },
+            right => { Assert.Equal(24, right.StartFrame); Assert.Equal(12, right.DurationFrames); Assert.Equal(12d, right.SourceInFrame); });
+        var right = halves[1];
+        Assert.Equal(halves[0].TakeId, right.TakeId);
+        Assert.Equal(halves[0].ActionId, right.ActionId);
+        Assert.Equal(initial.Project.Segments.SelectMany(row => row.Actions).Select(row => row.Id),
+            split.Project.Segments.SelectMany(row => row.Actions).Select(row => row.Id));
+        Assert.Contains(files.History(), row => row.SequenceEqual(initialBytes));
+        Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+            backend.EditScenarioAsync(new UndoMontage(), initial).GetAwaiter().GetResult()).Code);
+        Assert.Equal(initialHistory.Length + 1, files.History().Length);
+
+        ClickInspector(host, "Undo");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 14 || model.HasError);
+        Ready(host, model);
+        Assert.Equal(24, model.Scene!.Clip.DurationFrames);
+        ClickInspector(host, "Redo");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 15 || model.HasError);
+        Ready(host, model);
+        Assert.Equal(12, model.Scene!.Clip.DurationFrames);
+
+        model.SelectClip(right.Id);
+        host.PumpUntil(() => model.Idle && model.Scene?.Clip.Id == right.Id);
+        ClickInspector(host, "Удалить клип…");
+        host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+        Assert.Equal(15, model.Scene!.Revision);
+        ClickInspector(host, "Удалить клип…");
+        ClickInspector(host, "Подтвердить удаление");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 16 || model.HasError);
+        Ready(host, model);
+        Assert.DoesNotContain(backend.OpenAsync().GetAwaiter().GetResult().Project.Montage.Clips, clip => clip.Id == right.Id);
+        ClickInspector(host, "Undo");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 17 || model.HasError);
+        Ready(host, model);
+        model.SelectClip(right.Id);
+        host.PumpUntil(() => model.Idle && model.Scene?.Clip.Id == right.Id || model.HasError);
+        Assert.False(model.HasError, model.Status);
+
+        SetField(host.Window.Inspector, "Затемнение, кадры", "4");
+        SetField(host.Window.Inspector, "Чёрная пауза, кадры", "4");
+        SetField(host.Window.Inspector, "Появление, кадры", "4");
+        ClickInspector(host, "Сохранить переход");
+        host.PumpUntil(() => model.Idle && model.Scene?.Revision == 18 || model.HasError);
+        Ready(host, model);
+        var rendered = backend.OpenAsync().GetAwaiter().GetResult();
+        var join = Assert.Single(BackendBlackTransitions.Compile(rendered.Project.Montage));
+        Assert.Equal((32, 36, 40, 44), (join.OutStartFrame, join.BlackStartFrame, join.RightStartFrame, join.InEndFrame));
+        Assert.Equal(initialHistory.Length + 6, files.History().Length);
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        Assert.Equal("montage_transition_conflict", Assert.Throws<BackendCommandException>(() =>
+            backend.EditScenarioAsync(new SetBlackTransition(right.Id, "clip-extra", 4, 3, 4), rendered).GetAwaiter().GetResult()).Code);
+        var unchanged = backend.EditScenarioAsync(new SetBlackTransition(right.Id, "clip-extra", 4, 4, 4), rendered).GetAwaiter().GetResult();
+        Assert.Equal(rendered.Fingerprint, unchanged.Fingerprint);
+
+        model.SelectClip("clip-extra");
+        host.PumpUntil(() => model.Idle && model.Scene?.Clip.Id == "clip-extra");
+        var entry = ButtonIn(host.Window.Heading, "Экспорт MP4");
+        host.Click(entry);
+        var panel = WaitForExport(host);
+        var check = ButtonIn(panel, "Проверить монтаж");
+        host.PumpUntil(() => check.IsEnabled);
+        host.Click(check);
+        var start = ButtonIn(panel, "Запустить экспорт");
+        host.PumpUntil(() => start.IsEnabled, TimeSpan.FromSeconds(16));
+        host.Click(start);
+        var reviewSegment = ButtonIn(panel, "Смотреть сегмент");
+        host.PumpUntil(() => reviewSegment.IsEnabled, TimeSpan.FromSeconds(30));
+        var job = backend.FindExportAsync(File.ReadAllText(files.Checkpoint()), CancellationToken.None).GetAwaiter().GetResult();
+        var artifactPath = Path.Combine(files.JobDirectory(job.Id), "Draft.mp4");
+        var artifact = File.ReadAllBytes(artifactPath);
+        Assert.Equal(job.ArtifactSha256, Hash(artifact), StringComparer.OrdinalIgnoreCase);
+
+        host.Click(reviewSegment);
+        var review = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+        ReviewReady(host, review);
+        var seek = ButtonIn(review, "Перейти");
+        SetField(review, "Кадр предпросмотра", "12");
+        host.Click(seek);
+        ReviewReady(host, review);
+        Assert.Contains(RasterWindow<SceneView>.Walk(review).OfType<Text>(), text => text.Value.Contains("0012 / 0035"));
+        host.Capture("montage-segment-review", new { job.ProjectRevision, Frame = 12 });
+        host.Click(ButtonIn(review, "К монтажу"));
+        Assert.Empty(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+        Ready(host, model);
+        host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+        var reviewProject = ButtonIn(WaitForExport(host), "Смотреть проект");
+        host.PumpUntil(() => reviewProject.IsEnabled);
+        host.Click(reviewProject);
+        review = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+        ReviewReady(host, review);
+        host.Click(ButtonIn(review, "К монтажу"));
+        Ready(host, model);
+        host.PumpUntil(() => !model.NeedsFrame);
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var token = deadline.Token;
+        var segment = BackendRenderedMontage.Identifier(job.Id, 36);
+        var project = BackendRenderedMontage.Identifier(job.Id, null);
+        BackendMediaReply Read(string id, int frame) =>
+            backend.FrameAsync(id, frame, rendered.Project.Revision, rendered.Fingerprint, token).GetAwaiter().GetResult();
+        Assert.Equal(Read(project, 48).PixelSha256, Read(segment, 12).PixelSha256);
+        byte Channel(BackendMediaReply frame, int channel) => frame.Pixels[(135 * 480 + 240) * 4 + channel];
+        Assert.InRange(Channel(Read(project, 30), 2), 230, 255);
+        Assert.InRange(Channel(Read(project, 35), 2), 10, 55);
+        Assert.InRange(Channel(Read(segment, 0), 0), 0, 8);
+        Assert.InRange(Channel(Read(segment, 4), 0), 10, 55);
+        Assert.InRange(Channel(Read(segment, 12), 0), 230, 255);
+
+        var source = new BackendRenderedMontage(segment, 36, 36, 24, 18, rendered.Fingerprint).Scene();
+        var video = backend.OpenPlaybackAsync(source, "video", 12, token).GetAwaiter().GetResult();
+        try
+        {
+            var streamed = backend.ReadPlaybackAsync(video, token).GetAwaiter().GetResult();
+            Assert.Equal(12, streamed.LocalFrame);
+            Assert.Equal(12, streamed.NativeFrame);
+            Assert.Equal(Read(project, 48).PixelSha256, streamed.DataSha256);
+        }
+        finally { backend.ClosePlaybackAsync(video.SessionId, CancellationToken.None).GetAwaiter().GetResult(); }
+        var opened = backend.OpenPlaybackAsync(source, "audio", 0, token).GetAwaiter().GetResult();
+        try
+        {
+            Assert.Equal(72_000, opened.TotalSamples);
+            var sound = new List<float>();
+            BackendPlaybackReply next;
+            do
+            {
+                next = backend.ReadPlaybackAsync(opened, token).GetAwaiter().GetResult();
+                Assert.Equal(sound.Count / 2, next.SampleOffset);
+                sound.AddRange(MemoryMarshal.Cast<byte, float>(next.Data).ToArray());
+            } while (!next.Completed);
+            Assert.InRange(sound.Take(4000).Max(Math.Abs), 0, .003f);
+            Assert.InRange(sound.Skip(20_000).Take(20_000).Max(Math.Abs), .04f, .20f);
+        }
+        finally { backend.ClosePlaybackAsync(opened.SessionId, CancellationToken.None).GetAwaiter().GetResult(); }
+        artifact[0] ^= 1;
+        File.WriteAllBytes(artifactPath, artifact);
+        Assert.Equal("invalid_export_artifact", Assert.Throws<BackendCommandException>(() => Read(segment, 12)).Code);
+        files.AssertProject(bytes, history);
+        Assert.Single(files.Requests());
+    }
+
+    private static void SetField(Element root, string name, string value) =>
+        Assert.Single(RasterWindow<SceneView>.Walk(root).OfType<TextBox>(), field => field.AccessibleName == name).Value = value;
+
+    private static void ReviewReady(RasterWindow<SceneView> host, RenderedReviewPanel review)
+    {
+        host.PumpUntil(() => !review.NeedsFrame, TimeSpan.FromSeconds(15));
+        Assert.True(ButtonIn(review, "Старт").IsEnabled,
+            string.Join(" · ", RasterWindow<SceneView>.Walk(review).OfType<Text>().Select(row => row.Value)));
+    }
+
+    private static void ClickInspector(RasterWindow<SceneView> host, string name)
+    {
+        var button = ButtonIn(host.Window.Inspector, name);
+        for (var node = button.Parent; node is not null; node = node.Parent)
+            if (node is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); }
+        host.Click(button);
+    }
+
+    [BackendMediaFact]
     public async Task Export_FromWorkspace_SavesCheckedMp4_AndReopensExistingJobByKey()
     {
         using var files = new ExportFixture();

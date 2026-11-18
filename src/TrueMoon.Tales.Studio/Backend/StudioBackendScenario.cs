@@ -16,11 +16,23 @@ internal sealed partial class StudioBackendService
         try
         {
             var command = ScenarioCommand.Decode(commandJson);
+            if (command is UndoMontage or RedoMontage)
+            {
+                if (baseline.Project.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the editor range.");
+                var undo = command is UndoMontage;
+                var target = _montageHistory.Target(baseline.Fingerprint, undo);
+                var restored = await store.RestoreSnapshotAsync(baseline, target, expectedRevision,
+                    undo ? "studio:undo-montage" : "studio:redo-montage", cancellationToken).ConfigureAwait(false);
+                _montageHistory.Complete(restored.Fingerprint, undo);
+                return Reply(restored);
+            }
             var draft = await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
             if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);
             if (draft.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the editor range.");
             if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
                 return Failure("project_too_large");
+            if (command is PlaceClip or AssignTake or SplitMontageClip or RemoveMontageClip or SetBlackTransition)
+                return await SaveMontageAsync(baseline, draft, expectedRevision, "studio:montage", cancellationToken).ConfigureAwait(false);
             return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:scenario", cancellationToken).ConfigureAwait(false));
         }
         catch (ScenarioEditException error) { return Failure(error.Code); }

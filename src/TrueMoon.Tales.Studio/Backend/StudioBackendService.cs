@@ -1,15 +1,13 @@
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using TrueMoon.Mithril;
-using TrueMoon.Tales.Studio.Contracts.Serialization;
 using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService(BackendOptions options, ProjectStore store, UnitLaunchSettings launch, BackendMediaReader? media = null) : IStudioBackend, IDisposable
 {
-    internal const int ProtocolVersion = 8;
+    internal const int ProtocolVersion = 9;
     internal const int MaxProjectBytes = 768 * 1024;
     internal static string ProductVersion => typeof(StudioBackendService).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
@@ -30,11 +28,7 @@ internal sealed partial class StudioBackendService(BackendOptions options, Proje
         Authorize(sessionKey);
         try
         {
-            var document = await store.OpenAsync(cancellationToken).ConfigureAwait(false);
-            var json = ProjectContractJson.Serialize(document.Project);
-            // Enerit's string codec uses UTF-16. Reserve space below its 1 MiB frame limit for the envelope.
-            if (Encoding.Unicode.GetByteCount(json) > MaxProjectBytes) return Failure("project_too_large");
-            return new() { SchemaVersion = document.SchemaVersion, Fingerprint = document.Fingerprint, ProjectJson = json, ScenarioActive = ScenarioActive(document) };
+            return Reply(await store.OpenAsync(cancellationToken).ConfigureAwait(false));
         }
         catch (ProjectRecoveryRequiredException) { return Failure("recovery_required"); }
         catch (UnauthorizedAccessException) { return Failure("access_denied"); }

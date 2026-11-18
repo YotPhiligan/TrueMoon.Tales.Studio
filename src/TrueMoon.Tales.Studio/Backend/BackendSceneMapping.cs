@@ -1,6 +1,7 @@
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Editing;
 using TrueMoon.Tales.Studio.Models;
+using System.Text.Json;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -56,6 +57,29 @@ internal static class BackendSceneMapping
         active &= BackendScenarioEdit.UsesLegacyLayout(project, current.Id);
         return new(project.Name, checked((int)project.Revision), project.Fps, selected.Segment, selected.Clip,
             selected.Title, selected.Takes, choices, choices.Where(row => row.Clip.SegmentId == current.Id).Select(row => row.Clip).ToArray(),
-            [], active ? Items(current) : null, active, consistent);
+            [], active ? Items(current) : null, active, consistent, MarkerFrames: MarkerFrames(project, current),
+            NextJoin: NextJoin(project.Montage, selected.Clip.Id));
     }
+
+    private static MontageJoin? NextJoin(MontageContract montage, string clipId)
+    {
+        var clips = montage.Clips.OrderBy(clip => clip.StartFrame).ThenBy(clip => clip.Id, StringComparer.Ordinal).ToArray();
+        var index = Array.FindIndex(clips, clip => clip.Id == clipId);
+        if (index < 0 || index + 1 >= clips.Length) return null;
+        var left = clips[index];
+        var right = clips[index + 1];
+        var gap = (long)right.StartFrame - left.StartFrame - left.DurationFrames;
+        if (gap < 0) return null;
+        BlackTransition? existing;
+        try { existing = BackendBlackTransitions.Compile(montage).FirstOrDefault(join => join.LeftClipId == left.Id && join.RightClipId == right.Id); }
+        catch (ScenarioEditException) { return null; }
+        return new(right.Id, (int)gap, existing?.FadeOutFrames ?? 0, existing?.PauseFrames ?? (int)gap, existing?.FadeInFrames ?? 0);
+    }
+
+    private static int[] MarkerFrames(ProjectContract project, SegmentWindowContract window) =>
+        project.Montage.Properties.TryGetValue("markers", out var markers) && markers.ValueKind == JsonValueKind.Array
+            ? markers.EnumerateArray().Where(row => row.ValueKind == JsonValueKind.Object && row.TryGetProperty("frame", out var frame) &&
+                frame.ValueKind == JsonValueKind.Number && frame.TryGetInt32(out var position) &&
+                position >= window.StartFrame && position < (long)window.StartFrame + window.DurationFrames)
+                .Select(row => row.GetProperty("frame").GetInt32()).Distinct().Order().ToArray() : [];
 }

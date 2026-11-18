@@ -2,7 +2,9 @@ using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text.Json;
 using TrueMoon.Tales.Studio.Contracts.Projects;
+using TrueMoon.Tales.Studio.Editing;
 using TrueMoon.Tales.Studio.Media;
+using TrueMoon.Tales.Studio.Models;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -20,6 +22,42 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
         if (resolver.Resolve(reference) != path)
             throw new UnauthorizedAccessException("Media path changed during inspection.");
+        return info;
+    }
+
+    internal async Task<BackendPlaybackSession> OpenReviewedAsync(BackendRenderedMontage review, FileStream file, string kind,
+        int localFrame, CancellationToken token, CancellationToken stopping)
+    {
+        if (kind is not ("audio" or "video") || localFrame < 0 || localFrame >= review.Frames || kind == "audio" && localFrame != 0)
+            throw new ArgumentException("Invalid review starting frame or stream kind.");
+        var info = await ReviewInfoAsync(review, file.Name, token).ConfigureAwait(false);
+        var scene = review.Scene(review.Start);
+        var samples = AudioTimeline.Sample(review.Start + review.Frames, review.Fps) - AudioTimeline.Sample(review.Start, review.Fps);
+        var slice = new AudioSlice(review.Key, 0, review.Start / review.Fps, review.Frames / review.Fps, 0,
+            checked((int)samples), 1, 1, Optional: true);
+        return new(decoder, scene, info, file.Name, [(slice, file.Name)], [file], kind, localFrame, review.Fingerprint,
+            stopping, () => BackendMediaResolver.CheckNoLinks(file.Name), review.Start);
+    }
+
+    internal async Task<BackendMediaReply> ReadReviewedAsync(BackendRenderedMontage review, string path, int frame, CancellationToken token)
+    {
+        if (frame < -1 || frame >= review.Frames) return new() { ErrorCode = "invalid_frame" };
+        var info = await ReviewInfoAsync(review, path, token).ConfigureAwait(false);
+        var pixels = frame < 0 ? [] : await decoder.ReadAsync(path, review.Start + frame, info, token).ConfigureAwait(false);
+        return new()
+        {
+            AssetId = review.Key, Revision = review.Revision, Fps = review.Fps, FrameCount = review.Frames,
+            SourceWidth = info.Width, SourceHeight = info.Height, Width = FrameDecoder.Width, Height = FrameDecoder.Height,
+            FrameIndex = frame, Pixels = pixels, PixelSha256 = frame < 0 ? "" : Convert.ToHexString(SHA256.HashData(pixels))
+        };
+    }
+
+    private async Task<BackendVideoInfo> ReviewInfoAsync(BackendRenderedMontage review, string path, CancellationToken token)
+    {
+        BackendMediaResolver.CheckNoLinks(path);
+        var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
+        if (info.Fps != review.Fps || (long)review.Start + review.Frames > info.FrameCount)
+            throw new InvalidDataException("Rendered montage differs from its verified range.");
         return info;
     }
     internal async Task<BackendPlaybackSession> OpenPlaybackAsync(ProjectContract project, string clipId, string kind,

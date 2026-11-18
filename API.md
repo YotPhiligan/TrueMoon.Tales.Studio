@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавляет авторские команды сценария и библиотеки. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 расширяет их монтажом. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
@@ -141,6 +141,39 @@ JSON с полем `operation`. Допустимы `save_segment`, `save_action`
 и данным ffprobe. Правки доступны в C#-экране, который читает сравниваемые
 кадры штатным `FrameAsync`. HTTP/CLI читают результат через APIv1.
 [Экран и поведение](src/WindowDesign.md#scenario-library).
+
+<a id="montage-edits"></a>
+## Правки монтажа и просмотр CPU MP4 через Enerit
+
+Protocol9 расширяет JSON команды `EditScenarioAsync`. Требуются ключ
+сеанса, `expected_revision` и SHA256 точных байтов проекта.
+
+| `operation` | Поля |
+|---|---|
+| `split_clip` | `clip_id`, `frame` — абсолютный кадр строго внутри клипа |
+| `remove_clip` | `clip_id` |
+| `undo_montage`, `redo_montage` | Без дополнительных полей |
+| `set_black_transition` | `left_id`, `right_id`, `fade_out`, `pause`, `fade_in` — целые длительности в кадрах. Три нуля удаляют переход. |
+
+Split сохраняет ID слева, создаёт ID справа и делит участок источника по
+скорости клипа. Действия, дубли и окна сохраняются. Удаление защищённого
+клипа возвращает `montage_protected_clip`. Правка, затрагивающая привязанный
+к клипу звук, возвращает `montage_clip_sound`. Переход требует соседние
+клипы, чёрную паузу не короче разрыва и место для обоих затуханий. Ошибка
+геометрии возвращает `montage_transition_conflict`.
+
+`BackendProjectReply` сообщает `CanUndoMontage` и `CanRedoMontage` для точной
+ревизии/SHA. История из 16 правок живёт в текущем процессе writer. Undo/redo
+публикуют выбранный снимок новой ревизией с обычным журналом и byte-exact
+предыдущим состоянием в истории. Промежуточная сторонняя запись блокирует
+применение, а новая монтажная правка сбрасывает ветку redo.
+
+`FrameAsync` и `OpenPlaybackAsync` читают завершённый MP4 текущего проекта
+по зарезервированному ID `review-{export-id}-{all|start_frame}`. В режиме
+сегмента запросы кадров отсчитываются от начала окна. Backend сверяет
+ревизию, SHA проекта, статус, размер и SHA артефакта. Звук берётся из AAC
+того же MP4 и выдаётся в PCM. HTTPv1 и CLI сохраняют прежние команды.
+Просмотр использует готовый экспорт без записи проекта или нового задания.
 
 ## Сессия и версия
 

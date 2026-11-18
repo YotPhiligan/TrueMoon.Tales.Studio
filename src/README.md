@@ -21,7 +21,7 @@ Mithril/Enerit с schema2, переносом клипа и медиапредп
 [Непрерывный просмотр, звук и waveform](Playback.md).
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
-Текущая версия Studio — **1.2611.18.5-alpha**. SDK **11.0.100**,
+Текущая версия Studio — **1.2611.18.6-alpha**. SDK **11.0.100**,
 `runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.

@@ -87,7 +87,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         _pending = null;
         Saving = false;
         try { complete.GetAwaiter().GetResult()(); }
-        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.Conflict)
+        catch (Exception error) when (error is HttpRequestException { StatusCode: HttpStatusCode.Conflict } or
+            Backend.BackendCommandException { Code: "revision_conflict" })
         {
             Fail("Конфликт ревизий. Откройте актуальную сцену перед сохранением.");
             _stale = true;
@@ -100,6 +101,19 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
                 "writer_busy" => "Проект открыт на запись в другой сессии. Закройте её и попробуйте снова.",
                 "recovery_required" => "Требуется явное восстановление через --recover-project.",
                 _ => "Операция запрещена настройками доступа к проекту."
+            });
+        }
+        catch (Backend.BackendCommandException error) when (error.Code is "montage_split_range" or "montage_transition_conflict" or
+            "montage_history_unavailable" or "montage_protected_clip" or "montage_clip_sound")
+        {
+            _stale = false;
+            Fail(error.Code switch
+            {
+                "montage_split_range" => "Курсор должен быть внутри монтажного клипа.",
+                "montage_transition_conflict" => "Переход не помещается у стыка.",
+                "montage_protected_clip" => "Клип связан с опорой или защищённой паузой.",
+                "montage_clip_sound" => "Правка затрагивает привязанный к клипу звук.",
+                _ => "История монтажа недоступна для этой ревизии."
             });
         }
         catch (Exception error) when (error is HttpRequestException or IOException or InvalidDataException or JsonException
@@ -170,9 +184,13 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     private void OpenClip(string? clipId)
     {
+        ClearPreparedPlayback();
         Begin("Читаю сцену с сервера…", async token =>
-        {
-            var opened = await api.OpenEditorAsync(clipId, token);
+            await PrepareOpeningAsync(await api.OpenEditorAsync(clipId, token), token, "Проект открыт"));
+    }
+
+    private async Task<Action> PrepareOpeningAsync(EditorOpening opened, CancellationToken token, string status)
+    {
             if (opened.Empty is { } empty) return () =>
             {
                 EmptyProject = empty;
@@ -180,7 +198,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
                 Pixels = null;
                 _media = _assignedMedia = null;
                 _stale = false;
-                Status = "Проект открыт";
+                ClearPreparedPlayback();
+                Status = status;
                 MediaStatus = "Нет клипа с назначенным видеодублем";
             };
             var scene = opened.Scene ?? throw new InvalidDataException("Отсутствует снимок редактора.");
@@ -207,12 +226,11 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
                 Present(pixels, index, frame, media);
                 _assignedMedia = media;
                 SetScene(scene);
-                Status = "Проект открыт";
+                Status = status;
                 if (!api.SupportsPreview) MediaStatus = "Перенос через backend · медиапредпросмотр не подключён";
                 else if (previewError is not null) MediaStatus = previewError;
                 else if (!api.SupportsTrim && _playback is null) MediaStatus = "Предпросмотр кадра · воспроизведение и обрезка пока недоступны";
             };
-        });
     }
 
     public void SelectTake(int index)

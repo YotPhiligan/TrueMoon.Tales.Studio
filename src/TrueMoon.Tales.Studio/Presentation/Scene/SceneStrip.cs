@@ -11,31 +11,53 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
     private float _originX;
     private bool _trimming;
     private bool _body, _moving, _pendingMove;
+    private bool _leftGrip;
     private double _clickFrame;
+    private string? _window;
+    private double _offset, _zoom = 1;
     public bool IsDragging => _context is not null;
     public override bool Focusable => true;
 
-    private float Scale => Bounds.Width / Math.Max(1, model.Scene!.Segment.DurationFrames);
-    private double FrameAt(float x) => model.Scene!.Segment.StartFrame + (x - Bounds.X) / Math.Max(float.Epsilon, Scale);
+    private double Span => Math.Max(1, model.Scene!.Segment.DurationFrames / _zoom);
+    private float Scale => (float)(Bounds.Width / Span);
+    private double Origin => model.Scene!.Segment.StartFrame + _offset;
+    private float FrameX(double frame) => Bounds.X + (float)((frame - Origin) * Scale);
+    private double FrameAt(float x) => Origin + (x - Bounds.X) / Math.Max(float.Epsilon, Scale);
     internal Rect ClipBounds => model.Scene is { } scene
-        ? new(Bounds.X + (model.TimelineStart - scene.Segment.StartFrame) * Scale, Bounds.Y + 24,
+        ? new(FrameX(model.TimelineStart), Bounds.Y + 24,
             model.TimelineDuration * Scale, Math.Max(0, Math.Min(38, Bounds.Height - 24))) : default;
 
     public override bool HandleInput(UiInput input, IInputContext context)
     {
+        if (model.Scene is not null && !IsDragging && input.Kind == InputKind.Wheel && Bounds.Contains(input.X, input.Y) &&
+            float.IsFinite(input.WheelDelta) && input.WheelDelta != 0 && Bounds.Width > 0)
+        {
+            SyncWindow();
+            var before = FrameAt(input.X);
+            if (input.Control)
+            {
+                _zoom = Math.Clamp(_zoom * (input.WheelDelta > 0 ? 2 : .5), 1, 16);
+                _offset = before - model.Scene.Segment.StartFrame - (input.X - Bounds.X) / Scale;
+            }
+            else if (_zoom > 1) _offset -= Math.Sign(input.WheelDelta) * Span * .2;
+            else return false;
+            _offset = Math.Clamp(_offset, 0, Math.Max(0, model.Scene.Segment.DurationFrames - Span));
+            Invalidate();
+            return true;
+        }
         if (IsDragging)
         {
             if (input.Kind == InputKind.FocusLost || input.Kind == InputKind.KeyDown && input.Key == UiKey.Escape)
             { CancelGesture(); return true; }
             if (Bounds != _gestureBounds || !IsVisible || !IsEffectivelyEnabled)
             { CancelGesture(); return true; }
-            if (input.Kind == InputKind.PointerMove) { Move(input.X); return true; }
+            if (input.Kind == InputKind.PointerMove) { Move(input.X, input.Shift); return true; }
             if (input.Kind == InputKind.PointerUp && input.Button == 0)
             {
                 if (!float.IsFinite(input.X)) { CancelGesture(); return true; }
                 try
                 {
-                    Move(input.X);
+                    Move(input.X, input.Shift);
                     var trim = _trimming;
                     var move = _moving;
                     var click = _pendingMove;
@@ -52,6 +74,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         }
         if (input.Kind != InputKind.PointerDown || input.Button != 0 || (!model.CanSeek && !model.CanBeginMove) ||
             !float.IsFinite(input.X) || !float.IsFinite(input.Y) || Bounds.Width <= 0 || !Bounds.Contains(input.X, input.Y)) return false;
+        SyncWindow();
         var bar = ClipBounds;
         var frame = FrameAt(input.X);
         var grip = Math.Min(10, bar.Width / 3);
@@ -62,8 +85,19 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
             if (!model.BeginTrim(left ? TrimEdge.Start : TrimEdge.End))
             { model.Explain("Для обрезки сохраните/отмените черновик и выберите монтажный дубль; закреплённое начало не перемещается"); updated(); return true; }
             _trimming = true;
+            _leftGrip = left;
         }
-        else if (frame < model.TimelineStart || frame >= model.TimelineStart + model.TimelineDuration) return false;
+        else if (frame < model.TimelineStart || frame >= model.TimelineStart + model.TimelineDuration)
+        {
+            if (input.Y < bar.Y || input.Y >= bar.Y + bar.Height || !model.CanReload) return false;
+            var neighbor = model.Scene!.Choices.FirstOrDefault(choice => choice.Clip.SegmentId == model.Scene.Segment.Id &&
+                frame >= choice.Clip.StartFrame && frame < (long)choice.Clip.StartFrame + choice.Clip.DurationFrames &&
+                choice.Takes.Any(take => take.Id == choice.Clip.TakeId));
+            if (neighbor is null) return false;
+            model.SelectClip(neighbor.Clip.Id);
+            updated();
+            return true;
+        }
         else if (bar.Contains(input.X, input.Y)) { _body = true; _pendingMove = true; _clickFrame = frame; }
         _originX = input.X; _gestureBounds = Bounds;
         try
@@ -78,7 +112,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         return true;
     }
 
-    private void Move(float x)
+    private void Move(float x, bool snap)
     {
         if (!float.IsFinite(x)) return;
         if (_pendingMove && Math.Abs(x - _originX) >= 4)
@@ -90,15 +124,42 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         if (_trimming)
         {
             var delta = Math.Round(((double)x - _originX) / Scale, MidpointRounding.AwayFromZero);
-            model.MoveTrim((int)Math.Clamp(delta, int.MinValue + 1d, int.MaxValue));
+            var origin = (long)model.Scene!.Clip.StartFrame + (_leftGrip ? 0 : model.Scene.Clip.DurationFrames);
+            model.MoveTrim(Snap(delta, origin, snap));
         }
         else if (_moving)
         {
             var delta = Math.Round(((double)x - _originX) / Scale, MidpointRounding.AwayFromZero);
-            model.MoveClip((int)Math.Clamp(delta, int.MinValue + 1d, int.MaxValue));
+            var clip = model.Scene!.Clip;
+            model.MoveClip(Snap(delta, clip.StartFrame, snap, clip.DurationFrames));
         }
         else if (!_body) model.SeekTimeline(FrameAt(x));
         updated();
+    }
+
+    private int Snap(double delta, long origin, bool enabled, int movingLength = 0)
+    {
+        var requested = origin + delta;
+        if (enabled && model.Scene is { } scene)
+        {
+            var boundaries = scene.Choices.Where(choice => choice.Clip.Id != scene.Clip.Id && choice.Segment.Id == scene.Segment.Id)
+                .SelectMany(choice => new long[] { choice.Clip.StartFrame, (long)choice.Clip.StartFrame + choice.Clip.DurationFrames });
+            var candidates = boundaries.Concat((scene.MarkerFrames ?? []).Select(frame => (long)frame))
+                .Concat([scene.Segment.StartFrame, (long)scene.Segment.StartFrame + scene.Segment.DurationFrames]);
+            if (movingLength != 0) candidates = candidates.Concat(candidates.Select(frame => frame - movingLength));
+            var nearest = candidates.MinBy(frame => Math.Abs(frame - requested));
+            if (Math.Abs(nearest - requested) * Scale <= 8) delta = nearest - origin;
+        }
+        return (int)Math.Clamp(delta, int.MinValue + 1d, int.MaxValue);
+    }
+
+    private void SyncWindow()
+    {
+        var id = model.Scene?.Segment.Id;
+        if (_window == id) return;
+        _window = id;
+        _offset = 0;
+        _zoom = 1;
     }
 
     private void Release()
@@ -131,18 +192,26 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
             return;
         }
         if (model.Scene is not { } scene) return;
+        SyncWindow();
         var area = Bounds;
-        var frames = Math.Max(1, scene.Segment.DurationFrames);
+        context.Save();
+        context.Clip(area);
         for (var i = 0; i <= 6; i++)
         {
             var x = area.X + area.Width * i / 6;
             context.Fill(new(x, area.Y + 18, 1, Math.Max(0, area.Height - 18)), Theme.Border with { A = 55 });
-            if (i < 6) context.Text($"{scene.Segment.StartFrame + frames * i / 6} к", x + 4, area.Y, Theme.Disabled, 10, Theme.FontFamily);
+            if (i < 6) context.Text($"{(int)Math.Floor(Origin + Span * i / 6)} к", x + 4, area.Y, Theme.Disabled, 10, Theme.FontFamily);
+        }
+        foreach (var marker in scene.MarkerFrames ?? [])
+        {
+            var x = FrameX(marker);
+            if (x >= area.X && x < area.X + area.Width)
+                context.Fill(new(x, area.Y + 13, 2, Math.Max(0, area.Height - 13)), Theme.Modified);
         }
         var bar = ClipBounds;
         foreach (var clip in model.PreviewClips.Where(clip => clip.Id != scene.Clip.Id))
         {
-            var neighbor = new Rect(area.X + (clip.StartFrame - scene.Segment.StartFrame) * Scale, bar.Y,
+            var neighbor = new Rect(FrameX(clip.StartFrame), bar.Y,
                 clip.DurationFrames * Scale, bar.Height);
             context.Fill(neighbor, Theme.Border with { A = 100 }, 4);
             context.Save(); context.Clip(neighbor);
@@ -178,6 +247,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         }
         var frame = model.TimelineCursor;
         if ((model.Assigned || IsDragging) && frame >= model.TimelineStart && frame < model.TimelineStart + model.TimelineDuration)
-            context.Fill(new(area.X + (float)(frame - scene.Segment.StartFrame) * Scale, area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
+            context.Fill(new(FrameX(frame), area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
+        context.Restore();
     }
 }

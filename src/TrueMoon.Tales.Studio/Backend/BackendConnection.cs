@@ -5,7 +5,8 @@ using TrueMoon.Enerit;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
-internal sealed record OpenedBackendProject(BackendIdentity Identity, int SchemaVersion, string Fingerprint, ProjectContract Project, bool ScenarioActive = false);
+internal sealed record OpenedBackendProject(BackendIdentity Identity, int SchemaVersion, string Fingerprint, ProjectContract Project,
+    bool ScenarioActive = false, bool CanUndoMontage = false, bool CanRedoMontage = false);
 
 internal interface IBackendProjectReader
 {
@@ -89,7 +90,8 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
             throw new InvalidDataException("Invalid backend project envelope.");
         if (Encoding.Unicode.GetByteCount(reply.ProjectJson) > StudioBackendService.MaxProjectBytes)
             throw new InvalidDataException("Backend project exceeds the negotiated payload limit.");
-        return new(identity, reply.SchemaVersion, reply.Fingerprint, ProjectContractJson.Deserialize(reply.ProjectJson), reply.ScenarioActive);
+        return new(identity, reply.SchemaVersion, reply.Fingerprint, ProjectContractJson.Deserialize(reply.ProjectJson),
+            reply.ScenarioActive, reply.CanUndoMontage, reply.CanRedoMontage);
     }
 }
 
