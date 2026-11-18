@@ -13,8 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Текущий protocol7 добавляет проверку и поиск задания для окна Studio. HTTP APIv1 и storage schema2 /
-ProjectContractv1 сохранены; прежние protocol2 записи ниже относятся к BACKEND2/3.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавляет авторские команды сценария и библиотеки. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
@@ -125,6 +124,23 @@ Enerit protocol7 добавляет `CheckExportAsync` и `FindExportAsync` дл
 задание и не запускает рендер. Поиск принимает ключ отправки, привязанный к
 текущему проекту, и читает статус принятого задания без повторной отправки.
 [Сценарий в окне](src/WindowDesign.md#workspace-export).
+
+<a id="scenario-edits"></a>
+## Сценарий и материалы через Enerit
+
+Protocol8 добавляет `EditScenarioAsync` для интерфейса того же EXE. Команда
+принимает ключ сеанса, наблюдаемую ревизию и SHA, а также ограниченный
+JSON с полем `operation`. Допустимы `save_segment`, `save_action`,
+`link_source`, `import_video`, `relink_video`, `place_clip` и `assign_take`.
+Тип команды выбирает набор полей. Лишние поля и повтор ключей отклоняются.
+Идентификаторы новых сущностей выдаёт backend.
+
+Команда использует текущего writer. Успех возвращает снимок с новой ревизией,
+совпадающая правка возвращает прежний снимок. Конфликт требует перечитывания
+перед следующей явной отправкой. Видео проверяется по конфигурации resolver
+и данным ffprobe. Правки доступны в C#-экране, который читает сравниваемые
+кадры штатным `FrameAsync`. HTTP/CLI читают результат через APIv1.
+[Экран и поведение](src/WindowDesign.md#scenario-library).
 
 ## Сессия и версия
 

@@ -10,6 +10,9 @@ internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath
     internal string Action { get; init; } = "read";
     internal int HttpPort { get; init; }
     internal bool HttpWithUi { get; init; }
+    // Picker preflight token used by the parent editor only.
+    internal string? InitialFingerprint { get; init; }
+    internal string? RecoveryFingerprint { get; init; }
     internal static BackendOptions Create(string directory, string config) => new(
         Path.GetFullPath(directory), Path.GetFullPath(config), "studio-" + Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"));
 
@@ -21,10 +24,15 @@ internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath
         inspect = args.FirstOrDefault() == "--inspect-project";
         if (backend)
         {
-            if (args.Length is not (5 or 6) || args.Length == 6 && args[5] != "--writer" || launch.UnitId != 1 || launch.ParentProcessId is null || launch.ControlPipe is null ||
+            if (args.Length is not (5 or 6 or 8) || args.Length >= 6 && args[5] != "--writer" ||
+                args.Length == 8 && (args[6] != "--recover-observed" || args[7].Length != 64 || !args[7].All(Uri.IsHexDigit)) ||
+                launch.UnitId != 1 || launch.ParentProcessId is null || launch.ControlPipe is null ||
                 !args[3].StartsWith("studio-", StringComparison.Ordinal) || args[3].Length != 39 ||
                 !Guid.TryParseExact(args[3][7..], "N", out _) || !Guid.TryParseExact(args[4], "N", out _)) return false;
-            options = new(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), args[3], args[4]) { WriteEnabled = args.Length == 6 };
+            options = new(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), args[3], args[4])
+            {
+                WriteEnabled = args.Length >= 6, RecoveryFingerprint = args.Length == 8 ? args[7] : null
+            };
             return true;
         }
         if (args.Length < 4 || args[0] is not ("--project" or "--inspect-project" or "--edit-project" or "--migrate-project" or "--recover-project" or "--serve-project") || args[2] != "--config" ||

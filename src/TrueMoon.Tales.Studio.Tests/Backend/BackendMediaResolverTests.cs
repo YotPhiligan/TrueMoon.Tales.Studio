@@ -197,7 +197,7 @@ public sealed class BackendMediaResolverTests
         finally { Directory.Delete(linked); Directory.Delete(files.Legacy); }
     }
 
-    private static void CreateDirectoryLink(string link, string target)
+    internal static void CreateDirectoryLink(string link, string target)
     {
         if (!OperatingSystem.IsWindows()) { Directory.CreateSymbolicLink(link, target); return; }
         var start = new ProcessStartInfo("cmd.exe")

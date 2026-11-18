@@ -96,6 +96,18 @@ View заимствует App-owned ViewModel; snapshot изображения �
   owned Enerit backend. Проверяются общий writer, CLI commit во время drag,
   конфликтный draft, Cancel/Reload, последующий UI commit и чтение/no-op CLI.
   [STUDIO-BACKEND3](Verification/BackendHttp.md); STUDIO_TEST_PYTHON включает эти checks.
+- [ProjectPickerTests](TrueMoon.Tales.Studio.Tests/Backend/ProjectPickerTests.cs):
+  production окно «Проекты» и SceneView через CPU raster. Один сценарий
+  открывает два проекта и недавний через настоящий Mithril/Enerit. На выходе
+  проверяются модель сцены, состояние экспорта, release writer, SHA документов
+  и истории. Отдельные сценарии покрывают пустой список, доступ и неудачный запуск.
+  Этап 2Б добавляет форму создания с routed text input, повторное открытие
+  пустого редактора, отмену миграции и подтверждённое восстановление через
+  настоящий backend. При подмене журнала проверяется отказ под writer lease.
+- [BackendScenarioRasterTests](TrueMoon.Tales.Studio.Tests/Raster/BackendScenarioRasterTests.cs)
+  проходит форму сценария и библиотеки на пустом проекте, проверяет
+  A–B–A, два сравниваемых кадра, отдельное назначение дубля, перепривязку,
+  конфликт ревизии и точную историю. CPU MP4 сверяется по SHA и кадрам.
 
 Переиспользовать RasterWindow и RasterSceneFixture; запуск и evidence описаны в
 [отчёте](Verification/UIRaster.md#запуск). Не добавлять новый тестовый режим в

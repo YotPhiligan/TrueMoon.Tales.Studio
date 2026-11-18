@@ -32,6 +32,12 @@ internal static class StudioApplicationExtensions
                 [UnitParentProcessEventsHandler.ControlPipeKey] = Environment.GetEnvironmentVariable(UnitParentProcessEventsHandler.ControlPipeKey),
                 ["TRUEMOON_MITHRIL__DISABLED"] = Environment.GetEnvironmentVariable("TRUEMOON_MITHRIL__DISABLED")
             });
+            if (args is ["--projects", "--config", var config] && launch.UnitId is null &&
+                launch.ParentProcessId is null && launch.ControlPipe is null && !launch.UnitsDisabled)
+            {
+                await ProjectPickerApplication.RunAsync(config, token).ConfigureAwait(false);
+                return 0;
+            }
             if (BackendOptions.TryParse(args, launch, out var backendOptions, out var child, out var inspect))
             {
                 builder.Setup(context => context.UseProjectBackend(backendOptions!, child));
@@ -54,13 +60,7 @@ internal static class StudioApplicationExtensions
                     if (inspect)
                     {
                         var connection = app.Services.Resolve<BackendConnection>()!;
-                        var opened = backendOptions!.Action == "recover" ? await connection.RecoverAsync(token).ConfigureAwait(false)
-                            : await connection.OpenAsync(token).ConfigureAwait(false);
-                        if (backendOptions.Action == "migrate")
-                        {
-                            opened = await connection.AcquireWriterAsync(opened, token).ConfigureAwait(false);
-                            opened = await connection.MigrateAsync(opened, token).ConfigureAwait(false);
-                        }
+                        var opened = await BackendProjectMaintenance.ReadOrApplyAsync(connection, backendOptions!, token).ConfigureAwait(false);
                         Console.WriteLine(JsonSerializer.Serialize(new
                         {
                             opened.Identity, opened.SchemaVersion, opened.Fingerprint, opened.Project
@@ -76,6 +76,7 @@ internal static class StudioApplicationExtensions
                 return 0;
             }
             Console.Error.WriteLine(StudioOptions.Usage + Environment.NewLine +
+                "Список проектов: TrueMoon.Tales.Studio --projects --config <Studio.config.json>" + Environment.NewLine +
                 "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +

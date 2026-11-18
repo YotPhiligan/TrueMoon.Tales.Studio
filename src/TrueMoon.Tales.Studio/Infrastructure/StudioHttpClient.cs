@@ -15,6 +15,8 @@ internal interface ISceneService
     bool PreviewOptional => false;
     Uri Media(string assetId);
     Task<SceneSnapshot> OpenAsync(string? clipId, CancellationToken cancellationToken);
+    async Task<EditorOpening> OpenEditorAsync(string? clipId, CancellationToken cancellationToken) =>
+        new(await OpenAsync(clipId, cancellationToken).ConfigureAwait(false));
     Task<bool> HasAudioAsync(string assetId, int stream, CancellationToken token);
     Task<SceneSnapshot> TrimAsync(SceneSnapshot scene, double start, double end, CancellationToken cancellationToken, int? timelineStart = null);
     Task<MediaInfo> MediaInfoAsync(Take take, CancellationToken cancellationToken);

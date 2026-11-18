@@ -11,6 +11,17 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
 {
     private readonly SemaphoreSlim _slot = new(1, 1);
     private readonly Lazy<BackendMediaResolver> _resolver = new(() => resolvers.Create() ?? throw new InvalidDataException("Missing media resolver."));
+
+    internal async Task<BackendVideoInfo> ProbeReferenceAsync(string reference, CancellationToken token)
+    {
+        var resolver = _resolver.Value;
+        var path = resolver.Resolve(reference);
+        await using var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
+        if (resolver.Resolve(reference) != path)
+            throw new UnauthorizedAccessException("Media path changed during inspection.");
+        return info;
+    }
     internal async Task<BackendPlaybackSession> OpenPlaybackAsync(ProjectContract project, string clipId, string kind,
         int localFrame, string fingerprint, CancellationToken operation, CancellationToken stopping)
     {

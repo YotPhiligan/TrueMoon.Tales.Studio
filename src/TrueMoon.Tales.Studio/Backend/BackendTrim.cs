@@ -12,8 +12,9 @@ internal static class BackendTrim
     {
         var clip = project.Montage.Clips.FirstOrDefault(row => row.Id == clipId) ?? throw new InvalidTrimException();
         var window = project.Montage.Windows.Single(row => row.Id == clip.WindowId);
+        var legacyLayout = scenarioActive && BackendScenarioEdit.UsesLegacyLayout(project, window.Id);
         // Editing shared action metadata across multiple montage windows is a separate authoring contract.
-        if (scenarioActive && project.Montage.Windows.Count(row => row.SegmentId == window.SegmentId) != 1)
+        if (legacyLayout && project.Montage.Windows.Count(row => row.SegmentId == window.SegmentId) != 1)
             throw new InvalidTrimException();
         var snapshot = BackendSceneMapping.Map(project, scenarioActive, clipId);
         var trim = TimelineTrimLayout.Project(snapshot, capacity, sourceStart, sourceEnd, timelineStart);
@@ -29,7 +30,7 @@ internal static class BackendTrim
                         SourceInFrame = edited.SourceInFrame, SourceOutFrame = edited.SourceOutFrame } : row).ToArray()
             }
         };
-        if (scenarioActive)
+        if (legacyLayout)
         {
             var gap = trim.ScenarioItems!.Single(row => row.Id == clipId).GapBeforeFrames;
             result = result with

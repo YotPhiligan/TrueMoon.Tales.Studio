@@ -79,7 +79,9 @@ internal sealed partial class StudioBackendService
         {
             RequireWriteMode();
             _writer ??= ProjectWriterLease.Acquire(BackendProjectAccess.Read(options));
-            return Reply(await store.RecoverAsync(cancellationToken).ConfigureAwait(false));
+            return Reply(options.RecoveryFingerprint is { } fingerprint
+                ? await store.RecoverObservedAsync(fingerprint, cancellationToken).ConfigureAwait(false)
+                : await store.RecoverAsync(cancellationToken).ConfigureAwait(false));
         }, cancellationToken);
 
     private async Task<ProjectFileDocument> ObserveAsync(long revision, string fingerprint, CancellationToken token)

@@ -23,6 +23,7 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
     internal BackendExportStatus? Job { get; private set; }
     internal bool Busy => _pending is not null;
     internal bool Running => Job?.State is "running" or "stopping";
+    internal bool MayInterrupt => Running || _unresolved;
     internal bool NeedsFrame => Busy || _track;
     internal bool CanCheck => _loaded && !Busy && !Running && !_unresolved;
     internal bool CanInspect => !Busy && (_key is not null || !_loaded);

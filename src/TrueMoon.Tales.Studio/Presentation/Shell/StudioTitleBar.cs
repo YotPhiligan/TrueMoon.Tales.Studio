@@ -48,7 +48,7 @@ internal sealed class StudioTitleBar : View<SceneViewModel>, IWindowHeaderActivi
 
     public void Refresh()
     {
-        Caption.Value = $"{_model.Scene?.ProjectName ?? "Tales Studio"}{(_model.Modified ? " •" : "")} · Tales Studio";
+        Caption.Value = $"{_model.Scene?.ProjectName ?? _model.EmptyProject?.Name ?? "Tales Studio"}{(_model.Modified ? " •" : "")} · Tales Studio";
         Caption.AccessibleName = Caption.Value;
         Save.IsEnabled = _commands[StudioCommand.Save].CanExecute;
         Back.IsEnabled = _commands[StudioCommand.ReturnToClip].CanExecute;

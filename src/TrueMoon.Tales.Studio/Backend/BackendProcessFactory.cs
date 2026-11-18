@@ -40,5 +40,10 @@ internal sealed class BackendProcess(IUnitConfiguration configuration, IEventsSo
         arguments.Add(options.Endpoint);
         arguments.Add(options.SessionKey);
         if (options.WriteEnabled) arguments.Add("--writer");
+        if (options.RecoveryFingerprint is { } fingerprint)
+        {
+            arguments.Add("--recover-observed");
+            arguments.Add(fingerprint);
+        }
     }
 }

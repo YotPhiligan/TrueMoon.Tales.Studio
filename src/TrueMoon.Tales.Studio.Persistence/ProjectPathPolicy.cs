@@ -18,7 +18,6 @@ internal sealed class ProjectPathPolicy
         _protected = options.ProtectedRoots.Select(p => Path.TrimEndingDirectorySeparator(Path.GetFullPath(p))).ToArray();
         Check(Root);
         if (!Directory.Exists(Root)) throw new DirectoryNotFoundException(Root);
-        for (var parent = Directory.GetParent(Root); parent is not null; parent = parent.Parent) NoLink(parent.FullName);
     }
 
     internal string At(params string[] parts)
@@ -32,12 +31,12 @@ internal sealed class ProjectPathPolicy
     {
         if (!Within(path, Root) || _protected.Any(p => Within(path, p))) throw new UnauthorizedAccessException("Project path is not permitted.");
         if (write && !_writes.Any(p => Within(path, p))) throw new UnauthorizedAccessException("Project write is not allowlisted.");
-        var current = path;
-        while (Within(current, Root))
+        var volume = Path.GetPathRoot(path)!;
+        var current = volume;
+        foreach (var part in path[volume.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
         {
+            current = Path.Combine(current, part);
             NoLink(current);
-            if (string.Equals(current, Root, Comparison)) break;
-            current = Path.GetDirectoryName(current)!;
         }
     }
 

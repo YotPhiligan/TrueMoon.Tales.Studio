@@ -11,6 +11,8 @@ namespace TrueMoon.Tales.Studio.Persistence;
 /// <summary>A scoped project writer with optimistic concurrency, immutable history and explicit recovery.</summary>
 public sealed class ProjectStore
 {
+    /// <summary>Reserved prefix for incomplete publications. Catalogs ignore these directories.</summary>
+    public const string CreationStagingPrefix = ".studio-create-";
     private const string FileName = "Studio.project.json";
     private const string JournalName = ".Studio.project.transaction.json";
     private const string LeaseName = ".Studio.project.lock";
@@ -40,6 +42,56 @@ public sealed class ProjectStore
         _time = timeProvider;
     }
 
+    /// <summary>Publishes a new empty schema 2 project as a child of this store's configured directory.</summary>
+    /// <param name="directoryName">A portable directory name with no path components.</param>
+    /// <param name="project">The initial project at revision one.</param>
+    /// <param name="cancellationToken">Cancellation before the directory is published.</param>
+    /// <returns>The initial document with its final file path and exact-byte fingerprint.</returns>
+    public async Task<ProjectFileDocument> CreateChildAsync(string directoryName, ProjectContract project,
+        CancellationToken cancellationToken = default)
+    {
+        ProjectContractJson.Validate(project);
+        if (directoryName is not { Length: > 0 and <= 80 } ||
+            !Regex.IsMatch(directoryName, @"\Aproject-[a-z0-9_-]+\z", RegexOptions.CultureInvariant))
+            throw new ArgumentException("Invalid project directory name.", nameof(directoryName));
+        if (project.Revision != 1 || project.Segments.Length != 0 || project.Sources.Length != 0 ||
+            project.Montage.Windows.Length != 0 || project.Montage.Clips.Length != 0)
+            throw new InvalidDataException("A new project must start empty at revision one.");
+        cancellationToken.ThrowIfCancellationRequested();
+        _paths.Check(_paths.Root, true);
+        var target = _paths.At(directoryName);
+        var file = _paths.At(directoryName, FileName);
+        _paths.Check(target, true);
+        if (Path.Exists(target)) throw new IOException("Каталог нового проекта уже занят.");
+        var bytes = ProjectFileCodec.SerializeNew(project);
+        var result = ProjectFileCodec.Read(bytes).AtPath(file);
+        var staging = _paths.At(CreationStagingPrefix + Guid.NewGuid().ToString("N"));
+        var pending = _paths.At(staging, FileName);
+        _paths.CreateDirectory(staging);
+        var created = new List<string>(1);
+        var published = false;
+        try
+        {
+            await WriteNewAsync(pending, bytes, cancellationToken, created).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            _paths.Check(target, true);
+            if (Path.Exists(target)) throw new IOException("Каталог нового проекта уже занят.");
+            _paths.Check(pending);
+            Directory.Move(staging, target);
+            published = true;
+            return result;
+        }
+        finally
+        {
+            if (!published)
+            {
+                foreach (var path in created) DeleteOwnPending(path);
+                _paths.Check(staging, true);
+                Directory.Delete(staging);
+            }
+        }
+    }
+
     /// <summary>Reads the unique current/legacy location without migrating, recovering or creating files.</summary>
     /// <param name="cancellationToken">Cancellation of the read.</param>
     /// <returns>A baseline for a later explicit write.</returns>
@@ -52,6 +104,25 @@ public sealed class ProjectStore
         // A writer may have published its intent during this read; do not expose uncertain state.
         RequireNoPendingCommit();
         return ProjectFileCodec.Read(bytes).AtPath(path);
+    }
+
+    /// <summary>Checks path grants for a writer session and project commits without claiming a lease or writing.</summary>
+    public void VerifyWriteAccess()
+    {
+        var file = Locate();
+        CheckWriteAccess(file);
+        // Atomic publication stages project bytes beside the document and the journal in the project root.
+        _paths.Check(Path.GetDirectoryName(file)!, true);
+        _paths.Check(_paths.Root, true);
+        ProjectWriterLease.CheckAccess(_paths);
+    }
+
+    /// <summary>Reports whether both supported project document locations are present.</summary>
+    /// <returns>Whether opening requires resolving the ambiguity outside the store.</returns>
+    public bool HasLocationConflict()
+    {
+        var locations = FindLocations();
+        return locations.HasRoot && locations.HasLegacy;
     }
 
     /// <summary>Explicitly migrates schema 1, with one revision advance and an exact-byte history snapshot.</summary>
@@ -90,15 +161,44 @@ public sealed class ProjectStore
     /// <summary>Explicitly completes a published commit, or recognizes an already installed replacement.</summary>
     /// <param name="cancellationToken">Cancellation before exclusive recovery starts.</param>
     /// <returns>The recovered baseline; unrelated content is never replaced.</returns>
-    public async Task<ProjectFileDocument> RecoverAsync(CancellationToken cancellationToken = default)
+    public Task<ProjectFileDocument> RecoverAsync(CancellationToken cancellationToken = default) =>
+        RecoverCoreAsync(null, cancellationToken);
+
+    /// <summary>Reads the fingerprint of the pending intent without taking a lease or recovering it.</summary>
+    /// <param name="token">Cancellation of the read.</param>
+    /// <returns>The stored project identification and SHA256 of the exact pending intent.</returns>
+    public async Task<(string Id, string Name, string Fingerprint)> ReadRecoveryIdentityAsync(CancellationToken token = default)
+    {
+        var journal = await ReadBytesAsync(_paths.At(JournalName), token).ConfigureAwait(false);
+        var current = ProjectFileCodec.Read(await ReadBytesAsync(Locate(), token).ConfigureAwait(false));
+        return (current.Project.Id, current.Project.Name, Hash(journal));
+    }
+
+    /// <summary>Recovers only the pending intent that the caller observed.</summary>
+    /// <param name="expectedFingerprint">The observed SHA256 of the pending journal.</param>
+    /// <param name="token">Cancellation before exclusive recovery starts.</param>
+    /// <returns>The recovered baseline.</returns>
+    public Task<ProjectFileDocument> RecoverObservedAsync(string expectedFingerprint, CancellationToken token = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedFingerprint);
+        return RecoverCoreAsync(expectedFingerprint, token);
+    }
+
+    private async Task<ProjectFileDocument> RecoverCoreAsync(string? expectedFingerprint, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var journalPath = _paths.At(JournalName);
-        if (!File.Exists(journalPath)) return await OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (!File.Exists(journalPath))
+        {
+            if (expectedFingerprint is not null) throw new ProjectRecoveryConflictException();
+            return await OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
         CheckWriteAccess(Locate());
         using var lease = AcquireLease();
         cancellationToken.ThrowIfCancellationRequested();
         var bytes = await ReadBytesAsync(journalPath, cancellationToken).ConfigureAwait(false);
+        if (expectedFingerprint is not null && !string.Equals(Hash(bytes), expectedFingerprint, StringComparison.OrdinalIgnoreCase))
+            throw new ProjectRecoveryConflictException();
         var journal = JsonSerializer.Deserialize<Journal>(bytes, JournalOptions) ?? throw new JsonException("Missing commit journal.");
         ValidateJournal(journal);
         var path = ProjectPath(journal);
@@ -224,12 +324,16 @@ public sealed class ProjectStore
 
     private string Locate()
     {
-        var root = _paths.At(FileName);
-        var legacy = _paths.At("Production", FileName);
-        var hasRoot = File.Exists(root);
-        var hasLegacy = File.Exists(legacy);
+        var (root, legacy, hasRoot, hasLegacy) = FindLocations();
         if (hasRoot && hasLegacy) throw new InvalidDataException("Both root and Production project files exist.");
         return hasRoot ? root : hasLegacy ? legacy : throw new FileNotFoundException("Project file was not found.", root);
+    }
+
+    private (string Root, string Legacy, bool HasRoot, bool HasLegacy) FindLocations()
+    {
+        var root = _paths.At(FileName);
+        var legacy = _paths.At("Production", FileName);
+        return (root, legacy, File.Exists(root), File.Exists(legacy));
     }
 
     private void RequireNoPendingCommit()

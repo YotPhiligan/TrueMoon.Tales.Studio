@@ -14,8 +14,7 @@ public sealed class ProjectWriterLease : IDisposable
     {
         if (OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("Project writer handoff is supported on Windows and Linux.");
         var paths = new ProjectPathPolicy(options);
-        var path = paths.At(".Studio.project.writer.lock");
-        paths.Check(path, true);
+        var path = CheckAccess(paths);
         FileStream? file = null;
         try
         {
@@ -26,6 +25,13 @@ public sealed class ProjectWriterLease : IDisposable
         }
         catch (IOException error) { file?.Dispose(); throw new ProjectStoreBusyException(error); }
         catch { file?.Dispose(); throw; }
+    }
+
+    internal static string CheckAccess(ProjectPathPolicy paths)
+    {
+        var path = paths.At(".Studio.project.writer.lock");
+        paths.Check(path, true);
+        return path;
     }
 
     /// <summary>Releases ownership without removing the shared lock inode.</summary>

@@ -35,6 +35,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     private sealed record SeekRequest(int Take, int Frame, MediaInfo Media);
 
     public SceneSnapshot? Scene { get; private set; }
+    public EmptyProject? EmptyProject { get; private set; }
+    public bool ProjectReady => Loaded || EmptyProject is not null;
     public byte[]? Pixels { get; private set; }
     public string Status { get; private set; } = "Открытие проекта…";
     public bool HasError { get; private set; }
@@ -91,6 +93,15 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             _stale = true;
         }
         catch (OperationCanceledException) { Fail("Истекло время ожидания. Откройте сцену заново, чтобы сверить состояние."); }
+        catch (Backend.BackendCommandException error) when (error.Code is "writer_busy" or "recovery_required" or "access_denied")
+        {
+            Fail(error.Code switch
+            {
+                "writer_busy" => "Проект открыт на запись в другой сессии. Закройте её и попробуйте снова.",
+                "recovery_required" => "Требуется явное восстановление через --recover-project.",
+                _ => "Операция запрещена настройками доступа к проекту."
+            });
+        }
         catch (Exception error) when (error is HttpRequestException or IOException or InvalidDataException or JsonException
             or Win32Exception or InvalidOperationException) { Fail(error.Message); }
         return true;
@@ -161,7 +172,18 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     {
         Begin("Читаю сцену с сервера…", async token =>
         {
-            var scene = await api.OpenAsync(clipId, token);
+            var opened = await api.OpenEditorAsync(clipId, token);
+            if (opened.Empty is { } empty) return () =>
+            {
+                EmptyProject = empty;
+                Scene = null;
+                Pixels = null;
+                _media = _assignedMedia = null;
+                _stale = false;
+                Status = "Проект открыт";
+                MediaStatus = "Нет клипа с назначенным видеодублем";
+            };
+            var scene = opened.Scene ?? throw new InvalidDataException("Отсутствует снимок редактора.");
             var index = Array.FindIndex(scene.Takes, take => take.Id == scene.Clip.TakeId);
             var take = scene.Takes[index];
             var media = await api.MediaInfoAsync(take, token);
@@ -426,6 +448,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     private void SetScene(SceneSnapshot scene)
     {
+        EmptyProject = null;
         Scene = scene;
         _viewingSource = false;
         _moveDraft = null; _move = null; _moving = false; _trimLayout = null;

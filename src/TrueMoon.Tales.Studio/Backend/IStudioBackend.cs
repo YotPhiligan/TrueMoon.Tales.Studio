@@ -3,6 +3,16 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Applies one bounded scenario, library or placement command through the exclusive project writer.</summary>
+    /// <param name="sessionKey">Launch capability.</param>
+    /// <param name="commandJson">Closed command envelope for the selected project.</param>
+    /// <param name="expectedRevision">Observed project revision.</param>
+    /// <param name="fingerprint">Observed exact project SHA256.</param>
+    /// <param name="cancellationToken">Call deadline.</param>
+    /// <returns>The committed or unchanged baseline, or a classified refusal.</returns>
+    Task<BackendProjectReply> EditScenarioAsync(string sessionKey, string commandJson, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Checks saved export parameters without creating a job.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="profile">Encoding profile.</param>
     /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>

@@ -25,6 +25,9 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
     internal Task<OpenedBackendProject> TrimAsync(string clipId, double sourceInFrame, double sourceOutFrame, int start,
         long revision, string fingerprint, CancellationToken token = default) =>
         CommandAsync(ct => service.TrimClipAsync(options.SessionKey, clipId, sourceInFrame, sourceOutFrame, start, revision, fingerprint, ct), token);
+    internal Task<OpenedBackendProject> EditScenarioAsync(ScenarioCommand command, OpenedBackendProject baseline,
+        CancellationToken token = default) => CommandAsync(ct => service.EditScenarioAsync(options.SessionKey,
+            ScenarioCommand.Encode(command), baseline.Project.Revision, baseline.Fingerprint, ct), token);
 
     private async Task<OpenedBackendProject> CommandAsync(Func<CancellationToken, Task<BackendProjectReply>> send, CancellationToken token)
     {

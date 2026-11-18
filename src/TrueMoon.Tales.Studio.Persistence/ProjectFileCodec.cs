@@ -19,6 +19,12 @@ public static class ProjectFileCodec
         WriteIndented = true
     };
 
+    internal static byte[] SerializeNew(ProjectContract project) => JsonSerializer.SerializeToUtf8Bytes(new JsonObject
+    {
+        ["schema_version"] = 2,
+        ["project"] = JsonNode.Parse(ProjectContractJson.Serialize(project))
+    }, StorageOptions);
+
     /// <summary>Decodes legacy schema 1 or the versioned storage envelope of schema 2.</summary>
     /// <param name="json">The JSON text.</param>
     /// <returns>A complete detached storage document.</returns>

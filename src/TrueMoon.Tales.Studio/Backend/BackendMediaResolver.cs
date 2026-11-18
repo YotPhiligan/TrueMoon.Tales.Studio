@@ -76,6 +76,15 @@ internal sealed class BackendMediaResolver
 
     internal string Resolve(string reference)
     {
+        var path = ResolveReference(reference);
+        CheckNoLinks(path);
+        if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
+            throw new FileNotFoundException("Media reference is not a file.", path);
+        return path;
+    }
+
+    internal string ResolveReference(string reference)
+    {
         var path = Logical(reference);
         var visited = new HashSet<string>(Comparer);
         for (var hops = 0; ; hops++)
@@ -88,7 +97,6 @@ internal sealed class BackendMediaResolver
             path = Path.GetFullPath(Path.Combine(match.Target, Path.GetRelativePath(match.Source, path)));
         }
         CheckNamespace(path, alias: false);
-        CheckNoReparse(path);
         return path;
     }
 
@@ -159,7 +167,7 @@ internal sealed class BackendMediaResolver
     private static bool Within(string path, string root) => string.Equals(path, root, Comparison) ||
         path.StartsWith(Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar, Comparison);
 
-    private static void CheckNoReparse(string path)
+    internal static void CheckNoLinks(string path, bool allowMissing = false)
     {
         var root = Path.GetPathRoot(path)!;
         var cursor = root;
@@ -169,9 +177,11 @@ internal sealed class BackendMediaResolver
             FileAttributes attributes;
             try { attributes = File.GetAttributes(cursor); }
             catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
-            { throw new FileNotFoundException("Media file was not found.", path, error); }
-            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new UnauthorizedAccessException("Linked media paths are forbidden.");
+            {
+                if (allowMissing) return;
+                throw new FileNotFoundException("File or directory was not found.", path, error);
+            }
+            if ((attributes & FileAttributes.ReparsePoint) != 0) throw new UnauthorizedAccessException("Linked paths are forbidden.");
         }
-        if ((File.GetAttributes(path) & FileAttributes.Directory) != 0) throw new FileNotFoundException("Media reference is not a file.", path);
     }
 }

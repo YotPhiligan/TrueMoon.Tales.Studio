@@ -5,6 +5,7 @@ using TrueMoon.Tales.Studio.Media;
 using TrueMoon.Tales.Studio.Models;
 using TrueMoon.Tales.Studio.Presentation;
 using TrueMoon.Tales.Studio.Presentation.Shell;
+using TrueMoon.Tales.Studio.Presentation.Scenario;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
@@ -17,6 +18,10 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     internal static readonly ViewStyleRole<VStack> StackRole = new("studio.stack");
     private readonly SceneViewModel _model;
     private readonly SceneExport? _export;
+    private readonly ScenarioWorkspace? _scenario;
+    private readonly ContentControl _page = new();
+    private readonly Button? _scenarioButton;
+    private Action<string?>? _initialOpen;
     private readonly IFactory<StudioTitleBar, StudioTitleBarArguments> _headers;
     private readonly StudioCommands _commands;
     private readonly StudioPanelState _panels = new() { WideTimeline = true };
@@ -40,7 +45,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private SceneSnapshot? _shownScene;
     private StudioTitleBar? _header;
     private Action? _requestClose;
-    private bool _closePrompt, _closeAfterSave, _contextMenu;
+    private bool _closePrompt, _closeAfterSave, _contextMenu, _exportClosePrompt, _confirmExportClose;
+    private readonly Element _draftCloseNotice, _exportCloseNotice;
 
     internal OverlayHost Overlays { get; }
     internal Element Heading { get; }
@@ -55,17 +61,24 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     internal Text ProjectTitle => _project;
 
     public SceneView(SceneViewModel model, IViewStyle<SceneView> style, IFactory<StudioTitleBar, StudioTitleBarArguments> headers,
-        SceneExport? export = null)
+        SceneExport? export = null, Action<string?>? initialOpen = null, ScenarioWorkspace? scenario = null)
     {
-        _model = model; _headers = headers; _commands = new(Refresh); _export = export;
+        _model = model; _headers = headers; _commands = new(Refresh); _export = export; _initialOpen = initialOpen; _scenario = scenario;
         Title = "TrueMoon · Tales Studio"; ClientSize = new(1280, 820);
         RegisterCommands();
         _exportButton = Command("Экспорт MP4", StudioCommand.Export);
         _exportButton.Tone = ControlTone.Accent;
         _exportButton.IsVisible = _export is not null;
         Heading = new StudioHeading(_project, HStack.Create().Configure(x => x.Spacing = 8).WithChildren(_mode, _exportButton));
-        Navigation = Pane("Клипы проекта", _clips,
-            Text.Plain("Дубли клипа").WithRole(CaptionRole), _takes);
+        var navigation = new List<Element>();
+        if (_scenario is not null)
+        {
+            _scenarioButton = Button.Simple("Сценарий и материалы").WithRole(CommandRole).OnClick(OpenScenario);
+            _scenario.ReturnToMontage = ReturnToMontage;
+            navigation.Add(_scenarioButton);
+        }
+        navigation.AddRange([_clips, Text.Plain("Дубли клипа").WithRole(CaptionRole), _takes]);
+        Navigation = Pane("Клипы проекта", navigation.ToArray());
         _previewSurface = new(_preview);
         _play = Command("Старт", StudioCommand.PlayPause);
         _previewMontage = Command("Монтаж", StudioCommand.PreviewMontage);
@@ -87,14 +100,22 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _strip = new(model, Refresh) { AccessibleName = "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена" };
         _timelineWidth = Command("Компактно", StudioCommand.WideTimeline);
         Timeline = new TimelineLayout(new StudioHeading(_timelineCaption.WithRole(CaptionRole), _timelineWidth), _strip);
-        Footer = new StudioHeading(_status, _revision);
-        CloseNotice = Border.Create().Content(Stack(Text.Plain("Есть черновик обрезки. Сохранить перед закрытием?"),
+        var footerActions = HStack.Create().Configure(x => x.Spacing = 12).WithChildren(_revision);
+        if (initialOpen is not null) footerActions.Items.Add(Command("К проектам", StudioCommand.Close));
+        Footer = new StudioHeading(_status, footerActions);
+        _draftCloseNotice = Stack(Text.Plain("Есть черновик обрезки. Сохранить перед закрытием?"),
             HStack.Create().Configure(x => x.Spacing = 8).WithChildren(Command("Сохранить и закрыть", StudioCommand.SaveClose),
-                Command("Отбросить и закрыть", StudioCommand.DiscardClose), Command("Остаться", StudioCommand.Stay))));
+                Command("Отбросить и закрыть", StudioCommand.DiscardClose), Command("Остаться", StudioCommand.Stay)));
+        _exportCloseNotice = Stack(Text.Plain("Закрытие проекта прервёт активный экспорт."),
+            HStack.Create().Configure(x => x.Spacing = 8).WithChildren(
+                Button.Simple("Закрыть проект").OnClick(() => { _confirmExportClose = true; _requestClose?.Invoke(); }),
+                Command("Остаться", StudioCommand.Stay)));
+        CloseNotice = Border.Create().Content(Stack(_draftCloseNotice, _exportCloseNotice));
         _layout = new(_panels, CloseNotice, Heading, Navigation, Preview, Inspector, Timeline, Footer);
         Overlays = new(_layout) { PopupInsets = new(0, 36, 0, 0) };
         Overlays.Closed += ContextClosed;
-        Content(model, _ => Overlays);
+        _page.SetContent(Overlays);
+        Content(model, _ => _page);
         this.WithViewStyle(style);
         Closing += ConfirmClose;
         model.Open(); Refresh();
@@ -104,6 +125,25 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         _requestClose = requestClose;
         return _header = _headers.Create(new(_model, Overlays, _commands));
+    }
+
+    private bool ScenarioVisible => _scenario is not null && _page.Child == _scenario;
+
+    private void OpenScenario()
+    {
+        if (_scenario is null || !_model.ProjectReady || !_model.CanReload) return;
+        _model.PausePlayback();
+        Overlays.Close();
+        _page.SetContent(_scenario);
+        _scenario.Reload();
+    }
+
+    private void ReturnToMontage()
+    {
+        _scenario?.ClearPreview();
+        _page.SetContent(Overlays);
+        _model.Open();
+        Refresh();
     }
 
     private void RegisterCommands()
@@ -129,7 +169,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _commands.Add(StudioCommand.ResetLayout, () => { _panels.Reset(); _panels.WideTimeline = true; _layout.ResetSizes(); });
         _commands.Add(StudioCommand.Theme, ToggleTheme);
         _commands.Add(StudioCommand.Close, () => _requestClose?.Invoke(), () => !_model.Saving);
-        _commands.Add(StudioCommand.Stay, () => _closePrompt = false);
+        _commands.Add(StudioCommand.Stay, () => { _closePrompt = false; _exportClosePrompt = false; });
         _commands.Add(StudioCommand.DiscardClose, () => { _model.Cancel(); _closePrompt = false; _requestClose?.Invoke(); }, () => _model.Idle);
         _commands.Add(StudioCommand.SaveClose, () => { _closeAfterSave = true; _model.Save(); }, () => _model.CanSave);
     }
@@ -150,6 +190,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         var sceneChanged = _model.Poll(elapsed);
         var exportChanged = _export?.Poll(elapsed) == true;
+        if (_initialOpen is { } notify && (_model.ProjectReady || _model.HasError))
+        {
+            _initialOpen = null;
+            if (_model.Loaded && _export?.CanInspect == true) _export.Inspect();
+            notify(_model.ProjectReady ? null : _model.Status);
+        }
         if (_openExport)
         {
             _openExport = false;
@@ -177,9 +223,23 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _model.PausePlayback();
         _strip.CancelGesture();
         if (reason == WindowCloseReason.Shutdown) return Task.FromResult(true);
+        if (ScenarioVisible && (_scenario!.HasDraft || _scenario.Busy || _export?.MayInterrupt == true))
+        {
+            _scenario.ExplainClose();
+            return Task.FromResult(false);
+        }
         if (_model.Saving) { _model.Explain("Дождитесь завершения сохранения"); Refresh(); return Task.FromResult(false); }
-        if (!_model.Modified) return Task.FromResult(true);
-        _closePrompt = true; Overlays.Close(); Refresh(); return Task.FromResult(false);
+        if (_model.Modified)
+        {
+            _closePrompt = true; Overlays.Close(); Refresh();
+            return Task.FromResult(false);
+        }
+        if (_export?.MayInterrupt == true && !_confirmExportClose)
+        {
+            _exportClosePrompt = true; Overlays.Close(); Refresh();
+            return Task.FromResult(false);
+        }
+        return Task.FromResult(true);
     }
 
     private void ToggleTheme()
@@ -192,6 +252,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     public int InputPriority => -10;
     public bool PreviewInput(UiInput input, IInputContext context)
     {
+        if (ScenarioVisible) return false;
         if (input.Kind == InputKind.FocusLost) { _model.PausePlayback(); Refresh(); }
         if (_strip.IsDragging)
         {
@@ -228,7 +289,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             { Control: false, Key: UiKey.Right } => StudioCommand.Next,
             { Control: false, Key: UiKey.Home } => StudioCommand.ReturnToClip,
             { Control: false, Key: UiKey.End } => StudioCommand.End,
-            { Key: UiKey.Escape } => _closePrompt ? StudioCommand.Stay : StudioCommand.Cancel,
+            { Key: UiKey.Escape } => _closePrompt || _exportClosePrompt ? StudioCommand.Stay : StudioCommand.Cancel,
             _ => null
         };
         if (command is not { } selected) return false;
@@ -294,15 +355,22 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _preview.Source = next; _image?.Dispose(); _image = next; _pixels = _model.Pixels;
         }
         if (!_model.Modified) _closePrompt = false;
-        CloseNotice.IsVisible = _closePrompt;
+        if (_export?.MayInterrupt != true) _exportClosePrompt = false;
+        _draftCloseNotice.IsVisible = _closePrompt;
+        _exportCloseNotice.IsVisible = !_closePrompt && _exportClosePrompt;
+        CloseNotice.IsVisible = _closePrompt || _exportClosePrompt;
         Navigation.IsVisible = _panels.Navigation;
         Inspector.IsVisible = _panels.Inspector;
         Timeline.IsVisible = _panels.Timeline;
         foreach (var (button, command) in _buttons) button.IsEnabled = _commands[command].CanExecute;
+        if (_scenarioButton is not null) _scenarioButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         _frame.Value = _model.FrameLabel;
         _play.Value = _model.PlayLabel;
         _play.AccessibleName = _model.Playing ? "Приостановить просмотр · Пробел" : "Воспроизвести монтажный клип · Пробел";
         _timelineCaption.Value = "Таймлайн";
+        _strip.IsEnabled = _model.EmptyProject is null;
+        _strip.AccessibleName = _model.EmptyProject is not null ? "Монтажных клипов пока нет" :
+            "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена";
         _timelineWidth.Value = _panels.WideTimeline ? "Компактно" : "На всю ширину";
         _timelineWidth.AccessibleName = _timelineWidth.Value + " · таймлайн";
         _timelineCaption.AccessibleName = _model.MediaStatus;
@@ -329,6 +397,18 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 id => _model.SelectClip(id), _model.CanReload);
             SyncRows(_takeButtons, _takes, scene.Takes.Select((row, index) => (row.Id,
                 $"{row.Name ?? $"Дубль {index + 1}"}{(row.Id == scene.Clip.TakeId ? " · монтаж" : "")}{(index == _model.TakeIndex && _model.ViewingSource ? " · выбран" : "")}")), SelectTake, _model.CanSeek && !_model.Trimming);
+        }
+        else if (_model.EmptyProject is { } empty)
+        {
+            _project.Value = empty.Name;
+            _revision.Value = $"Рев. {empty.Revision} · {empty.Fps:0.###} кадр/с";
+            _take.Value = empty.Dimensions ?? "Предпросмотр";
+            _savedRange.Value = "";
+            _duration.Value = "";
+            _edit.Value = "Нет монтажного клипа";
+            Title = $"{empty.Name} · Tales Studio";
+            SyncRows(_clipButtons, _clips, [], _model.SelectClip, false);
+            SyncRows(_takeButtons, _takes, [], SelectTake, false);
         }
         _exportPanel?.Refresh();
         _header?.Refresh(); _commands.Refresh(); _strip.Invalidate(); _layout.Sync();
@@ -357,6 +437,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Overlays.Closed -= ContextClosed;
         _export?.Dispose();
         _preview.Source = null; _image?.Dispose(); _image = null;
+        if (ScenarioVisible) Overlays.Dispose();
+        else _scenario?.Dispose();
         base.Dispose();
     }
 }

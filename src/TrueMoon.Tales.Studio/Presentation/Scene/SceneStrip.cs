@@ -125,6 +125,11 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
     protected override Size MeasureCore(Size available, ITextLayoutService text) => new(available.Width, 80);
     protected override void DrawCore(IDrawingContext context)
     {
+        if (model.EmptyProject is not null)
+        {
+            context.Text("Монтажных клипов пока нет", Bounds.X + 8, Bounds.Y + 16, Theme.Disabled, FontSize, FontFamily);
+            return;
+        }
         if (model.Scene is not { } scene) return;
         var area = Bounds;
         var frames = Math.Max(1, scene.Segment.DurationFrames);

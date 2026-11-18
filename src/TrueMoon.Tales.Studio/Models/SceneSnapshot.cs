@@ -1,5 +1,8 @@
 namespace TrueMoon.Tales.Studio.Models;
 
+internal sealed record EditorOpening(SceneSnapshot? Scene, EmptyProject? Empty = null);
+internal sealed record EmptyProject(string Name, long Revision, double Fps, string? Dimensions);
+
 internal sealed record SceneSnapshot(string ProjectName, int Revision, double Fps, Segment Segment, Clip Clip,
     string ClipTitle, Take[] Takes, ClipChoice[] Choices, Clip[]? SegmentClips = null, AudioSlice[]? Audio = null,
     ScenarioPlacement[]? ScenarioItems = null, bool ScenarioActive = false, bool ScenarioConsistent = true, string? Fingerprint = null);
