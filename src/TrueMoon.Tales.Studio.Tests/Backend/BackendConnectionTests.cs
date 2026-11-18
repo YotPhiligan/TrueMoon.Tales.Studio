@@ -77,6 +77,8 @@ public sealed class BackendConnectionTests
 
     private sealed class UnresponsiveService : IStudioBackend
     {
+        public Task<BackendExportReply> CheckExportAsync(string key, string profile, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendExportReply> FindExportAsync(string key, string clientKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendExportReply> StartExportAsync(string key, string clientKey, string profile, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendExportReply> ExportStatusAsync(string key, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendExportReply> CancelExportAsync(string key, string id, long revision, CancellationToken cancellationToken = default) => throw new NotSupportedException();

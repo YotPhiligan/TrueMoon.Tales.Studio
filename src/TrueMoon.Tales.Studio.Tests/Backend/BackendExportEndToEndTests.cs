@@ -5,15 +5,196 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TrueMoon;
+using TrueMoon.Argentis;
 using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Backend.Http;
+using TrueMoon.Tales.Studio.Presentation.Scene;
+using TrueMoon.Tales.Studio.Tests.Support;
 using Xunit;
 
 namespace TrueMoon.Tales.Studio.Tests.Backend;
 
 public sealed class BackendExportEndToEndTests
 {
+    [BackendMediaFact]
+    public async Task Export_FromWorkspace_SavesCheckedMp4_AndReopensExistingJobByKey()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        byte[] saved;
+        byte[][] history;
+        string key;
+        string id;
+        string sha;
+        var output = Path.Combine(files.OutputDirectory, "montage.mp4");
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            using var host = Workspace(session);
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+            var timeline = host.Window.Timeline;
+            Assert.True(timeline.Bounds.Width > host.Window.Preview.Bounds.Width);
+            host.Click(ButtonIn(host.Window.Preview, "След. кадр"));
+            Ready(host, model);
+            var cursor = model.TimelineCursor;
+            host.Click(ButtonIn(host.Window.Preview, "Исходник"));
+            host.PumpUntil(() => model.ViewingSource && model.Idle);
+            Assert.Equal(cursor, model.TimelineCursor);
+            host.Click(ButtonIn(host.Window.Preview, "Монтаж"));
+            host.PumpUntil(() => !model.ViewingSource && model.Idle);
+            Assert.Equal(cursor, model.TimelineCursor);
+
+            var before = File.ReadAllBytes(files.ProjectPath);
+            host.Click(ButtonIn(host.Window.Inspector, "Начало по кадру"));
+            Assert.True(model.Modified);
+            host.Click(ButtonIn(timeline, "Компактно"));
+            Assert.True(model.Modified);
+            Assert.Equal(host.Window.Preview.Bounds.Width, timeline.Bounds.Width);
+            host.Resize(880, 640, 1.5f);
+            host.Window.ApplyTheme(Theme.Light);
+            host.Update();
+            Assert.Same(timeline, host.Window.Timeline);
+            Assert.True(model.Modified);
+            Assert.Equal(before, File.ReadAllBytes(files.ProjectPath));
+
+            var entry = ButtonIn(host.Window.Heading, "Экспорт MP4");
+            host.Click(entry);
+            var panel = WaitForExport(host);
+            Assert.False(ButtonIn(panel, "Проверить монтаж").IsEnabled);
+            Assert.Empty(files.Requests());
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+            Assert.Null(host.Window.Overlays.Popup);
+            Assert.True(entry.IsFocused);
+
+            host.Click(host.Window.SaveButton);
+            host.PumpUntil(() => !model.Modified && model.Scene!.Revision == 13 || model.HasError, TimeSpan.FromSeconds(15));
+            Assert.False(model.HasError, model.Status);
+            saved = File.ReadAllBytes(files.ProjectPath);
+            history = files.History();
+            Assert.Equal(2, history.Length);
+            Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+                session.Connection.CheckExportAsync("project", 12, Hash(before), CancellationToken.None).GetAwaiter().GetResult()).Code);
+            Assert.Equal("export_not_found", Assert.Throws<BackendCommandException>(() =>
+                session.Connection.FindExportAsync("missing-workspace-job", CancellationToken.None).GetAwaiter().GetResult()).Code);
+            Assert.Empty(files.Requests());
+            host.Click(entry);
+            panel = WaitForExport(host);
+            var check = ButtonIn(panel, "Проверить монтаж");
+            host.PumpUntil(() => check.IsEnabled);
+            host.Click(check);
+            var start = ButtonIn(panel, "Запустить экспорт");
+            host.PumpUntil(() => start.IsEnabled, TimeSpan.FromSeconds(16));
+            Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row =>
+                row.Value.Contains("160 × 120", StringComparison.Ordinal) && row.Value.Contains("рев. 13", StringComparison.Ordinal));
+            Assert.Empty(files.Requests());
+            host.Capture("export-checked", new { model.Scene!.Revision });
+            host.Click(start);
+            var save = ButtonIn(panel, "Сохранить MP4");
+            host.PumpUntil(() => save.IsEnabled, TimeSpan.FromSeconds(30));
+            key = File.ReadAllText(files.Checkpoint());
+            var job = session.Connection.FindExportAsync(key, CancellationToken.None).GetAwaiter().GetResult();
+            id = job.Id;
+            sha = Assert.IsType<string>(job.ArtifactSha256);
+            Assert.Equal(13, job.ProjectRevision);
+            Assert.Single(files.Requests());
+            host.Click(save);
+            host.PumpUntil(() => File.Exists(output) && save.IsEnabled, TimeSpan.FromSeconds(16));
+            Assert.Equal(sha, Hash(File.ReadAllBytes(output)), StringComparer.OrdinalIgnoreCase);
+            host.Click(save);
+            host.PumpUntil(() => RasterWindow<SceneView>.Walk(panel).OfType<Text>().Any(row =>
+                row.Value.Contains("уже существует", StringComparison.Ordinal)));
+            Assert.Equal(sha, Hash(File.ReadAllBytes(output)), StringComparer.OrdinalIgnoreCase);
+            files.AssertProject(saved, history);
+        }
+
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            using var host = Workspace(session);
+            Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+            var panel = WaitForExport(host);
+            var recover = ButtonIn(panel, "Восстановить");
+            host.PumpUntil(() => recover.IsEnabled, TimeSpan.FromSeconds(15));
+            host.Click(recover);
+            host.PumpUntil(() => ButtonIn(panel, "Сохранить MP4").IsEnabled, TimeSpan.FromSeconds(15));
+            var job = session.Connection.FindExportAsync(key, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.Equal(id, job.Id);
+            Assert.Equal(sha, job.ArtifactSha256);
+            Assert.Single(files.Requests());
+            files.AssertProject(saved, history);
+        }
+    }
+
+    [BackendMediaFact]
+    public async Task Export_ActiveWorkspaceJobCancels_AndReopenDoesNotSubmit()
+    {
+        using var files = new ExportFixture(longRender: true);
+        await files.PrepareAsync();
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        string key;
+        string id;
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            using var host = Workspace(session);
+            Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+            var panel = WaitForExport(host);
+            var check = ButtonIn(panel, "Проверить монтаж");
+            host.PumpUntil(() => check.IsEnabled);
+            host.Click(check);
+            var start = ButtonIn(panel, "Запустить экспорт");
+            host.PumpUntil(() => start.IsEnabled, TimeSpan.FromSeconds(16));
+            host.Click(start);
+            var cancel = ButtonIn(panel, "Отменить экспорт");
+            host.PumpUntil(() => cancel.IsEnabled, TimeSpan.FromSeconds(16));
+            key = File.ReadAllText(files.Checkpoint());
+            var job = session.Connection.FindExportAsync(key, CancellationToken.None).GetAwaiter().GetResult();
+            id = job.Id;
+            var directory = files.JobDirectory(id);
+            host.PumpUntil(() => File.Exists(Path.Combine(directory, "Video.mp4")) && cancel.IsEnabled, TimeSpan.FromSeconds(20));
+            host.Click(cancel);
+            host.PumpUntil(() => RasterWindow<SceneView>.Walk(panel).OfType<Text>().Any(row =>
+                row.Value.Contains("Экспорт отменён", StringComparison.Ordinal)), TimeSpan.FromSeconds(12));
+            Assert.False(ButtonIn(panel, "Сохранить MP4").IsEnabled);
+            WaitForWorkerLockAsync(directory, CancellationToken.None).GetAwaiter().GetResult();
+            files.AssertProject(bytes, history);
+        }
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            using var host = Workspace(session);
+            Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+            var panel = WaitForExport(host);
+            host.PumpUntil(() => RasterWindow<SceneView>.Walk(panel).OfType<Text>().Any(row =>
+                row.Value.Contains("Экспорт отменён", StringComparison.Ordinal)));
+            Assert.False(ButtonIn(panel, "Сохранить MP4").IsEnabled);
+            Assert.Equal(id, session.Connection.FindExportAsync(key, CancellationToken.None).GetAwaiter().GetResult().Id);
+            Assert.Single(files.Requests());
+            files.AssertProject(bytes, history);
+        }
+    }
+
+    private static RasterWindow<SceneView> Workspace(ExportSession session) =>
+        new(session.App.Services.Resolve<IFactory<SceneView>>()!.Create()!, "workspace-export", 1280, 820);
+
+    private static Button ButtonIn(Element root, string label) =>
+        Assert.Single(RasterWindow<SceneView>.Walk(root).OfType<Button>(), button => button.Value == label);
+
+    private static SceneExportPanel WaitForExport(RasterWindow<SceneView> host)
+    {
+        host.PumpUntil(() => host.Window.Overlays.Popup is SceneExportPanel);
+        return Assert.IsType<SceneExportPanel>(host.Window.Overlays.Popup);
+    }
+
+    private static void Ready(RasterWindow<SceneView> host, SceneViewModel model)
+    {
+        host.PumpUntil(() => model.Loaded && model.Pixels is not null && model.Idle || model.HasError, TimeSpan.FromSeconds(15));
+        Assert.False(model.HasError, model.Status);
+    }
+
     [BackendMediaFact]
     public async Task Export_TrimmedMontageViaCli_DownloadsVerifiedMp4_AndRecoversAfterRestart()
     {
@@ -213,10 +394,12 @@ public sealed class BackendExportEndToEndTests
         internal string ProjectPath => Files.Files.ProjectPath;
         private string Root => Files.Files.Root;
         private string Exports => Path.Combine(Root, "exports");
+        internal string OutputDirectory => Exports;
         private string Media => Path.Combine(Root, "media");
         private static string Ffmpeg => Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
         private static string Ffprobe => Environment.GetEnvironmentVariable("STUDIO_TEST_FFPROBE")!;
         internal string[] Requests() => Directory.GetFiles(Exports, "Request.json", SearchOption.AllDirectories);
+        internal string Checkpoint() => Directory.GetFiles(Exports, "ClientKey", SearchOption.AllDirectories).Single();
         internal string JobDirectory(string id) => Directory.GetDirectories(Exports, id, SearchOption.AllDirectories).Single();
         internal byte[][] History() => Files.Files.HistoryFiles.Order().Select(File.ReadAllBytes).ToArray();
 
@@ -256,11 +439,15 @@ public sealed class BackendExportEndToEndTests
              $"sine=frequency={frequency}:sample_rate=48000:duration=2", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264",
              "-c:a", "alac", "-ac", "2", "-threads", "1", "-n", Path.Combine(Media, name)], 4096);
 
-        internal async Task<ExportSession> OpenAsync()
+        internal async Task<ExportSession> OpenAsync(bool workspace = false)
         {
             var options = BackendOptions.Create(Files.Files.ProjectDirectory, Files.Base.ConfigPath) with
             { WriteEnabled = true, Action = "serve", ExecutablePath = BackendWriteFixture.Executable() };
-            var app = TrueMoon.App.Builder(_ => { }).Setup(context => context.UseProjectBackend(options, false)).Build();
+            var app = TrueMoon.App.Builder(_ => { }).Setup(context =>
+            {
+                context.UseProjectBackend(options, false);
+                if (workspace) context.UseBackendScene();
+            }).Build();
             var session = new ExportSession(app);
             try
             {

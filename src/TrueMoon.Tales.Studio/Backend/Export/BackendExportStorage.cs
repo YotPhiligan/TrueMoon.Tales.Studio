@@ -14,6 +14,9 @@ internal sealed record BackendExportStatus(int Version, string Id, string Projec
     double Fps, long? ArtifactSizeBytes = null, string? ArtifactSha256 = null, string? ErrorCode = null,
     int? ProgressPercent = null);
 
+internal sealed record BackendExportCheck(long ProjectRevision, string ProjectFingerprint, string Profile, int Width, int Height,
+    int Frames, double Fps);
+
 // The configured root grants export storage only. Job IDs and project paths are compiled into fixed path components.
 internal sealed class BackendExportStorage
 {
@@ -63,6 +66,30 @@ internal sealed class BackendExportStorage
         if (OperatingSystem.IsWindows() && directory.Length + WorkerSuffixLength > MaxWindowsPath)
             throw new BackendExportException("export_unavailable");
         return Check(directory);
+    }
+
+    internal string ClientOutputDirectory => _root;
+
+    internal string? LoadClientKey()
+    {
+        var path = Check(Path.Combine(_project, "ClientKey"));
+        if (!File.Exists(path)) return null;
+        var key = Encoding.ASCII.GetString(Read(_project, "ClientKey", 80));
+        if (!BackendConnection.IsExportClientKey(key)) throw new InvalidDataException("Invalid export checkpoint.");
+        return key;
+    }
+
+    internal void SaveClientKey(string key)
+    {
+        if (!BackendConnection.IsExportClientKey(key)) throw new InvalidDataException("Invalid export key.");
+        Directory.CreateDirectory(Check(_project));
+        var temp = Check(Path.Combine(_project, "client-" + Guid.NewGuid().ToString("N") + ".tmp"));
+        try
+        {
+            WriteNew(temp, Encoding.ASCII.GetBytes(key));
+            File.Move(Check(temp), Check(Path.Combine(_project, "ClientKey")), overwrite: true);
+        }
+        finally { File.Delete(Check(temp)); }
     }
 
     internal FileStream AcquireSlot()

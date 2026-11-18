@@ -32,7 +32,7 @@ internal sealed class StudioTitleBar : View<SceneViewModel>, IWindowHeaderActivi
             new("edit", "Правка", [_commands.Describe(StudioCommand.Save), _commands.Describe(StudioCommand.Cancel),
                 _commands.Describe(StudioCommand.SetStart), _commands.Describe(StudioCommand.SetEnd)]),
             new("view", "Вид", [_commands.Describe(StudioCommand.Navigation), _commands.Describe(StudioCommand.Inspector),
-                _commands.Describe(StudioCommand.Timeline), _commands.Describe(StudioCommand.FocusPreview),
+                _commands.Describe(StudioCommand.Timeline), _commands.Describe(StudioCommand.WideTimeline), _commands.Describe(StudioCommand.FocusPreview),
                 _commands.Describe(StudioCommand.ResetLayout), _commands.Describe(StudioCommand.Theme)]),
             new("clip", "Клип", [_commands.Describe(StudioCommand.PlayPause), _commands.Describe(StudioCommand.ReturnToClip), _commands.Describe(StudioCommand.End),
                 _commands.Describe(StudioCommand.Previous), _commands.Describe(StudioCommand.Next)])

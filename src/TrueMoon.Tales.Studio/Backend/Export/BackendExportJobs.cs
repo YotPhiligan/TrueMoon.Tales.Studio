@@ -35,7 +35,7 @@ internal sealed class BackendExportJobs : IDisposable
         if (clientKey is not { Length: >= 16 and <= 80 } || !clientKey.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-') ||
             !ValidProfile(profile) || expectedRevision < 0 || !ValidHash(fingerprint))
             throw new BackendExportException("invalid_export");
-        var id = "export-" + Hash(Encoding.ASCII.GetBytes(clientKey))[..32].ToLowerInvariant();
+        var id = JobId(clientKey);
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
         await _gate.WaitAsync(scope.Token).ConfigureAwait(false);
         try
@@ -69,6 +69,25 @@ internal sealed class BackendExportJobs : IDisposable
             finally { slot?.Dispose(); }
         }
         finally { _gate.Release(); }
+    }
+
+    internal static string JobId(string clientKey)
+    {
+        if (!BackendConnection.IsExportClientKey(clientKey)) throw new BackendExportException("invalid_export");
+        return "export-" + Hash(Encoding.ASCII.GetBytes(clientKey))[..32].ToLowerInvariant();
+    }
+
+    internal async Task<BackendExportReply> CheckAsync(string profile, Func<CancellationToken, Task<ProjectFileDocument>> observe,
+        CancellationToken token)
+    {
+        if (!ValidProfile(profile)) throw new BackendExportException("invalid_export");
+        var directory = _storage.Value.JobDirectory("export-00000000000000000000000000000000");
+        var baseline = await observe(token).ConfigureAwait(false);
+        var plan = await _plan(baseline, profile, directory, token).ConfigureAwait(false);
+        if (plan.Request.Length is < 1 or > MaxRequestBytes) throw new BackendExportException("invalid_export");
+        await observe(token).ConfigureAwait(false);
+        return new() { JobJson = JsonSerializer.Serialize(new BackendExportCheck(baseline.Project.Revision,
+            baseline.Fingerprint, profile, plan.Width, plan.Height, plan.Frames, plan.Fps), Json) };
     }
 
     private static BackendExportReply Existing(BackendExportStorage storage, string directory, string id, string profile, long revision, string sha)

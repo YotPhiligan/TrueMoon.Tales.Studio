@@ -5,7 +5,8 @@ namespace TrueMoon.Tales.Studio.Presentation;
 internal enum StudioCommand
 {
     Reload, Save, Cancel, ReturnToClip, End, Previous, Next, SetStart, SetEnd, PlayPause,
-    Navigation, Inspector, Timeline, FocusPreview, ResetLayout, Theme, Close, SaveClose, DiscardClose, Stay
+    Navigation, Inspector, Timeline, WideTimeline, FocusPreview, ResetLayout, Theme, Close, SaveClose, DiscardClose, Stay,
+    PreviewMontage, PreviewSource, Export
 }
 
 // One command instance is shared by the title bar, buttons, shortcuts and context menus.
@@ -20,6 +21,7 @@ internal sealed class StudioCommands(Action updated)
     {
         StudioCommand.Reload => new("project.reload", "Перечитать проект", this[id], UiSymbol.Folder),
         StudioCommand.Save => new("clip.save", "Сохранить обрезку", this[id], UiSymbol.Save, "Ctrl+S"),
+        StudioCommand.Export => new("project.export", "Экспорт MP4", this[id]),
         StudioCommand.Cancel => new("clip.cancel", "Отменить черновик", this[id], UiSymbol.Undo, "Esc"),
         StudioCommand.ReturnToClip => new("clip.start", "К началу клипа в монтаже", this[id], UiSymbol.Preview, "Home"),
         StudioCommand.End => new("clip.end", "К последнему кадру участка", this[id], UiSymbol.Step, "End"),
@@ -31,6 +33,7 @@ internal sealed class StudioCommands(Action updated)
         StudioCommand.Navigation => new("view.navigation", "Показать / скрыть навигацию", this[id], UiSymbol.Objects),
         StudioCommand.Inspector => new("view.inspector", "Показать / скрыть инспектор", this[id], UiSymbol.Info),
         StudioCommand.Timeline => new("view.timeline", "Показать / скрыть монтаж", this[id], UiSymbol.Entity),
+        StudioCommand.WideTimeline => new("view.timeline.width", "Переключить ширину таймлайна", this[id]),
         StudioCommand.FocusPreview => new("view.focus", "Режим просмотра / редактора", this[id], UiSymbol.Preview),
         StudioCommand.ResetLayout => new("view.reset", "Восстановить панели", this[id], UiSymbol.Restore),
         StudioCommand.Theme => new("view.theme", "Сменить светлую / тёмную тему", this[id], UiSymbol.Theme),
@@ -44,6 +47,7 @@ internal sealed class StudioPanelState
     public bool Navigation { get; set; } = true;
     public bool Inspector { get; set; } = true;
     public bool Timeline { get; set; } = true;
+    public bool WideTimeline { get; set; }
     private (bool Navigation, bool Inspector, bool Timeline)? _previous;
     public void ToggleFocus()
     {

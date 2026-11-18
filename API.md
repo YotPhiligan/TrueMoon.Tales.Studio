@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, текущий protocol6 — в STUDIO-BACKEND7 ниже. HTTP APIv1 и storage schema2 /
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Текущий protocol7 добавляет проверку и поиск задания для окна Studio. HTTP APIv1 и storage schema2 /
 ProjectContractv1 сохранены; прежние protocol2 записи ниже относятся к BACKEND2/3.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
@@ -118,6 +118,13 @@ status. Тот же ключ для другого профиля или baselin
 MP4. Chunk выдаёт до 256 КиБ бинарных данных с `Content-Length`. CLI сверяет
 размер и итоговый SHA перед созданием нового файла. Настройка, ошибки и
 полный пример цикла приведены в [контракте экспорта](src/Verification/BackendExport.md).
+
+Enerit protocol7 добавляет `CheckExportAsync` и `FindExportAsync` для C#-окна.
+Предстартовая проверка принимает профиль, сохранённую ревизию и SHA, сверяет
+доступность входов и возвращает размер, FPS и длительность. Она не принимает
+задание и не запускает рендер. Поиск принимает ключ отправки, привязанный к
+текущему проекту, и читает статус принятого задания без повторной отправки.
+[Сценарий в окне](src/WindowDesign.md#workspace-export).
 
 ## Сессия и версия
 

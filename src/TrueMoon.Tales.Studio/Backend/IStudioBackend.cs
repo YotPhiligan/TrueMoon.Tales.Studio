@@ -3,6 +3,18 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Checks saved export parameters without creating a job.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="profile">Encoding profile.</param>
+    /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Output parameters or a refusal.</returns>
+    Task<BackendExportReply> CheckExportAsync(string sessionKey, string profile, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Reads export status by its submission key without accepting a new request.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="clientKey">Durable submission key.</param>
+    /// <param name="cancellationToken">Call deadline.</param><returns>Job status or a refusal.</returns>
+    Task<BackendExportReply> FindExportAsync(string sessionKey, string clientKey, CancellationToken cancellationToken = default);
+
     /// <summary>Accepts one immutable CPU export request bound to the observed project.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="clientKey">Durable submission key.</param>
     /// <param name="profile">Export encoding profile.</param><param name="expectedRevision">Observed project revision.</param>

@@ -17,7 +17,7 @@ internal sealed class StudioLayout : ElementList
     private readonly ContentControl _center = new();
     private readonly SplitView _navigationSplit = new(), _inspectorSplit = new(), _workspaceSplit = new();
     private bool _synced;
-    private (bool Navigation, bool Inspector, bool Timeline) _shown = (true, true, true);
+    private (bool Navigation, bool Inspector, bool Timeline, bool Wide) _shown;
 
     public StudioLayout(StudioPanelState panels, Element notice, Element heading, Element navigation, Element preview, Element inspector, Element timeline, Element footer)
     {
@@ -53,7 +53,7 @@ internal sealed class StudioLayout : ElementList
     // Called from the shared refresh path; rebuilds the chain only when panel flags changed.
     public void Sync()
     {
-        var current = (_panels.Navigation, _panels.Inspector, _panels.Timeline);
+        var current = (_panels.Navigation, _panels.Inspector, _panels.Timeline, _panels.WideTimeline);
         if (_synced && current == _shown) return;
         _synced = true; _shown = current;
         Rebuild();
@@ -64,12 +64,7 @@ internal sealed class StudioLayout : ElementList
         _center.SetContent(null);
         foreach (var split in new[] { _navigationSplit, _inspectorSplit, _workspaceSplit })
         { split.FirstPane.SetContent(null); split.SecondPane.SetContent(null); }
-        var content = _panels.Timeline ? (Element)_workspaceSplit : _preview;
-        if (_panels.Timeline)
-        {
-            _workspaceSplit.FirstPane.SetContent(_preview);
-            _workspaceSplit.SecondPane.SetContent(_timeline);
-        }
+        var content = _panels.Timeline && !_panels.WideTimeline ? WithTimeline(_preview) : _preview;
         if (_panels.Inspector)
         {
             _inspectorSplit.FirstPane.SetContent(content);
@@ -82,8 +77,15 @@ internal sealed class StudioLayout : ElementList
             _navigationSplit.SecondPane.SetContent(content);
             content = _navigationSplit;
         }
-        _center.SetContent(content);
+        _center.SetContent(_panels.Timeline && _panels.WideTimeline ? WithTimeline(content) : content);
         Invalidate(Invalidation.Layout);
+    }
+
+    private SplitView WithTimeline(Element top)
+    {
+        _workspaceSplit.FirstPane.SetContent(top);
+        _workspaceSplit.SecondPane.SetContent(_timeline);
+        return _workspaceSplit;
     }
 
     private Rect[] Slots(Size size)
@@ -175,9 +177,9 @@ internal sealed class TimelineLayout : ElementList
     private readonly Element _heading, _strip;
     public TimelineLayout(Element heading, Element strip) { _heading = heading; _strip = strip; Add(heading); Add(strip); }
     protected override Size MeasureCore(Size available, ITextLayoutService text)
-    { _heading.Measure(new(available.Width, 24), text); _strip.Measure(new(available.Width, Math.Max(0, available.Height - 28)), text); return available; }
+    { _heading.Measure(new(available.Width, 30), text); _strip.Measure(new(available.Width, Math.Max(0, available.Height - 34)), text); return available; }
     protected override void ArrangeCore(Rect area)
-    { _heading.Arrange(new(area.X, area.Y, area.Width, 24)); _strip.Arrange(new(area.X, area.Y + 28, area.Width, Math.Max(0, area.Height - 28))); }
+    { _heading.Arrange(new(area.X, area.Y, area.Width, 30)); _strip.Arrange(new(area.X, area.Y + 34, area.Width, Math.Max(0, area.Height - 34))); }
 }
 
 internal sealed class InspectorLayout : ElementList

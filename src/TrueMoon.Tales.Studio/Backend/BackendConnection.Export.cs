@@ -14,6 +14,21 @@ internal sealed partial class BackendConnection
         AllowDuplicateProperties = false
     };
 
+    internal async Task<BackendExportCheck> CheckExportAsync(string profile, long revision, string fingerprint, CancellationToken token)
+    {
+        var reply = await SendExportAsync(ct => service.CheckExportAsync(options.SessionKey, profile, revision, fingerprint, ct), token)
+            .ConfigureAwait(false);
+        var check = JsonSerializer.Deserialize<BackendExportCheck>(reply.JobJson, ExportJson);
+        if (reply.Data.Length != 0 || check is null || check.ProjectRevision != revision || !SameHash(check.ProjectFingerprint, fingerprint) ||
+            check.Profile != profile || check.Width is < 2 or > 4096 || check.Height is < 2 or > 4096 || check.Frames <= 0 ||
+            !double.IsFinite(check.Fps) || check.Fps is < 1 or > 120)
+            throw new InvalidDataException("Invalid export check metadata.");
+        return check;
+    }
+
+    internal Task<BackendExportStatus> FindExportAsync(string clientKey, CancellationToken token) =>
+        ExportJobAsync(BackendExportJobs.JobId(clientKey), ct => service.FindExportAsync(options.SessionKey, clientKey, ct), token);
+
     internal async Task<BackendExportStatus> StartExportAsync(string clientKey, string profile, long revision,
         string fingerprint, CancellationToken token = default)
     {
@@ -59,15 +74,8 @@ internal sealed partial class BackendConnection
     private async Task<(BackendExportStatus Job, byte[] Data)> ExportAsync(Func<CancellationToken, Task<BackendExportReply>> send,
         CancellationToken token, bool chunk = false)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(12));
-        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
-        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
-        var reply = await TransportAsync(() => send(deadline.Token)).ConfigureAwait(false);
-        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
-        if (reply is null || reply.ErrorCode is null || reply.JobJson is null || reply.Data is null ||
-            Encoding.Unicode.GetByteCount(reply.JobJson) > 16 * 1024 ||
-            (chunk ? reply.Data.Length is <= 0 or > BackendExportJobs.ChunkSize : reply.Data.Length != 0))
+        var reply = await SendExportAsync(send, token).ConfigureAwait(false);
+        if (chunk ? reply.Data.Length is <= 0 or > BackendExportJobs.ChunkSize : reply.Data.Length != 0)
             throw new InvalidDataException("Invalid export reply.");
         BackendExportStatus? job;
         try { job = JsonSerializer.Deserialize<BackendExportStatus>(reply.JobJson, ExportJson); }
@@ -80,6 +88,20 @@ internal sealed partial class BackendConnection
             job.ProgressPercent is < 0 or > 100 || !ValidArtifact(job))
             throw new InvalidDataException("Invalid export job metadata.");
         return (job, reply.Data);
+    }
+
+    private async Task<BackendExportReply> SendExportAsync(Func<CancellationToken, Task<BackendExportReply>> send, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var reply = await TransportAsync(() => send(deadline.Token)).ConfigureAwait(false);
+        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
+        if (reply is null || reply.ErrorCode is null || reply.JobJson is null || reply.Data is null ||
+            Encoding.Unicode.GetByteCount(reply.JobJson) > 16 * 1024)
+            throw new InvalidDataException("Invalid export reply.");
+        return reply;
     }
 
     private static bool ValidArtifact(BackendExportStatus job) => job.State == "completed"

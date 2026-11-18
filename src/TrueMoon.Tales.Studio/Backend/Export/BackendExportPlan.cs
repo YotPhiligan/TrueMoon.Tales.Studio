@@ -6,7 +6,7 @@ using TrueMoon.Tales.Studio.Contracts.Serialization;
 namespace TrueMoon.Tales.Studio.Backend;
 
 // Builds the renderer request solely from saved placements and workspace-approved inputs.
-internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps)
+internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps, int Width = 0, int Height = 0)
 {
     private const int MaxSeconds = 600;
     private const int MaxAssets = 128;
@@ -112,7 +112,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps)
             clips = placements, music, clip_audio = clipAudio, sounds, assets = registry.Assets, timeout_seconds = 300
         }, Json);
         token.ThrowIfCancellationRequested();
-        return new(request, frames, fps);
+        return new(request, frames, fps, size[0], size[1]);
 
         async Task CheckAudio(string id, int stream, double start, int duration, double gain, bool muted)
         {

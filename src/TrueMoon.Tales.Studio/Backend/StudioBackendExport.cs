@@ -8,18 +8,25 @@ internal sealed partial class StudioBackendService
 {
     private readonly BackendExportJobs _exports = new(options);
 
-    public Task<BackendExportReply> StartExportAsync(string sessionKey, string clientKey, string profile, long expectedRevision,
-        string fingerprint, CancellationToken cancellationToken = default) => ExecuteExportAsync(sessionKey, write: true, async token =>
-        {
-            async Task<ProjectFileDocument> Baseline(CancellationToken observeToken)
-            {
-                var document = await ObserveAsync(expectedRevision, fingerprint, observeToken).ConfigureAwait(false);
-                if (document.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
-                return document;
-            }
+    public Task<BackendExportReply> CheckExportAsync(string sessionKey, string profile, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false,
+            token => _exports.CheckAsync(profile, ct => ExportBaselineAsync(expectedRevision, fingerprint, ct), token), cancellationToken);
 
-            return await _exports.StartAsync(clientKey, profile, expectedRevision, fingerprint, Baseline, token).ConfigureAwait(false);
-        }, cancellationToken);
+    public Task<BackendExportReply> FindExportAsync(string sessionKey, string clientKey, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false, token => _exports.StatusAsync(BackendExportJobs.JobId(clientKey), token), cancellationToken);
+
+    private async Task<ProjectFileDocument> ExportBaselineAsync(long revision, string fingerprint, CancellationToken token)
+    {
+        var document = await ObserveAsync(revision, fingerprint, token).ConfigureAwait(false);
+        if (document.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+        return document;
+    }
+
+    public Task<BackendExportReply> StartExportAsync(string sessionKey, string clientKey, string profile, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default) => ExecuteExportAsync(sessionKey, write: true,
+            token => _exports.StartAsync(clientKey, profile, expectedRevision, fingerprint,
+                ct => ExportBaselineAsync(expectedRevision, fingerprint, ct), token), cancellationToken);
 
     public Task<BackendExportReply> ExportStatusAsync(string sessionKey, string id, CancellationToken cancellationToken = default) =>
         ExecuteExportAsync(sessionKey, write: false, token => _exports.StatusAsync(id, token), cancellationToken);

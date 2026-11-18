@@ -101,6 +101,7 @@ internal sealed partial class SceneViewModel
     {
         var index = Array.FindIndex(Scene!.Takes, take => take.Id == Scene.Clip.TakeId);
         Present(frame.Pixels, index, frame.NativeFrame, _assignedMedia!);
+        _viewingSource = false;
         if (setCursor) _playFrame = frame.LocalFrame;
     }
 

@@ -21,6 +21,7 @@ internal static class StudioServices
             .Singleton<IViewStyle<SceneView>, SceneViewStyle>()
             .Singleton<IViewStyle<StudioTitleBar>, StudioTitleBarStyle>()
             .Singleton<IFactory<StudioTitleBar, StudioTitleBarArguments>, StudioTitleBarFactory>()
-            .Singleton<IFactory<SceneView>, SceneViewFactory>());
+            .Singleton<IFactory<SceneView>>(resolver => new SceneViewFactory(resolver.Resolve<SceneViewModel>()!,
+                resolver.Resolve<IViewStyle<SceneView>>()!, resolver.Resolve<IFactory<StudioTitleBar, StudioTitleBarArguments>>()!)));
     }
 }

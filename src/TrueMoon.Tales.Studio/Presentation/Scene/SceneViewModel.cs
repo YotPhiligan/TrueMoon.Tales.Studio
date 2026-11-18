@@ -30,6 +30,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     private TimelineMove? _move;
     private MoveDraft? _moveDraft;
     private bool _moving;
+    private bool _viewingSource;
+    private double _montageCursor;
     private sealed record SeekRequest(int Take, int Frame, MediaInfo Media);
 
     public SceneSnapshot? Scene { get; private set; }
@@ -43,6 +45,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public bool Stale => _stale;
     public bool Loaded => Scene is not null && _media is not null;
     public bool Assigned => Loaded && Scene!.Takes[_takeIndex].Id == Scene.Clip.TakeId;
+    public bool ViewingSource => _viewingSource;
+    public bool CanChangePreview => CanSeek && Idle && !Moving && !Trimming;
     public bool Modified => Scene is { } scene && (_start != scene.Clip.SourceInFrame || _end != scene.Clip.SourceEnd || _timelineStart != scene.Clip.StartFrame || _moveDraft is { Changed: true });
     public bool Trimming => _trim is not null;
     public bool Moving => _moving;
@@ -53,7 +57,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public bool CanBeginMove => Editable && !Modified && !Trimming && !Moving && Idle && Scene is { } scene && new TimelineMove(scene).CanMove;
     public int TimelineStart => _timelineStart;
     public int TimelineDuration => Scene is { } scene ? TimelineTrim.Duration(_start, _end, scene.Clip.Speed ?? 1) : 0;
-    public double TimelineCursor => _playCursor ? _timelineStart + _playFrame : Scene is { } scene ? _timelineStart + (DesiredSourceFrame - _start) / (scene.Clip.Speed ?? 1) : 0;
+    public double TimelineCursor => ViewingSource ? _montageCursor : _playCursor ? _timelineStart + _playFrame :
+        Scene is { } scene ? _timelineStart + (DesiredSourceFrame - _start) / (scene.Clip.Speed ?? 1) : 0;
     private double DesiredSourceFrame => _seekRequested is { } seek ? seek.Frame * Scene!.Fps / seek.Media.Fps : CurrentSourceFrame;
     public int TakeIndex => _takeIndex;
     public int FrameIndex => _frameIndex;
@@ -103,6 +108,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             if (request == _seekRequested)
             {
                 Present(pixels, request.Take, request.Frame, request.Media);
+                _viewingSource = false;
                 _seekRequested = null;
                 if (!HasError && !Saving && !Trimming && !Moving && !Modified) Status = "Кадр монтажного клипа";
             }
@@ -189,9 +195,15 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     public void SelectTake(int index)
     {
-        PausePlayback(); _playCursor = false;
-        if (api.SupportsPreview && Loaded && Idle && !Trimming && !Moving && index >= 0 && index < Scene!.Takes.Length) Preview(index, 0);
+        PausePlayback();
+        if (!CanChangePreview || index < 0 || index >= Scene!.Takes.Length) return;
+        if (!ViewingSource) _montageCursor = TimelineCursor;
+        _playCursor = false;
+        Preview(index, 0, source: true);
     }
+
+    public void PreviewSource() => SelectTake(_takeIndex);
+    public void ResumeMontagePreview() => SeekTimeline(_montageCursor);
 
     public void Step(int delta)
     {
@@ -323,13 +335,13 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             var native = source * media.Fps / scene.Fps;
             var frame = Math.Clamp(lastIncluded ? (int)Math.Ceiling(native) - 1 : (int)Math.Floor(native), 0, media.FrameCount - 1);
             var pixels = await decoder.ReadAsync(api.Media(take.VideoAssetId), frame, media.Fps, token);
-            return () => { Present(pixels, index, frame, media); Status = "Кадр монтажного клипа"; };
+            return () => { Present(pixels, index, frame, media); _viewingSource = false; Status = "Кадр монтажного клипа"; };
         });
     }
 
     public void Explain(string text) => Status = text;
 
-    private void Preview(int index, int frame)
+    private void Preview(int index, int frame, bool source = false)
     {
         var take = Scene!.Takes[index];
         var known = index == _takeIndex ? _media : null;
@@ -337,7 +349,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         {
             var media = known ?? await api.MediaInfoAsync(take, token);
             var pixels = await decoder.ReadAsync(api.Media(take.VideoAssetId), frame, media.Fps, token);
-            return () => { Present(pixels, index, frame, media); Status = "Кадр загружен"; };
+            return () => { Present(pixels, index, frame, media); if (source) _viewingSource = true; Status = "Кадр загружен"; };
         });
     }
 
@@ -415,6 +427,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     private void SetScene(SceneSnapshot scene)
     {
         Scene = scene;
+        _viewingSource = false;
         _moveDraft = null; _move = null; _moving = false; _trimLayout = null;
         _stale = false;
         (_timelineStart, _start, _end) = (scene.Clip.StartFrame, scene.Clip.SourceInFrame, scene.Clip.SourceEnd);
