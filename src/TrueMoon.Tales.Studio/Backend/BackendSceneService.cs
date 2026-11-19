@@ -37,14 +37,15 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
     private EditorOpening Opening(OpenedBackendProject snapshot, string? clipId)
     {
         var project = snapshot.Project;
-        if (BackendSceneMapping.HasVideoClip(project)) return new(Map(snapshot, clipId));
+        if (clipId is not null || BackendSceneMapping.HasVideoClip(project)) return new(Map(snapshot, clipId));
         _snapshot = snapshot;
         string? dimensions = project.Properties.TryGetValue("output_size", out var size) &&
             size.ValueKind == JsonValueKind.Array && size.GetArrayLength() == 2 &&
             size[0].ValueKind == JsonValueKind.Number && size[1].ValueKind == JsonValueKind.Number &&
             size[0].TryGetInt32(out var width) && size[1].TryGetInt32(out var height) && width > 0 && height > 0
             ? $"{width} × {height}" : null;
-        return new(null, new(project.Name, project.Revision, project.Fps, dimensions, snapshot.CanUndoMontage, snapshot.CanRedoMontage));
+        return new(null, new(project.Name, project.Revision, project.Fps, dimensions, snapshot.CanUndoMontage, snapshot.CanRedoMontage,
+            snapshot.Fingerprint, HasMontage: project.Montage.Clips.Length > 0));
     }
 
     private async Task<OpenedBackendProject> OpenOwnedAsync(CancellationToken cancellationToken)

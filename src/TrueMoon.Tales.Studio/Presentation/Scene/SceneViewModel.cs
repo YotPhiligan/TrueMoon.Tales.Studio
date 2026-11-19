@@ -36,7 +36,9 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     public SceneSnapshot? Scene { get; private set; }
     public EmptyProject? EmptyProject { get; private set; }
-    public bool ProjectReady => Loaded || EmptyProject is not null;
+    public bool ProjectReady => Scene is not null || EmptyProject is not null;
+    internal long SavedRevision => Scene?.Revision ?? EmptyProject?.Revision ?? 0;
+    internal string? SavedFingerprint => Scene?.Fingerprint ?? EmptyProject?.Fingerprint;
     public byte[]? Pixels { get; private set; }
     public string Status { get; private set; } = "Открытие проекта…";
     public bool HasError { get; private set; }
@@ -175,18 +177,25 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         OpenClip(Scene?.Clip.Id);
     }
 
-    public void SelectClip(string id)
+    public void SelectClip(string id) => SelectClip(id, null);
+
+    internal void SelectClip(string id, Backend.BackendReadinessIssue? issue)
     {
         PausePlayback(); _playCursor = false;
         if (!CanReload) { Status = "Сначала сохраните или отмените черновик"; return; }
-        OpenClip(id);
+        OpenClip(id, issue);
     }
 
-    private void OpenClip(string? clipId)
+    private void OpenClip(string? clipId, Backend.BackendReadinessIssue? issue = null)
     {
         ClearPreparedPlayback();
         Begin("Читаю сцену с сервера…", async token =>
-            await PrepareOpeningAsync(await api.OpenEditorAsync(clipId, token), token, "Проект открыт"));
+        {
+            var opened = await api.OpenEditorAsync(clipId, token);
+            if (issue is not null && opened.Scene is { } candidate && !issue.Matches(candidate.Revision, candidate.Fingerprint))
+                return () => { _stale = true; Fail("Монтаж изменился. Проверьте готовность снова."); };
+            return await PrepareOpeningAsync(opened, token, "Проект открыт");
+        });
     }
 
     private async Task<Action> PrepareOpeningAsync(EditorOpening opened, CancellationToken token, string status)
@@ -204,6 +213,15 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             };
             var scene = opened.Scene ?? throw new InvalidDataException("Отсутствует снимок редактора.");
             var index = Array.FindIndex(scene.Takes, take => take.Id == scene.Clip.TakeId);
+            if (index < 0) return () =>
+            {
+                Pixels = null;
+                _media = _assignedMedia = null;
+                _takeIndex = _frameIndex = 0;
+                SetScene(scene);
+                Status = "Клип без видеодубля";
+                MediaStatus = Status;
+            };
             var take = scene.Takes[index];
             var media = await api.MediaInfoAsync(take, token);
             var frame = Math.Clamp((int)Math.Floor(scene.Clip.SourceInFrame * media.Fps / scene.Fps), 0, media.FrameCount - 1);
@@ -472,7 +490,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         _moveDraft = null; _move = null; _moving = false; _trimLayout = null;
         _stale = false;
         (_timelineStart, _start, _end) = (scene.Clip.StartFrame, scene.Clip.SourceInFrame, scene.Clip.SourceEnd);
-        PreparePlayback(scene);
+        if (Loaded) PreparePlayback(scene);
     }
 
     private void Present(byte[]? pixels, int index, int frame, MediaInfo media)

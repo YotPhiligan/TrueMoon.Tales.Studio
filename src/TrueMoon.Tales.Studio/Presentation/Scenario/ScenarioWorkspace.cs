@@ -85,7 +85,9 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         RefreshCommands();
     }
 
-    internal void Reload()
+    internal void Reload() => Reload(null);
+
+    internal void Reload(BackendReadinessIssue? issue)
     {
         Start("Читаю проект…", async token =>
         {
@@ -94,10 +96,28 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
             {
                 _baseline = opened;
                 _stale = false;
-                Show(HasDraft ? "Проект перечитан. Проверьте черновик перед сохранением." : "");
+                if (issue is not null && !issue.Matches(opened.Project.Revision, opened.Fingerprint))
+                    Show("Монтаж изменился. Проверьте готовность снова.", error: true);
+                else if (issue is not null && !SelectIssueAsset(opened.Project, issue))
+                    Show("Этот ассет отсутствует в библиотеке дублей.", error: true);
+                else Show(HasDraft ? "Проект перечитан. Проверьте черновик перед сохранением." : "");
                 RefreshLists();
             };
         });
+    }
+
+    private bool SelectIssueAsset(ProjectContract project, BackendReadinessIssue issue)
+    {
+        var clip = project.Montage.Clips.FirstOrDefault(row => row.Id == issue.ClipId);
+        var source = project.Sources.FirstOrDefault(row => row.Id == clip?.SourceId &&
+            row.Takes.Any(take => take.Id == clip.TakeId && take.VideoAssetId == issue.AssetId)) ??
+            project.Sources.FirstOrDefault(row => row.Takes.Any(take => take.VideoAssetId == issue.AssetId));
+        if (source is null) return false;
+        _sourceId = source.Id;
+        _takeId = source.Takes.FirstOrDefault(take => take.Id == clip?.TakeId && take.VideoAssetId == issue.AssetId)?.Id ??
+            source.Takes.First(take => take.VideoAssetId == issue.AssetId).Id;
+        _query = _search.Value = source.Title;
+        return true;
     }
 
     internal void ClearPreview()

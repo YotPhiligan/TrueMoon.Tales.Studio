@@ -20,6 +20,7 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
     internal string Message { get; private set; } = "Проверка выполняется по сохранённому монтажу.";
     internal string? OutputDirectory { get; private set; }
     internal BackendExportCheck? Check { get; private set; }
+    internal BackendReadinessIssue? Issue { get; private set; }
     internal BackendExportStatus? Job { get; private set; }
     internal bool Busy => _pending is not null;
     internal bool Running => Job?.State is "running" or "stopping";
@@ -72,18 +73,18 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
     internal void SelectProfile(string profile)
     {
         if (!CanCheck || profile == Profile) return;
-        Profile = profile; Check = null; HasError = false;
+        Profile = profile; Check = null; Issue = null; HasError = false;
         Message = "Проверьте монтаж для выбранного профиля.";
     }
 
-    internal void Validate(SceneSnapshot scene)
+    internal void Validate(long revision, string sha)
     {
-        if (!CanCheck || scene.Fingerprint is not { } sha) return;
+        if (!CanCheck) return;
         var profile = Profile;
         Check = null;
         Begin("Проверяю сохранённый монтаж…", async token =>
         {
-            var check = await backend.CheckExportAsync(profile, scene.Revision, sha, token).ConfigureAwait(false);
+            var check = await backend.CheckExportAsync(profile, revision, sha, token).ConfigureAwait(false);
             return () => { Check = check; Message = "Монтаж готов к экспорту."; };
         });
     }
@@ -178,7 +179,7 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
 
     private void Begin(string message, Func<CancellationToken, Task<Action>> operation)
     {
-        Message = message; HasError = false;
+        Message = message; HasError = false; Issue = null;
         var token = _closing.Token;
         _pending = Task.Run(() => operation(token), token);
     }
@@ -194,7 +195,8 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
             {
                 _track = false;
                 HasError = true;
-                Message = error is BackendCommandException command ? Explain(command.Code) :
+                Issue = (error as BackendCommandException)?.Issue;
+                Message = Issue is { } issue ? ReadinessMessage.Explain(issue) : error is BackendCommandException command ? Explain(command.Code) :
                     error is OperationCanceledException ? "Истекло время ожидания. Проверьте статус задания." : error.Message;
             }
             return true;

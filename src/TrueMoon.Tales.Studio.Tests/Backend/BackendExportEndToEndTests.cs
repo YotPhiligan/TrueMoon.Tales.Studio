@@ -11,6 +11,7 @@ using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Presentation.Scene;
+using TrueMoon.Tales.Studio.Presentation.Scenario;
 using TrueMoon.Tales.Studio.Tests.Support;
 using Xunit;
 
@@ -284,6 +285,170 @@ public sealed class BackendExportEndToEndTests
             files.AssertProject(bytes, history);
         }
         Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+    }
+
+    [BackendMediaFact]
+    public async Task Readiness_Placeholder_FromExport_SelectsTheClipWithoutWriting()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var store = files.Files.Files.Store();
+        var original = await store.OpenAsync();
+        var project = original.Project with
+        {
+            Montage = original.Project.Montage with
+            {
+                Clips = original.Project.Montage.Clips.Select(clip => clip with { TakeId = null, SourceInFrame = 0, SourceOutFrame = null }).ToArray()
+            }
+        };
+        var saved = await store.SaveAsync(original, project, original.Project.Revision, "diagnostic-fixture");
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await using var session = await files.OpenAsync(workspace: true);
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        host.PumpUntil(() => model.EmptyProject is not null || model.HasError);
+        Assert.False(model.HasError, model.Status);
+
+        var panel = CheckReadiness(host);
+        Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row => row.Value.Contains("Клип без видеодубля"));
+        Assert.False(ButtonIn(panel, "Запустить экспорт").IsEnabled);
+        Assert.False(ButtonIn(panel, "К ассету").IsVisible);
+        host.Click(ButtonIn(panel, "К клипу"));
+        host.PumpUntil(() => model.Scene?.Clip.Id == "clip-main" && model.Idle || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        Assert.Null(model.Scene!.Clip.TakeId);
+        Assert.Equal(saved.Fingerprint, model.Scene.Fingerprint);
+        Assert.Null(model.Pixels);
+        Assert.Null(host.Window.Overlays.Popup);
+        Assert.Empty(files.Requests());
+        files.AssertProject(bytes, history);
+    }
+
+    [BackendMediaFact]
+    public async Task Readiness_MissingVideo_FromRange_OpensTheExactLibraryTake()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        File.Move(files.MediaPath("Синий.mp4"), files.MediaPath("Синий.fixture"));
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await using var session = await files.OpenAsync(workspace: true);
+        var opened = await session.Connection.OpenAsync();
+        var clip = opened.Project.Montage.Clips.Single(row => row.Id == "clip-extra");
+        var source = opened.Project.Sources.Single(row => row.Id == clip.SourceId);
+        var take = source.Takes.Single(row => row.Id == clip.TakeId);
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        var export = CheckReadiness(host);
+        host.Click(ButtonIn(export, "К клипу"));
+        host.PumpUntil(() => model.Scene?.Clip.Id == clip.Id && model.Idle || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        Assert.Null(model.Pixels);
+        Assert.Equal("Видеофайл не найден", model.MediaStatus);
+
+        host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+        var review = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+        host.Click(ButtonIn(review, "Подготовить диапазон"));
+        var asset = ButtonIn(review, "К ассету");
+        host.PumpUntil(() => asset.IsEnabled);
+        Assert.Contains(RasterWindow<SceneView>.Walk(review).OfType<Text>(), row => row.Value.Contains("Файл материала не найден"));
+        host.Capture("readiness-missing-video", new { clip.Id, take.VideoAssetId });
+        host.Click(asset);
+        var library = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !library.Busy);
+        Assert.Contains(RasterWindow<SceneView>.Walk(library).OfType<TextBox>(), row =>
+            row.AccessibleName == "Поиск источника" && row.Value == source.Title);
+        Assert.Contains(RasterWindow<SceneView>.Walk(library).OfType<Button>(), row =>
+            row.Value == BackendScenarioEdit.TakeName(take) && row.Tone == ControlTone.Accent);
+        Assert.Contains(RasterWindow<SceneView>.Walk(library).OfType<Text>(), row => row.Value.Contains("Синий.mp4"));
+        Assert.True(ButtonIn(library, "Перепривязать файл").IsEnabled);
+        File.Move(files.MediaPath("Синий.fixture"), files.MediaPath("Синий.mp4"));
+        host.Click(ButtonIn(library, "К монтажу"));
+        Ready(host, model);
+        host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+        var repaired = WaitForExport(host);
+        var check = ButtonIn(repaired, "Проверить монтаж");
+        host.PumpUntil(() => check.IsEnabled);
+        host.Click(check);
+        host.PumpUntil(() => ButtonIn(repaired, "Запустить экспорт").IsEnabled);
+        Assert.False(ButtonIn(repaired, "К ассету").IsVisible);
+        Assert.Empty(files.Requests());
+        files.AssertProject(bytes, history);
+    }
+
+    [BackendMediaFact]
+    public async Task Readiness_MissingMusic_OpensTheTrack_AndRejectsAStaleLink()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        File.Copy(files.MediaPath("Красный.mp4"), files.MediaPath("Музыка.mp4"));
+        await using var session = await files.OpenAsync(workspace: true);
+        var connection = session.Connection;
+        var initial = await connection.AcquireWriterAsync(await connection.OpenAsync());
+        var head = await connection.EditScenarioAsync(new SaveMontageMusic("@videos/Музыка.mp4", 0, 24, 0, .4, false), initial);
+        var assetId = head.Project.Montage.Properties["music"].GetProperty("asset_id").GetString();
+        File.Move(files.MediaPath("Музыка.mp4"), files.MediaPath("Музыка.fixture"));
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        var panel = CheckReadiness(host);
+        Assert.False(ButtonIn(panel, "К клипу").IsVisible);
+        host.Click(ButtonIn(panel, "К ассету"));
+        var tracks = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<MontageTrackWorkspace>());
+        host.PumpUntil(() => !tracks.NeedsFrame);
+        Assert.Contains(RasterWindow<SceneView>.Walk(tracks).OfType<TextBox>(), row =>
+            row.AccessibleName == "Медиа (ID ассета или @mount/путь)" && row.Value == assetId);
+        Assert.False(tracks.HasDraft);
+        host.Click(ButtonIn(tracks, "К монтажу"));
+        Ready(host, model);
+        var outdated = CheckReadiness(host);
+        var latest = connection.EditScenarioAsync(new SaveMontageMarker(null, "Новая ревизия", 8), head).GetAwaiter().GetResult();
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        host.Click(ButtonIn(outdated, "К ассету"));
+        var staleTracks = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<MontageTrackWorkspace>());
+        host.PumpUntil(() => !staleTracks.NeedsFrame);
+        Assert.Contains(RasterWindow<SceneView>.Walk(staleTracks).OfType<Text>(), row => row.Value.Contains("Проверьте готовность снова"));
+        Assert.DoesNotContain(RasterWindow<SceneView>.Walk(staleTracks).OfType<TextBox>(), row => row.Value == assetId);
+        Assert.Equal(latest.Fingerprint, connection.OpenAsync().GetAwaiter().GetResult().Fingerprint);
+        Assert.Empty(files.Requests());
+        files.AssertProject(bytes, history);
+    }
+
+    [BackendMediaFact]
+    public async Task Readiness_DisabledLegacyOverlap_ShowsConfigurationCauseWithoutAnEntityLink()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var configPath = files.Files.Base.ConfigPath;
+        var config = JsonNode.Parse(File.ReadAllText(configPath))!;
+        config["legacy_read_enabled"] = false;
+        config["legacy_root"] = files.MediaPath("disabled");
+        File.WriteAllText(configPath, config.ToJsonString());
+        await using var session = await files.OpenAsync(workspace: true);
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        host.PumpUntil(() => model.ProjectReady && model.Idle || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        var panel = CheckReadiness(host);
+        Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row =>
+            row.Value.Contains("legacy_root пересекается с корнем чтения"));
+        Assert.False(ButtonIn(panel, "К клипу").IsVisible);
+        Assert.False(ButtonIn(panel, "К ассету").IsVisible);
+        Assert.Empty(files.Requests());
+    }
+
+    private static SceneExportPanel CheckReadiness(RasterWindow<SceneView> host)
+    {
+        host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+        var panel = WaitForExport(host);
+        var check = ButtonIn(panel, "Проверить монтаж");
+        host.PumpUntil(() => check.IsEnabled);
+        host.Click(check);
+        host.PumpUntil(() => RasterWindow<SceneView>.Walk(panel).OfType<Text>().Any(row => row.HasError));
+        return panel;
     }
 
     [BackendMediaFact]
@@ -880,6 +1045,7 @@ public sealed class BackendExportEndToEndTests
         private string Exports => Path.Combine(Root, "exports");
         internal string OutputDirectory => Exports;
         private string Media => Path.Combine(Root, "media");
+        internal string MediaPath(string name) => Path.Combine(Media, name);
         private static string Ffmpeg => Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
         private static string Ffprobe => Environment.GetEnvironmentVariable("STUDIO_TEST_FFPROBE")!;
         internal string[] Requests() => Directory.GetFiles(Exports, "Request.json", SearchOption.AllDirectories);

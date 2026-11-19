@@ -72,6 +72,9 @@ internal sealed partial class StudioBackendService
             return await execute(deadline.Token).ConfigureAwait(false);
         }
         catch (BackendExportException error) { return new() { ErrorCode = error.Code }; }
+        catch (BackendReadinessException error) { return new() { ErrorCode = error.ExportCode, JobJson = error.Issue.Encode() }; }
+        catch (InvalidDataException error) when (error.InnerException is DisabledLegacyOverlapException)
+        { return new() { ErrorCode = "invalid_export", JobJson = new BackendReadinessIssue("legacy_root_overlap", 0, null).Encode() }; }
         catch (WriterRequiredException error) { return new() { ErrorCode = error.Message }; }
         catch (ProjectRevisionConflictException) { return new() { ErrorCode = "revision_conflict" }; }
         catch (ProjectMigrationRequiredException) { return new() { ErrorCode = "migration_required" }; }

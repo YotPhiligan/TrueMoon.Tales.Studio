@@ -1,4 +1,5 @@
 using TrueMoon.Argentis;
+using TrueMoon.Tales.Studio.Backend;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
@@ -13,20 +14,23 @@ internal sealed class SceneExportPanel : Border
     private readonly Button[] _profiles;
     private readonly Button _check, _start, _statusButton, _cancel, _recover, _save, _close;
     private readonly Button _reviewSegment, _reviewProject;
+    private readonly Button _issueClip, _issueAsset;
+    private readonly HStack _issueActions;
     private readonly HStack _review;
     private readonly Element[] _tabOrder;
     private static readonly string[] Profiles = ["draft", "project", "final"];
     protected override Color ThemeBackground => Theme.Surface;
 
-    internal SceneExportPanel(SceneExport export, SceneViewModel scene, Action close, Action<bool>? review = null)
+    internal SceneExportPanel(SceneExport export, SceneViewModel scene, Action close, Action<bool>? review = null,
+        Action<BackendReadinessIssue, bool>? navigate = null)
     {
         _export = export; _scene = scene;
         Width = 510; Padding = new Thickness(16);
         AccessibleName = "Экспорт MP4";
         var labels = new[] { "Черновой", "Размер проекта", "Финальный" };
         _profiles = Profiles.Select((profile, index) => ActionButton(labels[index], () => export.SelectProfile(profile))).ToArray();
-        _check = ActionButton("Проверить монтаж", () => { if (CanCheckScene) export.Validate(scene.Scene!); });
-        _start = ActionButton("Запустить экспорт", () => { if (CanCheckScene) export.Start(scene.Scene!); });
+        _check = ActionButton("Проверить монтаж", () => { if (CanCheckScene && scene.SavedFingerprint is { } sha) export.Validate(scene.SavedRevision, sha); });
+        _start = ActionButton("Запустить экспорт", () => { if (CanCheckScene && scene.Scene is { } baseline) export.Start(baseline); });
         _statusButton = ActionButton("Прочитать статус", export.Inspect);
         _cancel = ActionButton("Отменить экспорт", export.Cancel);
         _recover = ActionButton("Восстановить", export.Recover);
@@ -36,10 +40,14 @@ internal sealed class SceneExportPanel : Border
         _reviewProject = ActionButton("Смотреть проект", () => review?.Invoke(false));
         _review = Row(_reviewSegment, _reviewProject);
         _review.IsVisible = review is not null;
-        _tabOrder = [.. _profiles, _check, _start, _statusButton, _cancel, _recover, _reviewSegment, _reviewProject, _destination, _name, _save, _close];
+        _issueClip = ActionButton("К клипу", () => OpenIssue(asset: false));
+        _issueAsset = ActionButton("К ассету", () => OpenIssue(asset: true));
+        _issueActions = Row(_issueClip, _issueAsset);
+        _tabOrder = [.. _profiles, _check, _start, _issueClip, _issueAsset, _statusButton, _cancel, _recover,
+            _reviewSegment, _reviewProject, _destination, _name, _save, _close];
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(
             Text.Plain("Экспорт MP4").WithRole(SceneView.CaptionRole),
-            Row(_profiles), _summary, _progress, _status,
+            Row(_profiles), _summary, _progress, _status, _issueActions,
             Row(_check, _start),
             Row(_statusButton, _cancel, _recover),
             _review,
@@ -47,10 +55,17 @@ internal sealed class SceneExportPanel : Border
             Text.Plain("Имя нового файла").WithRole(SceneView.MutedRole), _name,
             Row(_save, _close)));
         Refresh();
+
+        void OpenIssue(bool asset)
+        {
+            if (CanNavigate && export.Issue is { } issue) navigate?.Invoke(issue, asset);
+        }
     }
 
-    private bool CanCheckScene => _scene.Scene?.Fingerprint is not null && !_scene.Modified &&
+    private bool CanCheckScene => _scene.SavedFingerprint is not null && !_scene.Modified &&
         !_scene.Saving && !_scene.Stale && !_scene.Trimming && !_scene.Moving;
+    private bool CanNavigate => CanCheckScene && !_export.Busy && _scene.CanReload &&
+        _export.Issue?.Matches(_scene.SavedRevision, _scene.SavedFingerprint) == true;
 
     private Button ActionButton(string label, Action execute) => Button.Simple(label).WithRole(SceneView.CommandRole)
         .OnClick(() => { execute(); if (!IsDisposed) Refresh(); });
@@ -87,12 +102,15 @@ internal sealed class SceneExportPanel : Border
         _status.IsVisible = _status.Value.Length > 0;
         _status.HasError = _export.HasError;
         _status.AccessibleName = _status.Value;
+        _issueClip.IsVisible = _issueClip.IsEnabled = CanNavigate && _export.Issue?.ClipId is not null;
+        _issueAsset.IsVisible = _issueAsset.IsEnabled = CanNavigate && _export.Issue?.AssetId is not null;
+        _issueActions.IsVisible = _issueClip.IsVisible || _issueAsset.IsVisible;
     }
 
     internal bool MoveFocus(UiInput input, IInputContext context)
     {
         if (input.Kind != InputKind.KeyDown || input.Key != UiKey.Tab) return false;
-        var controls = _tabOrder.Where(control => control.IsEffectivelyEnabled).ToArray();
+        var controls = _tabOrder.Where(control => control.IsEffectivelyEnabled && control.IsVisible).ToArray();
         var current = Array.FindIndex(controls, control => control.IsFocused);
         var next = current < 0 ? input.Shift ? controls.Length - 1 : 0 :
             (current + (input.Shift ? -1 : 1) + controls.Length) % controls.Length;

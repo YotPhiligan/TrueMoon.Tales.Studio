@@ -6,7 +6,7 @@ public sealed class BackendExportReply
     /// <summary>Empty on success, otherwise a stable export or project refusal code.</summary>
     public string ErrorCode { get; set; } = "";
 
-    /// <summary>Versioned job status JSON, empty when the call was refused.</summary>
+    /// <summary>Versioned job status JSON or a bounded readiness issue on refusal.</summary>
     public string JobJson { get; set; } = "";
 
     internal byte[] Data { get; set; } = [];

@@ -20,14 +20,18 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private readonly TextBox _start = new() { Width = 88, AccessibleName = "Начало диапазона" };
     private readonly TextBox _end = new() { Width = 88, AccessibleName = "Конец диапазона (не входит)" };
     private readonly Button _prepareRange, _prepareProject, _reset, _range, _segment, _project, _cancel, _back, _inspect;
+    private readonly Button _issueClip, _issueAsset;
+    private readonly HStack _issueActions;
     private BackendExportStatus? _job;
+    private BackendReadinessIssue? _issue;
     private Task<BackendExportStatus>? _pending;
     private TimeSpan _elapsed;
     private bool _unresolved;
     private bool Active => _job?.State is "running" or "stopping";
     public bool NeedsFrame => _pending is not null || Active && !_unresolved;
 
-    internal WorkingReviewWorkspace(BackendConnection backend, SceneSnapshot scene, Action<BackendRenderedMontage, bool> open, Action close)
+    internal WorkingReviewWorkspace(BackendConnection backend, SceneSnapshot scene, Action<BackendRenderedMontage, bool> open, Action close,
+        Action<BackendReadinessIssue, bool> navigate)
     {
         _backend = backend; _scene = scene; _open = open; _close = close;
         Padding = new Thickness(16, 44, 16, 16);
@@ -41,12 +45,20 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         _cancel = Button("Отменить подготовку", Cancel);
         _back = Button("К монтажу", Back);
         _inspect = Button("Проверить статус", Inspect);
+        _issueClip = Button("К клипу", () => OpenIssue(asset: false));
+        _issueAsset = Button("К ассету", () => OpenIssue(asset: true));
+        _issueActions = Row(_issueClip, _issueAsset);
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 12).WithChildren(
             Text.Plain("Рабочий предпросмотр"),
             Row(Text.Plain("Кадр начала"), _start, Text.Plain("Конец (не входит)"), _end, _reset),
-            Row(_prepareRange, _prepareProject), _status, _progress,
+            Row(_prepareRange, _prepareProject), _status, _issueActions, _progress,
             Row(_range, _segment, _project), Row(_cancel, _inspect, _back)));
         Refresh();
+
+        void OpenIssue(bool asset)
+        {
+            if (CanClose && _issue is { } issue && issue.Matches(_scene.Revision, _scene.Fingerprint)) navigate(issue, asset);
+        }
     }
 
     private void SetSegmentRange()
@@ -114,6 +126,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private void Start(string status, Func<Task<BackendExportStatus>> run)
     {
         if (_pending is not null) return;
+        _issue = null;
         Show(status);
         _pending = run();
         Refresh();
@@ -141,7 +154,8 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
             {
                 _unresolved = error.Code != "export_not_found" && _job is { State: "running" or "stopping" };
                 if (error.Code == "export_not_found") _job = null;
-                Show(error.Code switch
+                _issue = error.Issue;
+                Show(_issue is { } issue ? ReadinessMessage.Explain(issue) : error.Code switch
                 {
                     "invalid_export" => "Проверьте диапазоны, назначенные дубли, звуковые потоки и шрифты.",
                     "export_busy" => "CPU уже занят экспортом или предпросмотром.",
@@ -171,6 +185,10 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         _cancel.IsEnabled = _pending is null && _job?.State == "running";
         _inspect.IsEnabled = _pending is null && _unresolved;
         _back.IsEnabled = CanClose;
+        var canNavigate = CanClose && _issue?.Matches(_scene.Revision, _scene.Fingerprint) == true;
+        _issueClip.IsVisible = _issueClip.IsEnabled = canNavigate && _issue?.ClipId is not null;
+        _issueAsset.IsVisible = _issueAsset.IsEnabled = canNavigate && _issue?.AssetId is not null;
+        _issueActions.IsVisible = _issueClip.IsVisible || _issueAsset.IsVisible;
         _progress.IsVisible = Active;
         _progress.Value = (_job?.ProgressPercent ?? 0) / 100f;
     }

@@ -110,7 +110,7 @@ internal sealed class BackendMediaResolver
     private void AddRoot(string root)
     {
         if (!_legacyEnabled && _legacy is not null && (Within(root, _legacy) || Within(_legacy, root)))
-            throw new InvalidDataException("A media read root overlaps disabled legacy.");
+            throw new InvalidDataException("A media read root overlaps disabled legacy.", new DisabledLegacyOverlapException());
         _roots.Add(root);
     }
 

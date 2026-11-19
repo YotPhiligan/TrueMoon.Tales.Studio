@@ -29,7 +29,8 @@ internal sealed class MontageTrackWorkspace : Border, IUiFrameParticipant
     public bool NeedsFrame => _pending is not null;
     internal bool HasDraft => _kind is not null && Signature() != _clean;
 
-    internal MontageTrackWorkspace(BackendConnection backend, SceneSnapshot? scene, int cursor, string? track, string? id, Action close)
+    internal MontageTrackWorkspace(BackendConnection backend, SceneSnapshot? scene, int cursor, string? track, string? id, Action close,
+        BackendReadinessIssue? issue = null)
     {
         _backend = backend; _close = close;
         (_clip, _window, _cursor) = (scene?.Clip.Id, scene?.Segment.Id, cursor);
@@ -46,7 +47,7 @@ internal sealed class MontageTrackWorkspace : Border, IUiFrameParticipant
         _contents = ScrollViewer.Create().Content(Stack(_navigation, _native, _list, _form));
         SetContent(new PreviewLayout(new StudioHeading(Text.Plain("Дорожки монтажа"), Row(_reload, _back)), _contents,
             Stack(_status, Row(_save, _remove, _discard))));
-        Reload(track, id);
+        Reload(track, id, issue);
     }
 
     private ProjectContract Project => _snapshot!.Project;
@@ -61,7 +62,7 @@ internal sealed class MontageTrackWorkspace : Border, IUiFrameParticipant
 
     private void Close() { if (!CancelNavigation()) _close(); }
 
-    private void Reload(string? track = null, string? id = null)
+    private void Reload(string? track = null, string? id = null, BackendReadinessIssue? issue = null)
     {
         var keepDraft = HasDraft;
         Begin("Читаю дорожки…", async token =>
@@ -74,6 +75,11 @@ internal sealed class MontageTrackWorkspace : Border, IUiFrameParticipant
                 _window ??= Project.Montage.Windows.FirstOrDefault()?.Id;
                 Show(keepDraft ? "Прочитана актуальная ревизия. Проверьте сохранённые значения перед применением ввода." : $"Ревизия {Project.Revision}");
                 RebuildList();
+                if (issue is not null && !issue.Matches(snapshot.Project.Revision, snapshot.Fingerprint))
+                {
+                    Show("Монтаж изменился. Проверьте готовность снова.", true);
+                    return;
+                }
                 if (!keepDraft) Select(track ?? _kind, id ?? _id, _clipSound);
             };
         });

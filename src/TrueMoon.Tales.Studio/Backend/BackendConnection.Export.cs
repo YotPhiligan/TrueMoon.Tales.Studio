@@ -117,10 +117,14 @@ internal sealed partial class BackendConnection
         var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         var reply = await TransportAsync(() => send(deadline.Token)).ConfigureAwait(false);
-        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
         if (reply is null || reply.ErrorCode is null || reply.JobJson is null || reply.Data is null ||
             Encoding.Unicode.GetByteCount(reply.JobJson) > 16 * 1024)
             throw new InvalidDataException("Invalid export reply.");
+        if (reply.ErrorCode.Length > 0)
+        {
+            if (reply.Data.Length != 0) throw new InvalidDataException("Unexpected bytes in an export refusal.");
+            throw new BackendCommandException(reply.ErrorCode, reply.JobJson.Length == 0 ? null : BackendReadinessIssue.Decode(reply.JobJson));
+        }
         return reply;
     }
 

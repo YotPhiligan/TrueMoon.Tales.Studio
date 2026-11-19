@@ -133,7 +133,13 @@ public sealed class BackendExportPlanTests
                 { new { asset_id = "sound", segment_id = "missing", offset_frames = 2, duration_frames = 4, source_in_frame = 0, stream = 0, gain = 1, muted = false } }); break;
         }
         project = project with { Montage = montage with { Properties = rows } };
-        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.CreateAsync(project, "final"));
+        if (invalid is "overlap" or "anchor" or "duration" or "placeholder")
+        {
+            var issue = (await Assert.ThrowsAsync<BackendReadinessException>(() => fixture.CreateAsync(project, "final"))).Issue;
+            Assert.Equal("b", issue.ClipId);
+            Assert.Equal(invalid == "placeholder" ? "clip_take_missing" : "clip_timing", issue.Reason);
+        }
+        else await Assert.ThrowsAsync<InvalidDataException>(() => fixture.CreateAsync(project, "final"));
         Assert.Equal(0, fixture.VideoProbes + fixture.AudioProbes);
         Assert.False(Directory.Exists(fixture.Job));
     }
@@ -144,7 +150,11 @@ public sealed class BackendExportPlanTests
     public async Task ExportPlan_DeniesUntrustedReferencesBeforeAProbe(string reference)
     {
         using var fixture = new PlanFixture(reference);
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.CreateAsync(fixture.Project, "project"));
+        var error = await Assert.ThrowsAsync<BackendReadinessException>(() => fixture.CreateAsync(fixture.Project, "project"));
+        Assert.Equal("access_denied", error.ExportCode);
+        Assert.Equal("asset_access", error.Issue.Reason);
+        Assert.Equal("a", error.Issue.ClipId);
+        Assert.Equal("video-a", error.Issue.AssetId);
         Assert.Equal(0, fixture.VideoProbes + fixture.AudioProbes);
         Assert.False(Directory.Exists(fixture.Job));
     }
@@ -155,7 +165,11 @@ public sealed class BackendExportPlanTests
     public async Task ExportPlan_RejectsClipAndAudioRangesBeyondProbedSource(bool video)
     {
         using var fixture = new PlanFixture(videoFrames: video ? 12 : 120, audioSeconds: video ? "10" : "0.5");
-        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.CreateAsync(fixture.Project, "final"));
+        var issue = (await Assert.ThrowsAsync<BackendReadinessException>(() => fixture.CreateAsync(fixture.Project, "final"))).Issue;
+        Assert.Equal(video ? "clip_source_range" : "asset_invalid", issue.Reason);
+        Assert.Equal(video ? "a" : null, issue.ClipId);
+        Assert.Equal(video ? "video-a" : "sound", issue.AssetId);
+        Assert.Equal(video ? null : "music", issue.Track);
         Assert.Equal(1, fixture.VideoProbes);
         Assert.Equal(video ? 0 : 1, fixture.AudioProbes);
         Assert.False(Directory.Exists(fixture.Job));

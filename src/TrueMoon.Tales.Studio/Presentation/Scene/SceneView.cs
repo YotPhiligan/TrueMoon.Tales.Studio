@@ -151,13 +151,15 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
 
     private bool ScenarioVisible => _scenario is not null && _page.Child == _scenario;
 
-    private void OpenScenario()
+    private void OpenScenario() => OpenScenario(null);
+
+    private void OpenScenario(BackendReadinessIssue? issue)
     {
         if (_scenario is null || !_model.ProjectReady || !_model.CanReload) return;
         _model.PausePlayback();
         Overlays.Close();
         _page.SetContent(_scenario);
-        _scenario.Reload();
+        _scenario.Reload(issue);
     }
 
     private void ReturnToMontage()
@@ -168,12 +170,14 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Refresh();
     }
 
-    private void OpenTrack(TrackSpan? track)
+    private void OpenTrack(TrackSpan? track) => OpenTrack(track?.Track, track?.Id);
+
+    private void OpenTrack(string? track, string? id, BackendReadinessIssue? issue = null)
     {
         if (_backend is null || !_model.ProjectReady || !_model.CanReload || _tracks is not null) return;
         _model.PausePlayback();
         Overlays.Close();
-        _tracks = new(_backend, _model.Scene, _model.SplitFrame, track?.Track, track?.Id, CloseTracks);
+        _tracks = new(_backend, _model.Scene, _model.SplitFrame, track, id, CloseTracks, issue);
         _page.SetContent(_tracks);
     }
 
@@ -199,7 +203,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         if (_backend is null || !_model.Idle || !_model.CanReload || _model.Stale || _model.Scene is not { Fingerprint: { } } scene) return;
         Overlays.Close();
-        _workingReview = new(_backend, scene, ShowWorkingReview, CloseWorkingReview);
+        _workingReview = new(_backend, scene, ShowWorkingReview, CloseWorkingReview, OpenReadinessIssue);
         _page.SetContent(_workingReview);
     }
 
@@ -215,12 +219,33 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
 
     private void CloseWorkingReview()
     {
+        RemoveWorkingReview();
+        _model.Open();
+        Refresh();
+    }
+
+    private void RemoveWorkingReview()
+    {
         var workspace = _workingReview;
         _workingReview = null;
         _page.SetContent(Overlays);
         workspace?.Dispose();
-        _model.Open();
-        Refresh();
+    }
+
+    private void OpenReadinessIssue(BackendReadinessIssue issue, bool asset)
+    {
+        if (!_model.CanReload || _model.Stale || !issue.Matches(_model.SavedRevision, _model.SavedFingerprint) ||
+            _workingReview is { CanClose: false }) return;
+        if (_workingReview is not null) RemoveWorkingReview();
+        Overlays.Close();
+        if (!asset && issue.ClipId is { } clip)
+        {
+            _panels.Timeline = true;
+            _model.SelectClip(clip, issue);
+            Refresh();
+        }
+        else if (asset && issue is { Track: { } track, TrackId: { } id }) OpenTrack(track, id, issue);
+        else if (asset && issue.AssetId is not null) OpenScenario(issue);
     }
 
     private void CloseReview()
@@ -238,7 +263,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         _commands.Add(StudioCommand.Reload, _model.Open, () => _model.CanReload);
         _commands.Add(StudioCommand.Save, _model.Save, () => _model.CanSave);
-        _commands.Add(StudioCommand.Export, () => _openExport = true, () => _export is not null && _model.Scene is not null);
+        _commands.Add(StudioCommand.Export, () => _openExport = true, () => _export is not null &&
+            _model.SavedFingerprint is not null && (_model.Scene is not null || _model.EmptyProject?.HasMontage == true));
         _commands.Add(StudioCommand.Cancel, _model.Cancel, () => _model.Idle && _model.Modified);
         _commands.Add(StudioCommand.Previous, () => _model.Step(-1), () => _model.CanPrevious);
         _commands.Add(StudioCommand.Next, () => _model.Step(1), () => _model.CanNext);
@@ -291,7 +317,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             {
                 _model.PausePlayback();
                 if (_export.CanInspect) _export.Inspect();
-                var panel = new SceneExportPanel(_export, _model, () => Overlays.Close(), OpenReview);
+                var panel = new SceneExportPanel(_export, _model, () => Overlays.Close(), OpenReview, OpenReadinessIssue);
                 Overlays.Open(_exportButton, panel, _exportButton.Bounds, context, _exportButton);
                 _exportPanel = panel;
                 panel.FocusFirst(context);

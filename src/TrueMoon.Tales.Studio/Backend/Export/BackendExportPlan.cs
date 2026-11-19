@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
 
@@ -67,16 +68,17 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         int clipEnd = 0;
         foreach (var clip in clips)
         {
-            if (clip.StartFrame < clipEnd || clip.AnchorFrame is { } anchor && anchor != clip.StartFrame)
-                throw new InvalidDataException("Saved clips overlap or conflict with an anchor.");
+            if (clip.StartFrame < clipEnd || clip.AnchorFrame is { } anchor && anchor != clip.StartFrame ||
+                clip.DurationFrames <= 0 || (long)clip.StartFrame + clip.DurationFrames > frameLimit)
+                throw Reject("clip_timing", clip.Id);
             clipEnd = End(clip.StartFrame, clip.DurationFrames, frameLimit);
             if (!Intersects(clip.StartFrame, clip.DurationFrames)) continue;
             var assetId = sources[clip.SourceId].Takes.FirstOrDefault(take => take.Id == clip.TakeId)?.VideoAssetId;
-            if (string.IsNullOrWhiteSpace(assetId)) throw new InvalidDataException("An export clip lacks a selected video take.");
+            if (string.IsNullOrWhiteSpace(assetId)) throw Reject("clip_take_missing", clip.Id);
             var exit = clip.SourceOutFrame ?? (clip.SourceInFrame + clip.DurationFrames * clip.Speed);
             if (!double.IsFinite(exit) || exit <= clip.SourceInFrame ||
                 Math.Ceiling((exit - clip.SourceInFrame) / clip.Speed - 1e-8) != clip.DurationFrames)
-                throw new InvalidDataException("Saved clip duration does not match its source range and speed.");
+                throw Reject("clip_timing", clip.Id, assetId);
             placements.Add(new(clip.Id, assetId, clip.StartFrame, clip.DurationFrames, clip.SourceInFrame, exit,
                 clip.Speed, clip.MuteNativeAudio));
         }
@@ -96,16 +98,24 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var registry = new Inputs(project, resolver, decoder);
         foreach (var clip in placements)
         {
-            var asset = await registry.GetAsync(clip.AssetId, video: true, token).ConfigureAwait(false);
-            var info = await registry.VideoAsync(asset, token).ConfigureAwait(false);
+            BackendVideoInfo info;
+            try
+            {
+                var asset = await registry.GetAsync(clip.AssetId, video: true, token).ConfigureAwait(false);
+                info = await registry.VideoAsync(asset, token).ConfigureAwait(false);
+            }
+            catch (Exception error) when (IsMediaFailure(error))
+            { throw DescribeMedia(error, clip.AssetId, clip.Id); }
             var capacity = info.FrameCount / info.Fps * fps;
             if (clip.SourceOutFrame > capacity + 1e-7)
-                throw new InvalidDataException("Saved clip range exceeds the probed video extent.");
+                throw Reject("clip_source_range", clip.Id, clip.AssetId);
         }
         if (music is not null)
-            await CheckAudio(music.AssetId, 0, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted).ConfigureAwait(false);
+            await CheckAudio(music.AssetId, 0, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted, "music", "music")
+                .ConfigureAwait(false);
         foreach (var sound in sounds)
-            await CheckAudio(sound.AssetId, sound.Stream, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted).ConfigureAwait(false);
+            await CheckAudio(sound.AssetId, sound.Stream, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted,
+                "sound_events", sound.TrackId, sound.OwnerClipId).ConfigureAwait(false);
         var titleRows = new List<Dictionary<string, JsonElement>>();
         foreach (var (id, title) in titles)
         {
@@ -146,15 +156,42 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         bool Intersects(int start, int length) =>
             range is null || start < range.Value.End && (long)start + length > range.Value.Start;
 
-        async Task CheckAudio(string id, int stream, double start, int duration, double gain, bool muted)
+        BackendReadinessException Reject(string reason, string clip, string? asset = null) =>
+            new("invalid_export", new(reason, project.Revision, fingerprint, clip, asset));
+
+        BackendReadinessException DescribeMedia(Exception error, string asset, string? clip = null, string? track = null, string? trackId = null)
         {
-            var asset = await registry.GetAsync(id, video: false, token).ConfigureAwait(false);
-            if (muted || gain == 0) return;
-            var seconds = await registry.AudioAsync(asset, stream, token).ConfigureAwait(false);
-            if (start + duration > Math.Floor(seconds * fps + 1e-6))
-                throw new InvalidDataException("Saved audio range exceeds the probed stream duration.");
+            var (code, reason) = error switch
+            {
+                FileNotFoundException or DirectoryNotFoundException => ("export_unavailable", "asset_missing"),
+                UnauthorizedAccessException => ("access_denied", "asset_access"),
+                System.ComponentModel.Win32Exception => ("export_unavailable", "asset_tools"),
+                InvalidDataException or ArgumentException or FormatException or InvalidOperationException or JsonException =>
+                    ("invalid_export", "asset_invalid"),
+                _ => ("export_unavailable", "asset_invalid")
+            };
+            return new(code, new(reason, project.Revision, fingerprint, clip, asset, trackId is null ? null : track, trackId), error);
+        }
+
+        async Task CheckAudio(string id, int stream, double start, int duration, double gain, bool muted,
+            string track, string? trackId, string? clip = null)
+        {
+            try
+            {
+                var asset = await registry.GetAsync(id, video: false, token).ConfigureAwait(false);
+                if (muted || gain == 0) return;
+                var seconds = await registry.AudioAsync(asset, stream, token).ConfigureAwait(false);
+                if (start + duration > Math.Floor(seconds * fps + 1e-6))
+                    throw new InvalidDataException("Saved audio range exceeds the probed stream duration.");
+            }
+            catch (Exception error) when (IsMediaFailure(error))
+            { throw DescribeMedia(error, id, clip, track, trackId); }
         }
     }
+
+    private static bool IsMediaFailure(Exception error) => error is IOException or InvalidDataException or
+        UnauthorizedAccessException or ArgumentException or FormatException or InvalidOperationException or JsonException or
+        System.ComponentModel.Win32Exception or NotSupportedException;
 
     private static int End(int start, int duration, int limit)
     {
@@ -204,10 +241,12 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             CheckAudioTiming(source, gain, stream);
             if (offset < 0 || duration < 1) throw new InvalidDataException("Invalid export sound placement.");
             int ownerStart;
+            string? ownerClip = null;
             if (row.TryGetProperty("clip_id", out var clipId) && clipId.ValueKind != JsonValueKind.Null)
             {
                 var clip = montage.Clips.FirstOrDefault(clip => clip.Id == clipId.GetString())
                     ?? throw new InvalidDataException("Export sound refers to an unknown clip.");
+                ownerClip = clip.Id;
                 ownerStart = clip.StartFrame;
                 duration = Math.Min(duration, clip.DurationFrames - offset);
                 if (duration <= 0) continue;
@@ -224,7 +263,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 ownerStart = window.StartFrame;
             }
             if ((long)ownerStart + offset > int.MaxValue) throw new InvalidDataException("Export sound placement overflows.");
-            result.Add(new(id, ownerStart + offset, duration, source, stream, gain, muted));
+            var trackId = row.TryGetProperty("id", out var track) && track.ValueKind == JsonValueKind.String ? track.GetString() : null;
+            result.Add(new(id, ownerStart + offset, duration, source, stream, gain, muted, trackId, ownerClip));
         }
         return result;
     }
@@ -243,7 +283,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         double SourceInFrame, double SourceOutFrame, double Speed, bool MuteNativeAudio);
     private sealed record MusicPlacement(string AssetId, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted);
     private sealed record SoundPlacement(string AssetId, int StartFrame, int DurationFrames,
-        double SourceInFrame, int Stream, double Gain, bool Muted);
+        double SourceInFrame, int Stream, double Gain, bool Muted,
+        [property: JsonIgnore] string? TrackId, [property: JsonIgnore] string? OwnerClipId);
     private sealed record Asset(string Path, string Format, string ExpectedSha256);
 
     private sealed class Inputs(ProjectContract project, BackendMediaResolver resolver, BackendMediaDecoder decoder)
