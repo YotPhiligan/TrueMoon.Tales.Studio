@@ -11,11 +11,12 @@ internal sealed partial class ScenarioWorkspace
     private void SegmentForm(ScenarioSegmentContract? segment)
     {
         var name = Input("Название сегмента", segment?.Name);
-        var description = Description(segment?.Description);
-        var fields = new List<Element> { Field(name), Field(description) };
+        var purpose = EditText("Назначение сцены", segment?.Description);
+        var fields = new List<Element> { Field(name), Field(purpose) };
         if (segment is { } previous)
         {
-            Form("Правка сегмента", fields, () => new SaveSegment(previous.Id, name.Value, description.Text, 0, 0));
+            Form("Правка сегмента", fields, () => new SaveSegment(previous.Id, name.Value, purpose.Text, 0, 0),
+                () => SavedChapter(previous.Id, null));
             return;
         }
         var end = _baseline!.Project.Montage.Windows.Select(row => (long)row.StartFrame + row.DurationFrames).DefaultIfEmpty().Max();
@@ -23,7 +24,7 @@ internal sealed partial class ScenarioWorkspace
         var start = Input("Начало окна, кадр", end.ToString(CultureInfo.InvariantCulture));
         var length = Input("Длительность окна, кадры", duration.ToString(CultureInfo.InvariantCulture));
         fields.Add(Field(start)); fields.Add(Field(length));
-        Form("Новый сегмент", fields, () => new SaveSegment(null, name.Value, description.Text,
+        Form("Новый сегмент", fields, () => new SaveSegment(null, name.Value, purpose.Text,
             Number(start, "начало окна"), Number(length, "длительность окна")));
     }
 
@@ -31,11 +32,53 @@ internal sealed partial class ScenarioWorkspace
     {
         var segment = Segment!;
         var title = Input("Название действия", story?.Title);
-        var description = Description(story?.Description);
+        var visual = EditText("Что видим", story?.Description);
+        var sound = EditText("Что слышим", story?.SoundNotes);
         var plan = Input("Плановая длительность, кадры", story?.PlannedDurationFrames?.ToString(CultureInfo.InvariantCulture));
-        Form(story is null ? "Новое действие" : "Правка действия", [Field(title), Field(description), Field(plan)],
-            () => new SaveAction(segment.Id, story?.Id, title.Value, description.Text,
-                string.IsNullOrWhiteSpace(plan.Value) ? null : Number(plan, "плановую длительность")));
+        Form(story is null ? "Новое действие" : "Правка действия", [Field(title), Field(visual), Field(sound), Field(plan)],
+            () => new SaveAction(segment.Id, story?.Id, title.Value, visual.Text,
+                string.IsNullOrWhiteSpace(plan.Value) ? null : Number(plan, "плановую длительность")) { SoundNotes = sound.Text },
+            () => SavedChapter(segment.Id, story?.Id));
+    }
+
+    private void OrderForm()
+    {
+        var segment = Segment!;
+        var action = Story!;
+        var original = segment.Actions.Select(row => row.Id).ToArray();
+        var order = segment.Actions.ToArray();
+        var index = Array.IndexOf(original, action.Id);
+        var list = Stack();
+        var earlier = Button.Simple("Выше");
+        var later = Button.Simple("Ниже");
+        earlier.OnClick(() => Move(-1));
+        later.OnClick(() => Move(1));
+        FillOrder();
+        Form("Порядок планов", [Text.Plain($"Выбран план «{action.Title}»"), Row(earlier, later), list], () =>
+        {
+            if (Segment is not { } current || !original.SequenceEqual(current.Actions.Select(row => row.Id)))
+                throw new ArgumentException("Состав или порядок планов изменился. Отмените черновик и откройте порядок заново.");
+            return new MoveScenarioAction(segment.Id, action.Id, order.ElementAtOrDefault(index + 1)?.Id);
+        }, () => SavedChapter(segment.Id, action.Id));
+
+        void Move(int delta)
+        {
+            var next = index + delta;
+            if (Busy || (uint)next >= (uint)order.Length) return;
+            (order[index], order[next]) = (order[next], order[index]);
+            index = next;
+            FillOrder();
+            Show("");
+        }
+
+        void FillOrder()
+        {
+            earlier.IsEnabled = index > 0;
+            later.IsEnabled = index + 1 < order.Length;
+            foreach (var old in list.Items.ToArray()) { list.Items.Remove(old); old.Dispose(); }
+            for (var i = 0; i < order.Length; i++)
+                list.Add(Text.Plain($"{i + 1}. {order[i].Title}{(i == index ? " · выбран" : "")}"));
+        }
     }
 
     private void LinkForm()
@@ -144,10 +187,24 @@ internal sealed partial class ScenarioWorkspace
                 Number(length, "длительность"), Number(sourceIn, "начало в дубле")));
     }
 
-    private void Form(string title, IEnumerable<Element> fields, Func<ScenarioCommand> draft)
+    private void Form(string title, IEnumerable<Element> fields, Func<ScenarioCommand> draft, Func<AdaptationText?>? chapterBinding = null)
     {
         _draft = draft;
-        _body.SetContent(ScrollViewer.Create().Content(Inset(Stack([Caption(title), .. fields]))));
+        var editor = ScrollViewer.Create().Content(Inset(Stack([Caption(title), .. fields])));
+        if (chapterBinding is null) _body.SetContent(editor);
+        else
+        {
+            var chapter = new ChapterPane();
+            _refreshDraftChapter = () => chapter.Show(chapterBinding());
+            _refreshDraftChapter();
+            var split = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 500 };
+            split.FirstPane.MinWidth = 250;
+            split.SecondPane.MinWidth = 230;
+            split.Divider.AccessibleName = "Ширина редактора сценария";
+            split.FirstPane.SetContent(editor);
+            split.SecondPane.SetContent(ScrollViewer.Create().Content(Inset(Stack(Caption("Текст главы"), chapter))));
+            _body.SetContent(split);
+        }
         Show("");
         RefreshCommands();
     }
@@ -159,6 +216,7 @@ internal sealed partial class ScenarioWorkspace
         _body.SetContent(_browser);
         form.Dispose();
         _draft = null;
+        _refreshDraftChapter = null;
         Show("");
         RefreshLists();
     }
@@ -168,7 +226,7 @@ internal sealed partial class ScenarioWorkspace
 
     private static TextBox Input(string label, string? value = null) =>
         new() { AccessibleName = label, Value = (value ?? "").ReplaceLineEndings(" ") };
-    private static RichTextEditor Description(string? description) =>
-        new() { AccessibleName = "Описание", Text = description ?? "", Height = 112 };
+    private static RichTextEditor EditText(string label, string? value) =>
+        new() { AccessibleName = label, Text = value ?? "", Height = 112 };
     private static Element Field(Element input) => Stack(Text.Plain(input.AccessibleName), input);
 }

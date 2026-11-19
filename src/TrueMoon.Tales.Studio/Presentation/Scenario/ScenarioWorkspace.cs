@@ -16,18 +16,24 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private readonly SplitView _browser;
     private readonly VStack _segments = Stack(), _actions = Stack(), _sources = Stack(), _takes = Stack(), _clips = Stack(), _bindings = Stack();
     private readonly Text _title = new("Сценарий и материалы"), _status = new(), _actionInfo = new(), _sourceInfo = new();
-    private readonly Text _textBinding = new();
+    private readonly ChapterPane _chapter = new();
+    private readonly RichTextEditor _scenePurpose = ReadOnlyText("Назначение сцены", 60);
+    private readonly RichTextEditor _visibleAction = ReadOnlyText("Что видим", 72);
+    private readonly RichTextEditor _audibleAction = ReadOnlyText("Что слышим", 60);
+    private readonly Element _sceneNotes, _actionNotes, _chapterDetails, _library;
     private readonly TextBox _search = new() { AccessibleName = "Поиск источника" };
     private readonly TextBox _previewFrame = new() { AccessibleName = "Кадр дубля", Value = "0" };
     private readonly Button _back, _reload, _commit, _cancel, _newSegment, _editSegment, _newAction, _editAction,
         _link, _place, _assign, _import, _addTake, _relink, _frameA, _frameB;
-    private readonly Button _segmentText, _actionText, _animaticStill;
+    private readonly Button _segmentText, _actionText, _animaticStill, _order, _chapterTab, _libraryTab;
     private readonly FrameSlot _first = new("A"), _second = new("B");
     private Task<Action>? _pending;
     private OpenedBackendProject? _baseline;
     private Func<ScenarioCommand>? _draft;
+    private Action? _refreshDraftChapter;
     private Button? _storyboardFocus;
     private bool _stale;
+    private bool? _showChapter;
     private string _query = "";
     private string? _segmentId, _actionId, _sourceId, _takeId, _clipId;
 
@@ -54,6 +60,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _editSegment = ButtonFor("Править сегмент", () => SegmentForm(Segment));
         _newAction = ButtonFor("Новое действие", () => ActionForm(null));
         _editAction = ButtonFor("Править действие", () => ActionForm(Story));
+        _order = ButtonFor("Переставить", OrderForm);
+        _order.AccessibleName = "Изменить порядок планов";
+        _chapterTab = ButtonFor("Текст главы", () => PickChapter(true));
+        _libraryTab = ButtonFor("Библиотека", () => PickChapter(false));
         _segmentText = ButtonFor("Текст сегмента", () => TextForm(Segment!, null));
         _actionText = ButtonFor("Текст действия", () => TextForm(Segment!, Story));
         _animaticStill = ButtonFor("Кадр аниматика", AnimaticStillForm);
@@ -72,12 +82,16 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _frameA = ButtonFor("Кадр A", () => Preview(_first));
         _frameB = ButtonFor("Кадр B", () => Preview(_second));
 
+        _sceneNotes = Field(_scenePurpose);
+        _actionNotes = Stack(Field(_visibleAction), Field(_audibleAction));
+        _chapterDetails = Stack(_actionNotes, _chapter);
         var story = Stack(Caption("Сценарий"), Row(_newSegment, _editSegment), _segments,
-            Row(_newAction, _editAction), _actions, _actionInfo, Row(_segmentText, _actionText),
-            _textBinding, _animaticStill, _bindings,
+            Row(_segmentText, _actionText), _sceneNotes,
+            new StudioHeading(Caption("Порядок планов"), _order), Row(_newAction, _editAction), _actions, _actionInfo,
+            _animaticStill, _bindings,
             Caption("Клипы действия"), _clips, _link, _place, _assign);
         var find = ButtonFor("Найти", () => { _query = _search.Value.Trim(); RefreshLists(); });
-        var library = Stack(Caption("Библиотека"), new StudioHeading(_search, find), Row(_import, _addTake),
+        _library = Stack(new StudioHeading(_search, find), Row(_import, _addTake),
             _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink,
             new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB),
             new FramePair(_first.Content, _second.Content));
@@ -85,11 +99,13 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _browser.FirstPane.MinWidth = 320; _browser.SecondPane.MinWidth = 340;
         _browser.Divider.AccessibleName = "Ширина сценария";
         _browser.FirstPane.SetContent(ScrollViewer.Create().Content(Inset(story)));
-        _browser.SecondPane.SetContent(ScrollViewer.Create().Content(Inset(library)));
+        _browser.SecondPane.SetContent(new WorkspaceLayout(Inset(Row(_chapterTab, _libraryTab)),
+            ScrollViewer.Create().Content(Inset(Stack(_chapterDetails, _library))), new Text { IsVisible = false }));
         _body.SetContent(_browser);
         _title.FontSize = 22;
         SetContent(new WorkspaceLayout(new StudioHeading(_title, _back), _body,
             Stack(_status, Row(_commit, _cancel, _reload))));
+        ShowChapter(false);
         RefreshCommands();
     }
 
@@ -99,6 +115,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     {
         _baseline = snapshot;
         _stale = false;
+        _showChapter = null;
         _segmentId = shot.SegmentId;
         _actionId = shot.ActionId;
         _clipId = shot.Position?.ClipId;
@@ -185,6 +202,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "scenario_window_conflict" => "Проверьте начало и длительность окна сегмента.",
                 "scenario_clip_overlap" => "Участок пересекается с другим клипом.",
                 "scenario_source_range" => "Участок выходит за длительность дубля.",
+                "scenario_order_timing" => "В таком порядке временные планы не помещаются между сохранёнными клипами. Измените порядок или отмените черновик.",
                 "invalid_text_reference" => "Укажите Markdown из настроенного каталога @texts.",
                 "invalid_text_range" => "Проверьте номера строк и длину фрагмента.",
                 "text_changed" => "Исходный текст изменился. Прочитайте новую версию перед сохранением.",
@@ -296,12 +314,13 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         }), _clipId, id => { _clipId = id; RefreshLists(); });
         _actionInfo.Value = action is null ? "" :
             $"План {action.PlannedDurationFrames?.ToString() ?? "—"} · монтаж {clips.Sum(row => (long)row.DurationFrames)} к. · источников {action.Sources.Length}";
-        var bindings = BackendAdaptation.Read(project).Texts;
-        var bound = bindings.FirstOrDefault(row => row.SegmentId == segment?.Id && row.ActionId == action?.Id) ??
-            bindings.FirstOrDefault(row => row.SegmentId == segment?.Id && row.ActionId is null);
-        _textBinding.IsVisible = bound is not null;
-        _textBinding.Value = bound is null ? "" :
-            $"Текст {(bound.ActionId is null ? "сегмента" : "действия")} · строки {bound.Fragment.FirstLine}–{bound.Fragment.LastLine} · {bound.Fragment.Sha256[..12]}";
+        var bound = segment is null ? null : SavedChapter(segment.Id, action?.Id);
+        _chapter.Show(bound);
+        _refreshDraftChapter?.Invoke();
+        _scenePurpose.Text = segment?.Description ?? "";
+        _visibleAction.Text = action?.Description ?? "";
+        _audibleAction.Text = action?.SoundNotes ?? "";
+        ShowChapter(_showChapter ?? bound is not null);
         _sourceInfo.Value = Take?.VideoAssetId is { } asset ? ShortReference(BackendScenarioEdit.TryReference(project, asset) ?? "Файл не указан") : "";
         RefreshCommands();
     }
@@ -324,6 +343,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _newSegment.IsEnabled = _import.IsEnabled = ready;
         _editSegment.IsEnabled = _newAction.IsEnabled = ready && Segment is not null;
         _editAction.IsEnabled = ready && Story is not null;
+        _order.IsEnabled = _editAction.IsEnabled && Segment?.Actions.Length > 1;
         _segmentText.IsEnabled = ready && Segment is not null;
         _actionText.IsEnabled = _animaticStill.IsEnabled = ready && Story is not null;
         _link.IsEnabled = _editAction.IsEnabled && Source is not null;

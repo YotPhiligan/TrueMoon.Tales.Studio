@@ -368,6 +368,144 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Screenplay_RasterEditsSceneWithSavedChapter_AndGuardsPlanOrder()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var texts = Directory.CreateDirectory(Path.Combine(files.Files.Files.Root, "texts")).FullName;
+        var chapter = Path.Combine(texts, "Глава.md");
+        File.WriteAllText(chapter, "# Глава\nЭйко держит часы.\nСлышен тихий ход.\n");
+        var configPath = files.Files.Base.ConfigPath;
+        var config = JsonNode.Parse(File.ReadAllText(configPath))!;
+        config["mounts"]!["texts"] = texts;
+        File.WriteAllText(configPath, config.ToJsonString());
+        await using var session = await files.OpenAsync(workspace: true);
+        var backend = session.Connection;
+        var head = await backend.AcquireWriterAsync(await backend.OpenAsync());
+        var sourceClip = head.Project.Montage.Clips.First();
+        head = await backend.EditScenarioAsync(new SaveSegment(null, "Привал QA", "", 72, 48), head);
+        var segment = head.Project.Segments.Last();
+        foreach (var (title, duration) in new[] { ("Опора", 12), ("Часы", 12), ("Готовый дубль", 24) })
+            head = await backend.EditScenarioAsync(new SaveAction(segment.Id, null, title, "", duration), head);
+        var actions = head.Project.Segments.Last().Actions;
+        head = await backend.EditScenarioAsync(new LinkSource(segment.Id, actions[2].Id, sourceClip.SourceId, "Дубль"), head);
+        head = await backend.EditScenarioAsync(new PlaceClip(segment.Id, actions[2].Id, sourceClip.SourceId, sourceClip.TakeId!, 96, 24, 2), head);
+        var observed = await backend.ReadAdaptationTextAsync("@texts/Глава.md", 2, 3, CancellationToken.None);
+        head = await backend.EditScenarioAsync(new BindAdaptationText(segment.Id, null, observed.Reference, 2, 3, observed.Sha256), head);
+        var initialClips = head.Project.Montage.Clips;
+        var original = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        File.WriteAllText(chapter, "# Изменённый исходник\n");
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !scenario.Busy);
+        Click("Привал QA");
+        Click("Часы");
+        Click("Править сегмент");
+        Assert.Equal(observed.Excerpt, Field("Сохранённый фрагмент главы").Text);
+        Type("Назначение сцены", "От паузы к тихому облегчению.");
+        Save();
+        var purposeSaved = backend.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(head.Project.Revision + 1, purposeSaved.Project.Revision);
+        Assert.Equal("От паузы к тихому облегчению.", purposeSaved.Project.Segments.Last().Description);
+        Assert.Contains(files.History(), row => row.SequenceEqual(original));
+
+        Click("Править действие");
+        Type("Что видим", "Эйко держит часы.");
+        Type("Что слышим", "Тихий ход часов под гулом пластины.");
+        var fragment = Field("Сохранённый фрагмент главы");
+        Assert.True(fragment.Options.IsReadOnly);
+        Assert.Equal(observed.Excerpt, fragment.Text);
+        Assert.True(Field("Что слышим").Bounds.X + Field("Что слышим").Bounds.Width <= fragment.Bounds.X);
+        host.Capture("screenplay-edit-with-chapter", new { segment.Id, observed.Sha256 });
+        Save();
+        var authored = backend.OpenAsync().GetAwaiter().GetResult();
+        var action = authored.Project.Segments.Last().Actions[1];
+        Assert.Equal(purposeSaved.Project.Revision + 1, authored.Project.Revision);
+        Assert.Equal(("Эйко держит часы.", "Тихий ход часов под гулом пластины."), (action.Description, action.SoundNotes));
+        var oldCaller = backend.EditScenarioAsync(new SaveAction(segment.Id, action.Id, action.Title, action.Description, 12), authored)
+            .GetAwaiter().GetResult();
+        Assert.Equal(authored.Fingerprint, oldCaller.Fingerprint);
+        Assert.Equal(action.SoundNotes, Field("Что слышим").Text);
+
+        var beforeOrder = File.ReadAllBytes(files.ProjectPath);
+        history = files.History();
+        Click("Переставить");
+        Click("Выше");
+        files.AssertProject(beforeOrder, history);
+        Click("Отменить");
+        files.AssertProject(beforeOrder, history);
+        Click("Переставить");
+        Click("Выше");
+        Save();
+        var ordered = backend.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(authored.Project.Revision + 1, ordered.Project.Revision);
+        Assert.Equal(new[] { actions[1].Id, actions[0].Id, actions[2].Id }, ordered.Project.Segments.Last().Actions.Select(row => row.Id));
+        Assert.Equal(initialClips, ordered.Project.Montage.Clips);
+        Assert.Equal(observed, Assert.Single(BackendAdaptation.Read(ordered.Project).Texts).Fragment);
+        var storyboard = StoryboardShot.Read(ordered.Project).Where(row => row.SegmentId == segment.Id).ToArray();
+        Assert.Equal(new[] { ("Часы", 72), ("Опора", 84), ("Готовый дубль", 96) },
+            storyboard.Select(row => (row.Title, row.Position!.Frame)));
+        Assert.Equal(history.Length + 1, files.History().Length);
+        Assert.Contains(files.History(), row => row.SequenceEqual(beforeOrder));
+        host.Capture("screenplay-saved-order", new { ordered.Project.Revision });
+
+        var saved = File.ReadAllBytes(files.ProjectPath);
+        history = files.History();
+        Click("Переставить");
+        Click("Ниже");
+        Click("Ниже");
+        Click("Сохранить");
+        host.PumpUntil(() => !scenario.Busy);
+        Assert.Contains("не помещаются", scenario.Status);
+        Assert.True(scenario.HasDraft);
+        files.AssertProject(saved, history);
+        Click("Отменить");
+        Click("Править действие");
+        Type("Что слышим", "Черновик для другого дубля.");
+        var intervening = backend.EditScenarioAsync(new SaveSegment(segment.Id, "Привал QA", "Уточнённая цель.", 0, 0), ordered)
+            .GetAwaiter().GetResult();
+        saved = File.ReadAllBytes(files.ProjectPath);
+        history = files.History();
+        Click("Сохранить");
+        host.PumpUntil(() => !scenario.Busy);
+        Assert.Contains("Проект изменился", scenario.Status);
+        Assert.True(scenario.HasDraft);
+        Assert.Equal("Черновик для другого дубля.", Field("Что слышим").Text);
+        Assert.False(ButtonIn(scenario, "Сохранить").IsEnabled);
+        files.AssertProject(saved, history);
+        Assert.Equal(intervening.Fingerprint, backend.OpenAsync().GetAwaiter().GetResult().Fingerprint);
+        Assert.Empty(files.Requests());
+
+        RichTextEditor Field(string label) => Assert.Single(RasterWindow<SceneView>.Walk(scenario).OfType<RichTextEditor>(),
+            row => row.AccessibleName == label);
+        void Click(string label) => FocusAndClick(ButtonIn(scenario, label));
+        void FocusAndClick(Element target)
+        {
+            for (var node = target.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(target.Bounds); host.Update(); }
+            host.Click(target);
+        }
+        void Type(string label, string text)
+        {
+            var field = Field(label);
+            FocusAndClick(field);
+            host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
+            host.Input(new(InputKind.Text, Text: text));
+            Assert.Equal(text, field.Text);
+        }
+        void Save()
+        {
+            Click("Сохранить");
+            host.PumpUntil(() => !scenario.Busy);
+            Assert.False(scenario.HasDraft, scenario.Status);
+        }
+    }
+
+    [BackendMediaFact]
     public async Task Animatic_RasterStartsWithoutAnyVideo_AndRequiresPlannedTiming()
     {
         using var files = new ExportFixture();

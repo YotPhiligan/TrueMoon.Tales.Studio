@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TrueMoon.Tales.Studio.Backend.Export;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -71,16 +72,46 @@ internal static class BackendScenarioEdit
         var segment = FindSegment(project, edit.SegmentId);
         var title = Text(edit.Title, 160, required: true);
         var description = Text(edit.Description, 2000, preserveWhitespace: true);
+        var sound = edit.SoundNotes is { } note ? Text(note, 2000, preserveWhitespace: true) : null;
+        if (string.IsNullOrWhiteSpace(sound)) sound = null;
         if (edit.PlannedDuration is <= 0) throw Invalid();
         if (edit.ActionId is { } actionId)
         {
             var previous = FindAction(segment, actionId);
-            var next = previous with { Title = title, Description = description, PlannedDurationFrames = edit.PlannedDuration };
+            var next = previous with { Title = title, Description = description, PlannedDurationFrames = edit.PlannedDuration,
+                SoundNotes = edit.SoundNotes is null ? previous.SoundNotes : sound };
             return previous == next ? project : ReplaceAction(project, segment, next);
         }
-        var action = new StoryActionContract { Id = Id("action"), Title = title, Description = description, PlannedDurationFrames = edit.PlannedDuration };
+        var action = new StoryActionContract { Id = Id("action"), Title = title, Description = description,
+            PlannedDurationFrames = edit.PlannedDuration, SoundNotes = sound };
         var draft = ReplaceSegment(project, segment with { Actions = [.. segment.Actions, action] });
         return MarkExplicit(draft, project.Montage.Windows.Where(window => window.SegmentId == segment.Id).Select(window => window.Id));
+    }
+
+    internal static ProjectContract MoveAction(ProjectContract project, MoveScenarioAction edit, bool legacyLayout)
+    {
+        var segment = FindSegment(project, edit.SegmentId);
+        var action = FindAction(segment, edit.ActionId);
+        if (edit.BeforeActionId == action.Id) return project;
+        var ordered = segment.Actions.Where(row => row.Id != action.Id).ToList();
+        var index = edit.BeforeActionId is { } before ? ordered.FindIndex(row => row.Id == before) : ordered.Count;
+        if (index < 0) throw Invalid();
+        ordered.Insert(index, action);
+        if (segment.Actions.SequenceEqual(ordered)) return project;
+
+        var reordered = ordered.ToArray();
+        var windows = project.Montage.Windows.Where(window => window.SegmentId == segment.Id).ToArray();
+        foreach (var window in windows)
+        {
+            var clips = project.Montage.Clips.Where(clip => clip.WindowId == window.Id).ToArray();
+            var unplaced = BackendAnimatic.PlannedShots(window, reordered, clips).Where(shot => shot.Start is null)
+                .Select(shot => shot.Action.Id).ToHashSet(StringComparer.Ordinal);
+            if (unplaced.Count != 0 && BackendAnimatic.PlannedShots(window, segment.Actions, clips)
+                .Any(shot => shot.Start is not null && unplaced.Contains(shot.Action.Id)))
+                throw new ScenarioEditException("scenario_order_timing");
+        }
+        var draft = ReplaceSegment(project, segment with { Actions = reordered });
+        return legacyLayout ? MarkExplicit(draft, windows.Select(window => window.Id)) : draft;
     }
 
     private static ProjectContract Link(ProjectContract project, LinkSource edit)

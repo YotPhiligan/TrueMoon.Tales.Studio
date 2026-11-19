@@ -69,7 +69,7 @@ public sealed class BackendScenarioRasterTests
             Click(host, "Новое действие");
             Fill(host, "Название действия", "Склейки QA");
             Fill(host, "Плановая длительность, кадры", "48");
-            var description = Assert.Single(Elements(host).OfType<RichTextEditor>(), item => item.AccessibleName == "Описание");
+            var description = Assert.Single(Elements(host).OfType<RichTextEditor>(), item => item.AccessibleName == "Что видим");
             host.Click(description);
             host.Input(new(InputKind.Text, Text: "Сначала текст"));
             Save();

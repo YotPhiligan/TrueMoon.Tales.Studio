@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. Protocol16 расширил команды экранного сценария. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
   в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
@@ -49,6 +49,15 @@
   пикселей. `asset_id` в этом ответе равен ID действия, `frame_index` равен 0.
   Снимок проверяется до и после чтения. Видео раскадровки читается через
   существующие `MediaInfoAsync` и `FrameAsync`.
+- В Enerit `save_action` принимает опциональное `sound_notes`. Пропуск или
+  `null` сохраняет прежнюю заметку, пустая строка очищает её. Назначение
+  сцены хранится в `description` сегмента, видимое действие в `description`
+  блока. `move_scenario_action` ставит `action_id` перед `before_action_id`
+  внутри `segment_id`. `before_action_id: null` ставит действие в конец.
+  Writer сверяет сохранённую ревизию и SHA. Если ранее размещённый временный
+  план теряет позицию, возвращается `scenario_order_timing`.
+  Для окна мигрированного сценария сохранённая перестановка фиксирует
+  текущее ручное размещение клипов в этом окне.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.

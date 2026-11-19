@@ -1,11 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Encodings.Web;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "operation")]
 [JsonDerivedType(typeof(SaveSegment), "save_segment")]
 [JsonDerivedType(typeof(SaveAction), "save_action")]
+[JsonDerivedType(typeof(MoveScenarioAction), "move_scenario_action")]
 [JsonDerivedType(typeof(LinkSource), "link_source")]
 [JsonDerivedType(typeof(ImportVideo), "import_video")]
 [JsonDerivedType(typeof(RelinkVideo), "relink_video")]
@@ -29,6 +31,7 @@ internal abstract record ScenarioCommand
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         AllowDuplicateProperties = false,
         MaxDepth = 8
@@ -41,7 +44,12 @@ internal abstract record ScenarioCommand
 }
 
 internal sealed record SaveSegment(string? SegmentId, string Name, string Description, int Start, int Duration) : ScenarioCommand;
-internal sealed record SaveAction(string SegmentId, string? ActionId, string Title, string Description, int? PlannedDuration) : ScenarioCommand;
+internal sealed record SaveAction(string SegmentId, string? ActionId, string Title, string Description, int? PlannedDuration) : ScenarioCommand
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SoundNotes { get; init; }
+}
+internal sealed record MoveScenarioAction(string SegmentId, string ActionId, string? BeforeActionId) : ScenarioCommand;
 internal sealed record LinkSource(string SegmentId, string ActionId, string SourceId, string? Purpose) : ScenarioCommand;
 internal sealed record BindAdaptationText(string SegmentId, string? ActionId, string? Reference, int FirstLine, int LastLine,
     string? TextSha256) : ScenarioCommand;
