@@ -64,7 +64,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public int TimelineStart => _timelineStart;
     public int TimelineDuration => Scene is { } scene ? TimelineTrim.Duration(_start, _end, scene.Clip.Speed ?? 1) : 0;
     internal bool HasTimelineCursor => Assigned || _playCursor;
-    public double TimelineCursor => StoryboardPlan is { } plan ? plan.Frame : ViewingSource ? _montageCursor : _playCursor ? _timelineStart + _playFrame :
+    public double TimelineCursor => StoryboardPlan is { } plan ? plan.CursorFrame : ViewingSource ? _montageCursor : _playCursor ? _timelineStart + _playFrame :
         Scene is { } scene ? _timelineStart + (DesiredSourceFrame - _start) / (scene.Clip.Speed ?? 1) : 0;
     private double DesiredSourceFrame => _seekRequested is { } seek ? seek.Frame * Scene!.Fps / seek.Media.Fps : CurrentSourceFrame;
     public int TakeIndex => _takeIndex;
@@ -207,7 +207,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         ClearPreparedPlayback();
         if (position.ClipId is not { } clip)
         {
-            SetEmpty(BackendSceneService.Empty(snapshot), $"План · кадр {position.Frame}");
+            SetEmpty(BackendSceneService.Empty(snapshot), $"План · кадр {position.CursorFrame}");
             StoryboardPlan = position;
             return;
         }
@@ -215,14 +215,15 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         {
             var opened = await api.OpenEditorAsync(clip, token);
             if (opened.Scene is not { } scene || scene.Revision != snapshot.Project.Revision ||
-                !string.Equals(scene.Fingerprint, snapshot.Fingerprint, StringComparison.OrdinalIgnoreCase) || scene.Clip.StartFrame != position.Frame)
+                !string.Equals(scene.Fingerprint, snapshot.Fingerprint, StringComparison.OrdinalIgnoreCase) || scene.Clip.StartFrame != position.Frame ||
+                position.PreviewOffset < 0 || position.PreviewOffset >= scene.Clip.DurationFrames)
                 throw new BackendCommandException("revision_conflict");
-            var apply = await PrepareOpeningAsync(opened, token, $"Раскадровка · кадр {position.Frame}");
-            return () => { apply(); _playFrame = 0; _playCursor = true; };
+            var apply = await PrepareOpeningAsync(opened, token, $"Раскадровка · кадр {position.CursorFrame}", position.PreviewOffset);
+            return () => { apply(); _playFrame = position.PreviewOffset; _playCursor = true; };
         });
     }
 
-    private async Task<Action> PrepareOpeningAsync(EditorOpening opened, CancellationToken token, string status)
+    private async Task<Action> PrepareOpeningAsync(EditorOpening opened, CancellationToken token, string status, int clipOffset = 0)
     {
             if (opened.Empty is { } empty) return () => SetEmpty(empty, status);
             var scene = opened.Scene ?? throw new InvalidDataException("Отсутствует снимок редактора.");
@@ -238,7 +239,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
             };
             var take = scene.Takes[index];
             var media = await api.MediaInfoAsync(take, token);
-            var frame = Math.Clamp((int)Math.Floor(scene.Clip.SourceInFrame * media.Fps / scene.Fps), 0, media.FrameCount - 1);
+            var phase = scene.Clip.SourceInFrame + clipOffset * (scene.Clip.Speed ?? 1);
+            var frame = Math.Clamp((int)Math.Floor(phase * media.Fps / scene.Fps), 0, media.FrameCount - 1);
             byte[]? pixels = null;
             string? previewError = null;
             try { if (api.SupportsPreview) pixels = await decoder.ReadAsync(api.Media(take.VideoAssetId), frame, media.Fps, token); }

@@ -26,6 +26,8 @@ internal sealed partial class StoryboardWorkspace
         _editJoin = Command("Уточнить стык", () => { _joinDraft = true; SyncJoinCommands(); Show(""); });
         _saveJoin = Command("Сохранить стык", SaveJoin);
         _cancelJoin = Command("Отменить правку", CancelJoin);
+        _exitSide.AddNote.OnClick(() => BeginFrameNote(_exitAnchor));
+        _entrySide.AddNote.OnClick(() => BeginFrameNote(_entryAnchor));
         var comparison = new SplitView(_exitSide.Content, _entrySide.Content);
         comparison.FirstPane.MinWidth = comparison.SecondPane.MinWidth = 155;
         comparison.Divider.AccessibleName = "Ширина кадров стыка";
@@ -36,7 +38,8 @@ internal sealed partial class StoryboardWorkspace
 
     private void ToggleJoins()
     {
-        if (NeedsFrame || _joinDraft) return;
+        if (NeedsFrame || _joinDraft || _noteDraft) return;
+        if (_noteMode) LeaveFrameNotes();
         if (_joinMode) _joinListWidth = _split.FirstPaneSize;
         else _planListWidth = _split.FirstPaneSize;
         _joinMode = !_joinMode;
@@ -46,6 +49,7 @@ internal sealed partial class StoryboardWorkspace
         _joinRows.IsVisible = _joinMode;
         _rows.IsVisible = _planDetails.IsVisible = !_joinMode;
         _joinDetails.IsVisible = false;
+        _exitAnchor = _entryAnchor = null;
         _exitSide.ClearPreview();
         _entrySide.ClearPreview();
         _selectedJoin = null;
@@ -106,6 +110,7 @@ internal sealed partial class StoryboardWorkspace
         _joinDetails.IsVisible = true;
         var scenes = snapshot.Project.Segments;
         var pair = join.Pair;
+        _exitAnchor = _entryAnchor = null;
         var gap = pair.EntryFrame - pair.ExitFrame - 1;
         _joinTiming.Value = $"Кадры {pair.ExitFrame} / {pair.EntryFrame} · " + (gap == 0 ? "Без паузы" : $"Пауза {gap} к.");
         _exitSide.Set(scenes.Single(scene => scene.Id == pair.Left.SegmentId).Name, pair.ExitFrame, join.ExitShot);
@@ -123,6 +128,8 @@ internal sealed partial class StoryboardWorkspace
             {
                 _exitSide.ShowFrame(exit.Frame, exit.Unavailable);
                 _entrySide.ShowFrame(entry.Frame, entry.Unavailable);
+                _exitAnchor = CaptureAnchor(join.ExitShot, pair.ExitFrame, exit.Frame, snapshot);
+                _entryAnchor = CaptureAnchor(join.EntryShot, pair.EntryFrame, entry.Frame, snapshot);
                 Show(preserveDraft ? "Проект перечитан. Сверьте кадры и черновик перед сохранением." : "");
             };
         });
@@ -137,7 +144,7 @@ internal sealed partial class StoryboardWorkspace
                 .ConfigureAwait(false), false);
         }
         catch (BackendCommandException error) when (error.Code is "media_not_found" or "invalid_media" or "invalid_frame" or
-            "media_unavailable" or "media_timeout" or "access_denied" or "decoder_unavailable")
+            "invalid_animatic_still" or "media_io_error" or "media_unavailable" or "media_timeout" or "access_denied" or "decoder_unavailable")
         {
             return (null, true);
         }
@@ -208,6 +215,9 @@ internal sealed partial class StoryboardWorkspace
         _saveJoin.IsVisible = _cancelJoin.IsVisible = _joinDraft;
         _saveJoin.IsEnabled = editable && !_joinStale;
         _cancelJoin.IsEnabled = editable;
+        _exitSide.AddNote.IsVisible = _exitAnchor is not null;
+        _entrySide.AddNote.IsVisible = _entryAnchor is not null;
+        _exitSide.AddNote.IsEnabled = _entrySide.AddNote.IsEnabled = !NeedsFrame && !_joinDraft && !_joinStale && _snapshot?.SchemaVersion == 2;
         foreach (var (join, button) in _joinChoices)
         {
             button.IsEnabled = !NeedsFrame && !_joinDraft;
@@ -223,6 +233,7 @@ internal sealed partial class StoryboardWorkspace
             return;
         }
         _joinStale = true;
+        _exitAnchor = _entryAnchor = null;
         _exitSide.ClearPreview();
         _entrySide.ClearPreview();
         Show(error is BackendCommandException { Code: "revision_conflict" or "scene_join_unavailable" }
@@ -248,11 +259,13 @@ internal sealed partial class StoryboardWorkspace
             _surface = new(_image) { Height = 122, IsVisible = false };
             _placeholder = Note($"Кадр · {side}");
             _placeholder.Height = 122;
-            Content = Stack(_heading, _surface, _placeholder, _caption, Text.Plain(State.AccessibleName), State);
+            AddNote = Button.Simple(side == "Выход" ? "Замечание к выходу" : "Замечание ко входу").WithRole(SceneView.CommandRole);
+            Content = Stack(_heading, _surface, _placeholder, _caption, Text.Plain(State.AccessibleName), State, AddNote);
         }
 
         internal VStack Content { get; }
         internal RichTextEditor State { get; }
+        internal Button AddNote { get; }
 
         internal void Set(string scene, int frame, StoryboardShot? shot)
         {

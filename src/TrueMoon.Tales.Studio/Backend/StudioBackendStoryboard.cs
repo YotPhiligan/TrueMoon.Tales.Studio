@@ -25,8 +25,10 @@ internal sealed partial class StudioBackendService
             if (reference is null) return new() { ErrorCode = "media_not_found" };
             var resolver = new BackendMediaResolver(options);
             var path = BackendAdaptation.ResolveStill(resolver, reference);
-            using var source = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024, FileOptions.Asynchronous);
             if (source.Length is < 1 or > 32 * 1024 * 1024) return new() { ErrorCode = "invalid_animatic_still" };
+            var version = Convert.ToHexString(await SHA256.HashDataAsync(source, token).ConfigureAwait(false));
+            source.Position = 0;
             using var codec = SKCodec.Create(source);
             if (codec is null || codec.EncodedFormat is not (SKEncodedImageFormat.Png or SKEncodedImageFormat.Jpeg) ||
                 codec.FrameCount > 1 || codec.Info.Width is < 1 or > 8192 || codec.Info.Height is < 1 or > 8192 ||
@@ -47,12 +49,14 @@ internal sealed partial class StudioBackendService
             }
             var pixels = new byte[width * height * 4];
             Marshal.Copy(scaled.GetPixels(), pixels, 0, pixels.Length);
+            if (!string.Equals(BackendAdaptation.ResolveStill(resolver, reference), path, StringComparison.OrdinalIgnoreCase))
+                return new() { ErrorCode = "access_denied" };
             await ObserveAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
             return new()
             {
                 AssetId = actionId, Revision = document.Project.Revision, Fingerprint = document.Fingerprint,
                 FrameCount = 1, FrameIndex = 0, Fps = document.Project.Fps, SourceWidth = bitmap.Width, SourceHeight = bitmap.Height,
-                Width = width, Height = height, Pixels = pixels, PixelSha256 = Convert.ToHexString(SHA256.HashData(pixels))
+                Width = width, Height = height, Pixels = pixels, PixelSha256 = Convert.ToHexString(SHA256.HashData(pixels)), SourceSha256 = version
             };
         }
         catch (ProjectRevisionConflictException) { return new() { ErrorCode = "revision_conflict" }; }

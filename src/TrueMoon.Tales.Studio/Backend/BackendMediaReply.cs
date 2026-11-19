@@ -41,4 +41,7 @@ public sealed class BackendMediaReply
     }
     /// <summary>SHA256 of the returned pixel bytes, empty for metadata only.</summary>
     public string PixelSha256 { get; set; } = "";
+    /// <summary>SHA256 of the exact image file, present only for a storyboard still.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceSha256 { get; set; }
 }

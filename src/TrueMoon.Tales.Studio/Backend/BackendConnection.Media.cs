@@ -22,6 +22,7 @@ internal sealed partial class BackendConnection
         var reply = await TransportAsync(() => service.StoryboardStillAsync(options.SessionKey, segmentId, actionId,
             revision, fingerprint, deadline.Token)).ConfigureAwait(false);
         ValidateMedia(reply, actionId, 0, revision, fingerprint);
+        if (!IsHash(reply.SourceSha256)) throw new InvalidDataException("Missing storyboard still version.");
         return reply;
     }
     private async Task<BackendMediaReply> MediaAsync(string assetId, int frame, long revision, string fingerprint, CancellationToken token)

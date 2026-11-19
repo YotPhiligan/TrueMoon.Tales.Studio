@@ -27,6 +27,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(BindAdaptationText), "bind_adaptation_text")]
 [JsonDerivedType(typeof(SaveAnimaticStill), "save_animatic_still")]
 [JsonDerivedType(typeof(SaveSceneJoin), "save_scene_join")]
+[JsonDerivedType(typeof(SaveFrameNote), "save_frame_note")]
 internal abstract record ScenarioCommand
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -57,6 +58,7 @@ internal sealed record BindAdaptationText(string SegmentId, string? ActionId, st
 internal sealed record SaveAnimaticStill(string SegmentId, string ActionId, string? Reference) : ScenarioCommand;
 internal sealed record SaveSceneJoin(string LeftWindowId, string RightWindowId, string ExitState, string EntryState,
     string Bridge) : ScenarioCommand;
+internal sealed record SaveFrameNote(string? Id, FrameNoteAnchor? Anchor, string Text) : ScenarioCommand;
 internal sealed record ImportVideo(string? SourceId, string Title, string TakeName, string Reference) : ScenarioCommand;
 internal sealed record RelinkVideo(string SourceId, string TakeId, string Reference) : ScenarioCommand;
 internal sealed record PlaceClip(string SegmentId, string ActionId, string SourceId, string TakeId,

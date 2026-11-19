@@ -50,6 +50,8 @@ internal sealed partial class StudioBackendService
                 BindAdaptationText edit => await BackendAdaptation.BindTextAsync(baseline.Project, edit, new(options), cancellationToken).ConfigureAwait(false),
                 SaveAnimaticStill edit => BackendAdaptation.SetStill(baseline.Project, edit, new(options)),
                 SaveSceneJoin edit => BackendSceneJoins.Apply(baseline.Project, edit),
+                SaveFrameNote edit => await BackendFrameNotes.ApplyAsync(baseline.Project, edit,
+                    (anchor, location) => ObserveFrameNoteAsync(baseline, anchor, location, cancellationToken)).ConfigureAwait(false),
                 MoveScenarioAction edit => BackendScenarioEdit.MoveAction(baseline.Project, edit, ScenarioActive(baseline)),
                 MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false),
                 _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)
@@ -65,6 +67,11 @@ internal sealed partial class StudioBackendService
         catch (ScenarioEditException error) { return Failure(error.Code); }
         catch (Win32Exception) { return Failure("decoder_unavailable"); }
     }, cancellationToken);
+
+    private Task<BackendMediaReply> ObserveFrameNoteAsync(ProjectFileDocument baseline, FrameNoteAnchor anchor,
+        FrameNoteLocation location, CancellationToken token) => anchor.AssetId is { } asset
+        ? FrameAsync(options.SessionKey, asset, anchor.SourceFrame, baseline.Project.Revision, baseline.Fingerprint, token)
+        : StoryboardStillAsync(options.SessionKey, location.SegmentId!, anchor.ActionId!, baseline.Project.Revision, baseline.Fingerprint, token);
 
     private async Task<BackendVideoInfo> ProbeAsync(string reference, CancellationToken token)
     {

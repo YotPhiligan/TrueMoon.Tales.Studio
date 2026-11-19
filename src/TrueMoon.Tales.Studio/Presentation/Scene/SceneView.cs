@@ -596,12 +596,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _model.Idle && _model.CanReload && !_model.Stale;
         if (_animaticButton is not null) _animaticButton.IsEnabled = _model.SavedFingerprint is not null &&
             _model.Idle && _model.CanReload && !_model.Stale;
-        _frame.Value = _model.StoryboardPlan is { } plan ? $"Кадр шкалы {plan.Frame}" : _model.FrameLabel;
+        _frame.Value = _model.StoryboardPlan is { } plan ? $"Кадр шкалы {plan.CursorFrame}" : _model.FrameLabel;
         _play.Value = _model.PlayLabel;
         _play.AccessibleName = _model.Playing ? "Приостановить просмотр · Пробел" : "Воспроизвести монтажный клип · Пробел";
         _timelineCaption.Value = _model.StoryboardPlan is not null ? "Таймлайн · план" : "Таймлайн";
         _strip.IsEnabled = _model.EmptyProject is null;
-        _strip.AccessibleName = _model.StoryboardPlan is { } location ? $"План «{location.Title}», кадр {location.Frame}" :
+        _strip.AccessibleName = _model.StoryboardPlan is { } location ? $"План «{location.Title}», кадр {location.CursorFrame}" :
             _model.EmptyProject is not null ? "Монтажных клипов пока нет" :
                 "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена";
         _timelineWidth.Value = _panels.WideTimeline ? "Компактно" : "На всю ширину";

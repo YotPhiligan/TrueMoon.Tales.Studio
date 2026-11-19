@@ -5,7 +5,11 @@ using TrueMoon.Tales.Studio.Models;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
-internal sealed record StoryboardPosition(Segment Window, int Frame, int Duration, string Title, string? ClipId, ClipContract[]? WindowClips = null);
+internal sealed record StoryboardPosition(Segment Window, int Frame, int Duration, string Title, string? ClipId,
+    ClipContract[]? WindowClips = null, int PreviewOffset = 0)
+{
+    internal int CursorFrame => Frame + PreviewOffset;
+}
 
 internal sealed record StoryboardShot(string SegmentName, string? SegmentId, string? ActionId, string Title, string Description,
     StoryboardPosition? Position, int? PlannedDuration, string? Video, double SourceIn, bool Still, ChapterFragment? Text, double Speed = 1)

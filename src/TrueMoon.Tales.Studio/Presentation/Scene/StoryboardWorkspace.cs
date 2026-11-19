@@ -1,3 +1,4 @@
+using System.Globalization;
 using TrueMoon.Alloy.Rendering.Skia;
 using TrueMoon.Alloy.Runtime;
 using TrueMoon.Argentis;
@@ -36,19 +37,23 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _reload = Command("Обновить", () => Reload());
         _back = Command("К монтажу", close);
         _joinToggle = Command("Стыки сцен", ToggleJoins);
+        _noteToggle = Command("Замечания", ToggleFrameNotes);
+        _addNote = Command("Замечание к кадру", () => BeginFrameNote(_planAnchor));
+        _framePicker = Row(_frameNumber, Command("Показать кадр", ShowRequestedFrame));
         _action = Command("К действию", () => Jump(toAction: true));
         _frame = Command("К кадру", () => Jump(toAction: false));
         _surface = new(_preview) { Height = 224, IsVisible = false };
-        _planDetails = Stack(_title, _timing, Row(_action, _frame), _surface, _description, _text);
+        _planDetails = Stack(_title, _timing, Row(_action, _frame), _framePicker, _surface, _addNote, _description, _text);
         _joinDetails = CreateJoinDetails();
+        _noteDetails = CreateFrameNoteDetails();
         _split = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 380 };
         _split.FirstPane.MinWidth = 215;
         _split.SecondPane.MinWidth = 250;
         _split.Divider.AccessibleName = "Ширина списка планов";
-        _split.FirstPane.SetContent(ScrollViewer.Create().Content(Stack(_count, _rows, _joinRows)));
+        _split.FirstPane.SetContent(ScrollViewer.Create().Content(Stack(_count, _rows, _joinRows, _noteRows)));
         _split.SecondPane.SetContent(ScrollViewer.Create().Content(Border.Create().Configure(border => border.Padding = new Thickness(16))
-            .Content(Stack(_status, _planDetails, _joinDetails))));
-        SetContent(new PreviewLayout(new StudioHeading(heading, Row(_joinToggle, _reload, _back)), _split, new Text()));
+            .Content(Stack(_status, _planDetails, _joinDetails, _noteDetails))));
+        SetContent(new PreviewLayout(new StudioHeading(heading, Row(_joinToggle, _noteToggle, _reload, _back)), _split, new Text()));
         Reload();
     }
 
@@ -58,7 +63,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     internal bool CanLeave()
     {
         if (_joinDraft) Show("Сохраните или отмените черновик стыка.", error: true);
-        else if (_joinMode && NeedsFrame) Show("Дождитесь результата операции.");
+        else if (_noteDraft) Show("Сохраните или отмените черновик замечания.", error: true);
+        else if ((_joinMode || _noteMode) && NeedsFrame) Show("Дождитесь результата операции.");
         else return true;
         return false;
     }
@@ -70,7 +76,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         try { ready.GetAwaiter().GetResult()(); }
         catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            if (_joinMode) ShowJoinError(error);
+            if (_noteMode) ShowFrameNoteError(error);
+            else if (_joinMode) ShowJoinError(error);
             else Show(error is BackendCommandException { Code: "revision_conflict" }
                 ? "Проект изменился. Обновите раскадровку."
                 : _selected is null ? "Не удалось прочитать проект." : "Предпросмотр или переход недоступен.", error: true);
@@ -84,7 +91,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         var shots = StoryboardShot.Read(snapshot.Project);
         return () =>
         {
-            if (_joinMode) RefreshJoins(snapshot, shots);
+            if (_noteMode) RefreshFrameNotes(snapshot, shots);
+            else if (_joinMode) RefreshJoins(snapshot, shots);
             else Apply(snapshot, shots);
         };
     });
@@ -133,11 +141,36 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _text.IsVisible = _text.Value.Length > 0;
         Show(shot.Position is null ? "Проверьте окно и длительность действия." : "");
         if (shot.Video is null && !shot.Still) { SyncCommands(); return; }
+        PreviewPlan(shot, 0, snapshot);
+    }
+
+    private void ShowRequestedFrame()
+    {
+        if (NeedsFrame || _selected is not { Position: { } position } shot || _snapshot is not { } snapshot) return;
+        if (!int.TryParse(_frameNumber.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var requested) ||
+            requested < position.Frame || (long)requested >= (long)position.Frame + position.Duration)
+        {
+            Show("Укажите кадр в границах выбранного плана.", error: true);
+            return;
+        }
+        PreviewPlan(shot, requested - position.Frame, snapshot);
+    }
+
+    private void PreviewPlan(StoryboardShot shot, int offset, OpenedBackendProject snapshot)
+    {
+        ClearPreview();
         Start("Читаю кадр…", async token =>
         {
-            var frame = (await ReadFrameAsync(shot, 0, snapshot, token).ConfigureAwait(false))!;
+            var frame = (await ReadFrameAsync(shot, offset, snapshot, token).ConfigureAwait(false))!;
             return () =>
             {
+                if (shot.Position is { } position)
+                {
+                    var displayed = position.Frame + offset;
+                    _frameNumber.Value = displayed.ToString(CultureInfo.InvariantCulture);
+                    _timing.Value = $"{shot.Medium} · кадр {displayed} · {position.Duration} к. · {position.Duration / snapshot.Project.Fps:0.###} с";
+                    _planAnchor = CaptureAnchor(shot, displayed, frame, snapshot);
+                }
                 _pixels = SkiaImageSource.CopyBgraPixels(frame.Width, frame.Height, frame.Pixels);
                 _preview.Source = _pixels;
                 _preview.AccessibleName = $"{shot.Medium} · {shot.Title}";
@@ -167,6 +200,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     {
         if (_snapshot is not { } baseline || _selected is not { } shot || NeedsFrame) return;
         if (toAction ? shot.ActionId is null : shot.Position is null) return;
+        if (!toAction && shot.Position is { } position && _planAnchor is { } anchor)
+            shot = shot with { Position = position with { PreviewOffset = anchor.Offset } };
         Start("Сверяю сохранённый монтаж…", async token =>
         {
             var actual = await _backend.OpenAsync(token).ConfigureAwait(false);
@@ -188,16 +223,21 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     private void SyncCommands()
     {
         _reload.IsEnabled = !NeedsFrame;
-        _joinToggle.IsEnabled = _back.IsEnabled = !NeedsFrame && !_joinDraft;
+        _joinToggle.IsEnabled = _noteToggle.IsEnabled = _back.IsEnabled = !NeedsFrame && !_joinDraft && !_noteDraft;
         _action.IsVisible = _frame.IsVisible = _selected is not null;
         _action.IsEnabled = !NeedsFrame && _selected?.ActionId is not null;
         _frame.IsEnabled = !NeedsFrame && _selected?.Position is not null;
+        _framePicker.IsVisible = _selected is { Position: not null, Video: not null };
+        _framePicker.IsEnabled = !NeedsFrame;
+        _addNote.IsVisible = _planAnchor is not null;
+        _addNote.IsEnabled = !NeedsFrame && _snapshot?.SchemaVersion == 2;
         foreach (var (shot, button) in _choices)
         {
             button.IsEnabled = !NeedsFrame;
             button.Tone = ReferenceEquals(shot, _selected) ? ControlTone.Accent : ControlTone.Neutral;
         }
         SyncJoinCommands();
+        SyncFrameNoteCommands();
     }
 
     private void Show(string status, bool error = false)
@@ -205,6 +245,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
 
     private void ClearPreview()
     {
+        _planAnchor = null;
         _preview.Source = null;
         _pixels?.Dispose();
         _pixels = null;
@@ -219,6 +260,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         ClearPreview();
         _exitSide.ClearPreview();
         _entrySide.ClearPreview();
+        ClearNotePreview();
         base.Dispose();
     }
 

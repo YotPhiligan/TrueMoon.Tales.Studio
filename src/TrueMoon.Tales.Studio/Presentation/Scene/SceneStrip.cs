@@ -235,7 +235,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
             context.Save(); context.Clip(rectangle);
             context.Text(plan.Title, x + 7, rectangle.Y + 10, Theme.Foreground, 12, Theme.FontFamily);
             context.Restore();
-            context.Fill(new(x, area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
+            context.Fill(new(FrameX(plan.CursorFrame), area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
             context.Restore();
             return;
         }

@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. Protocol16 расширил команды экранного сценария. Protocol17 добавил сохранение состояний стыка сцен. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. Protocol16 расширил команды экранного сценария. Protocol17 добавил сохранение состояний стыка сцен. Protocol18 добавил замечания к кадрам. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
   в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
@@ -194,6 +194,16 @@ Protocol17 добавляет `save_scene_join` с полями `left_window_id`
 `project.properties.studio_scene_joins_v1` с общей ревизией и SHA. Новый
 HTTP/CLI-метод для этой записи не добавлялся.
 [Стык в раскадровке](SegmentPreview.md#studio-scene-joins).
+
+Protocol18 добавляет `save_frame_note`. Для создания передайте
+`id: null`, `anchor` и `text`. Для правки текста передайте ID заметки
+и `anchor: null`. Backend сверяет ревизию, SHA проекта и показанный
+кадр перед созданием. Привязка видео содержит ID окна, клипа, дубля
+и ассета, исходный номер и частоту кадров, первоначальную позицию и SHA
+декодированного кадра. Привязка опоры содержит ID окна и действия,
+смещение в плане и SHA файла. `StoryboardStillAsync` возвращает этот
+SHA в `source_sha256`. Записи хранятся в `project.properties.studio_frame_notes_v1`.
+[Замечания в раскадровке](SegmentPreview.md#studio-frame-notes).
 
 <a id="montage-edits"></a>
 ## Правки монтажа и просмотр CPU MP4 через Enerit

@@ -927,6 +927,149 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Storyboard_FrameNotes_FollowMovedFrames_AndKeepChangedTargetsForReview()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        foreach (var (color, name) in new[] { ("lime", "Опора часов.png"), ("red", "Новая опора.png") })
+            await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", $"color=c={color}:s=160x120", "-frames:v", "1",
+                 "-threads", "1", "-n", files.MediaPath(name)], 2048);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var snapshot = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = snapshot.Project.Sources.First();
+        var take = source.Takes.First(row => row.VideoAssetId is not null);
+        snapshot = await api.EditScenarioAsync(new SaveSegment(null, "Тихий привал", "", 800, 160), snapshot);
+        var segment = snapshot.Project.Segments.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Духи у ладони", "", 12), snapshot);
+        var action = snapshot.Project.Segments.Last().Actions.Single();
+        snapshot = await api.EditScenarioAsync(new LinkSource(segment.Id, action.Id, source.Id, "Дубль привала"), snapshot);
+        snapshot = await api.EditScenarioAsync(new PlaceClip(segment.Id, action.Id, source.Id, take.Id, 876, 12, 4), snapshot);
+        var clip = snapshot.Project.Montage.Clips.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Ход часов", "", 48), snapshot);
+        var still = snapshot.Project.Segments.Last().Actions.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAnimaticStill(segment.Id, still.Id, "@videos/Опора часов.png"), snapshot);
+        var initialHistory = files.History();
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        StoryboardWorkspace OpenBoard()
+        {
+            host.Click(ButtonIn(host.Window.Navigation, "Раскадровка"));
+            var opened = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+            host.PumpUntil(() => !opened.NeedsFrame);
+            return opened;
+        }
+        var board = OpenBoard();
+        void Reveal(Element element)
+        {
+            for (var node = element.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(element.Bounds); host.Update(); break; }
+        }
+        void Click(string label)
+        {
+            var button = Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<Button>(), item => item.IsVisible && item.Value == label);
+            Assert.True(button.IsEffectivelyEnabled);
+            Reveal(button);
+            host.Click(button);
+            host.PumpUntil(() => !board.NeedsFrame);
+        }
+        void Fill(Element field, string value)
+        {
+            Reveal(field);
+            host.Click(field);
+            host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
+            host.Input(new(InputKind.Text, Text: value));
+        }
+        RichTextEditor Note() => Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<RichTextEditor>(),
+            editor => editor.AccessibleName == "Текст замечания");
+        void Save(string note)
+        {
+            Click("Замечание к кадру");
+            Fill(Note(), note);
+            Assert.Equal(note, Note().Text);
+            Click("Сохранить замечание");
+        }
+        void HasFrame(int frame)
+        {
+            Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Image>(), image =>
+                image.Source is not null && image.AccessibleName == $"Закреплённый кадр · {frame}");
+        }
+        void NeedsReview(string reason, string note)
+        {
+            Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Text>(), text => text.Value == "Нужна перепроверка · " + reason);
+            Assert.DoesNotContain(RasterWindow<SceneView>.Walk(board).OfType<Image>(),
+                image => image.AccessibleName.StartsWith("Закреплённый кадр") && image.Source is not null);
+            Assert.Equal(note, Note().Text);
+        }
+        const string videoNote = "Проверить положение руки Эйко.";
+        const string stillNote = "Уточнить видимость царапины на крышке.";
+        Click("0876 · Духи у ладони");
+        Fill(Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<TextBox>(), row => row.AccessibleName == "Кадр плана"), "887");
+        Click("Показать кадр");
+        Save(videoNote);
+        HasFrame(887);
+        Click("Планы");
+        Click("0888 · Ход часов");
+        Click("Замечание к кадру");
+        Fill(Note(), stillNote);
+        var afterVideoNote = api.OpenAsync().GetAwaiter().GetResult();
+        var concurrent = api.EditScenarioAsync(new SaveSegment(segment.Id, segment.Name, "Правка при открытом замечании", 0, 0), afterVideoNote)
+            .GetAwaiter().GetResult();
+        var concurrentHistory = files.History();
+        var concurrentBytes = File.ReadAllBytes(files.ProjectPath);
+        Click("Сохранить замечание");
+        Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Text>(), row => row.Value == "Проект изменился. Обновите замечания.");
+        Assert.False(ButtonIn(board, "Сохранить замечание").IsEnabled);
+        Assert.Equal(stillNote, Note().Text);
+        files.AssertProject(concurrentBytes, concurrentHistory);
+        Click("Обновить");
+        Assert.Equal(stillNote, Note().Text);
+        Click("Сохранить замечание");
+        HasFrame(888);
+        var saved = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(concurrent.Project.Revision + 1, saved.Project.Revision);
+        Assert.Equal(snapshot.Project.Revision + 3, saved.Project.Revision);
+        Assert.Equal(initialHistory.Length + 3, files.History().Length);
+        var notes = BackendFrameNotes.Read(saved.Project);
+        Assert.Equal(2, notes.Length);
+        Assert.Equal((clip.Id, 15, 887, 11), (notes[0].Anchor.ClipId, notes[0].Anchor.SourceFrame, notes[0].Anchor.OriginalFrame, notes[0].Anchor.Offset));
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(files.MediaPath("Опора часов.png")))), notes[1].Anchor.Sha256);
+
+        var moved = api.MoveAsync(clip.Id, 880, saved.Project.Revision, saved.Fingerprint).GetAwaiter().GetResult();
+        Click("Обновить");
+        HasFrame(892);
+        Click("0891 · " + videoNote);
+        HasFrame(891);
+        host.Capture("frame-note-moved", new { from = 887, to = 891, native = 15 });
+        Click("К кадру на шкале");
+        host.PumpUntil(() => model.Scene?.Clip.Id == clip.Id && model.Idle || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        Assert.Equal((891d, 15), (model.TimelineCursor, model.FrameIndex));
+
+        board = OpenBoard();
+        Click("Замечания");
+        var trimmed = api.TrimAsync(clip.Id, 4, 15, 880, moved.Project.Revision, moved.Fingerprint).GetAwaiter().GetResult();
+        Click("Обновить");
+        Click("0887 · " + videoNote);
+        NeedsReview("Кадр вышел из плана или материал был заменён.", videoNote);
+        Assert.False(ButtonIn(board, "К кадру на шкале").IsVisible);
+        Click("0891 · " + stillNote);
+        HasFrame(891);
+        File.Copy(files.MediaPath("Новая опора.png"), files.MediaPath("Опора часов.png"), overwrite: true);
+        Click("К кадру на шкале");
+        NeedsReview("Версия кадра изменилась.", stillNote);
+        host.Capture("frame-note-replaced", new { original = 888, timeline = 891 });
+        var final = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(trimmed.Fingerprint, final.Fingerprint);
+        Assert.Equal(notes, BackendFrameNotes.Read(final.Project));
+        Assert.Equal(initialHistory.Length + 5, files.History().Length);
+        Assert.Empty(files.Requests());
+    }
+
+    [BackendMediaFact]
     public async Task TimelineReadiness_ListsBothProblems_AndRefreshesAfterRelink()
     {
         using var files = new ExportFixture();
