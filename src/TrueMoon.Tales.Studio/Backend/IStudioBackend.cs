@@ -9,10 +9,12 @@ public interface IStudioBackend
     /// <param name="key">Submission key on start, opaque review ID otherwise.</param>
     /// <param name="revision">Project revision on start, job revision on cancel.</param>
     /// <param name="fingerprint">Exact project SHA256 on start.</param>
+    /// <param name="startFrame">Inclusive project frame for a bounded review, otherwise zero.</param>
+    /// <param name="endFrame">Exclusive project frame for a bounded review, otherwise zero.</param>
     /// <param name="cancellationToken">Call deadline.</param>
     /// <returns>The temporary job status or a classified refusal.</returns>
     Task<BackendExportReply> WorkingReviewAsync(string sessionKey, string operation, string key, long revision, string fingerprint,
-        CancellationToken cancellationToken = default);
+        int startFrame, int endFrame, CancellationToken cancellationToken = default);
 
     /// <summary>Applies one bounded scenario, library or placement command through the exclusive project writer.</summary>
     /// <param name="sessionKey">Launch capability.</param>

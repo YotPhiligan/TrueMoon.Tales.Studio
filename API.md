@@ -13,7 +13,15 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+
+- Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
+  в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
+  запрашивает весь проект. Запуск сверяет ревизию и SHA, статус и отмена
+  используют ID задания. В статусе диапазона `range_start` — первый
+  кадр проекта, `frames` — длина файла предпросмотра.
+- Рабочий просмотр использует временное CPU-задание той же backend-сессии.
+  API долговечных заданий экспорта сохраняет запуск полного монтажа.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.

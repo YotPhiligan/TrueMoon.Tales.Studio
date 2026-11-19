@@ -85,6 +85,7 @@ public sealed class BackendExportEndToEndTests
 
             host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
             var preparing = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            host.Click(ButtonIn(preparing, "Подготовить проект"));
             var play = ButtonIn(preparing, "Смотреть проект");
             host.PumpUntil(() => play.IsEnabled, TimeSpan.FromSeconds(30));
             Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
@@ -138,6 +139,151 @@ public sealed class BackendExportEndToEndTests
         Assert.Single(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
         Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
         files.AssertProject(savedBytes, savedHistory);
+    }
+
+    [BackendMediaFact]
+    public async Task RangeReview_FromRaster_PreservesProjectCoordinatesAndMatchesFullExport()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(withTransition: true);
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            var connection = session.Connection;
+            var head = await connection.AcquireWriterAsync(await connection.OpenAsync());
+            head = await connection.EditScenarioAsync(new SaveMontageMusic("video-a", 8, 40, 0, .35, false), head);
+            head = await connection.EditScenarioAsync(new SaveMontageTitle(null,
+                new("Карточка", "Клэр", 36, 4, 2, 1, OperatingSystem.IsWindows() ? "arial" : "dejavu",
+                    18, "#FFFFFF", "center", "center", "black", false)), head);
+            var bytes = File.ReadAllBytes(files.ProjectPath);
+            var history = files.History();
+            const int start = 19, end = 43;
+
+            using var host = Workspace(session);
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+            host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+            var setup = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            Assert.Empty(files.Requests());
+            SetField(setup, "Начало диапазона", "43");
+            SetField(setup, "Конец диапазона (не входит)", "43");
+            var prepare = ButtonIn(setup, "Подготовить диапазон");
+            host.Click(prepare);
+            Assert.Contains(RasterWindow<SceneView>.Walk(setup).OfType<Text>(), row => row.HasError);
+            Assert.Empty(files.Requests());
+            SetField(setup, "Начало диапазона", "19");
+            host.Click(prepare);
+            var view = ButtonIn(setup, "Смотреть диапазон");
+            host.PumpUntil(() => view.IsEnabled, TimeSpan.FromSeconds(30));
+            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var jobId = "export-" + Path.GetFileName(folder)[8..];
+            var completed = connection.WorkingReviewStatusAsync(jobId, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.Equal(start, completed.RangeStart);
+            Assert.Equal(end - start, completed.Frames);
+            Assert.Equal(head.Fingerprint, completed.ProjectFingerprint);
+            Assert.Equal(head.Project.Revision, completed.ProjectRevision);
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            Assert.Equal(start, (int)request["start_frame"]!);
+            Assert.Equal(end - start, (int)request["frames"]!);
+            Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
+
+            host.Click(view);
+            var player = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+            ReviewReady(host, player);
+            Assert.Contains(RasterWindow<SceneView>.Walk(player).OfType<Text>(), row => row.Value.Contains("кадры 19–42"));
+            SetField(player, "Кадр предпросмотра", "23");
+            host.Click(ButtonIn(player, "Перейти"));
+            ReviewReady(host, player);
+            Assert.Contains(RasterWindow<SceneView>.Walk(player).OfType<Text>(), row => row.Value.Contains("0023 / 0023"));
+            host.Capture("working-review-range", new { start, end, head.Project.Revision });
+            host.Click(ButtonIn(player, "К монтажу"));
+            Ready(host, model);
+            host.PumpUntil(() => !model.NeedsFrame);
+
+            var bad = Assert.Throws<BackendCommandException>(() => connection.StartWorkingReviewAsync("range-outside-timeline",
+                head.Project.Revision, head.Fingerprint, CancellationToken.None, new(71, 73)).GetAwaiter().GetResult());
+            Assert.Equal("invalid_export", bad.Code);
+            var stale = Assert.Throws<BackendCommandException>(() => connection.StartWorkingReviewAsync("range-stale-snapshot",
+                head.Project.Revision - 1, head.Fingerprint, CancellationToken.None, new(start, end)).GetAwaiter().GetResult());
+            Assert.Equal("revision_conflict", stale.Code);
+            Assert.Single(files.Requests());
+
+            var export = connection.StartExportAsync("range-full-comparison", "draft", head.Project.Revision, head.Fingerprint).GetAwaiter().GetResult();
+            var final = session.UntilAsync(export.Id, row => row["state"]!.GetValue<string>() != "running",
+                files.JobDirectory(export.Id)).GetAwaiter().GetResult();
+            Assert.Equal("completed", (string?)final["state"]);
+            Assert.Equal(72, export.Frames);
+            var reviewKey = BackendRenderedMontage.Identifier(jobId, null);
+            var exportKey = BackendRenderedMontage.Identifier(export.Id, null);
+            BackendMediaReply Frame(string asset, int frame) =>
+                connection.FrameAsync(asset, frame, head.Project.Revision, head.Fingerprint).GetAwaiter().GetResult();
+            Assert.Equal("invalid_frame", Assert.Throws<BackendCommandException>(() => Frame(reviewKey, end - start)).Code);
+            foreach (var frame in new[] { start, 21, 23, 24, 35, 36, 37, 39, 40, end - 1 })
+            {
+                var bounded = Frame(reviewKey, frame - start);
+                var full = Frame(exportKey, frame);
+                Assert.Equal(end - start, bounded.FrameCount);
+                Assert.InRange(bounded.Pixels.Zip(full.Pixels, (a, b) => Math.Abs(a - b)).Average(), 0, 4);
+            }
+            var pcm = Audio(reviewKey, start, end - start);
+            var fullPcm = Audio(exportKey, 0, export.Frames).AsSpan(start * 4000, (end - start) * 4000).ToArray();
+            Assert.Equal(fullPcm.Length, pcm.Length);
+            double error = Math.Sqrt(pcm.Zip(fullPcm, (a, b) => (double)(a - b) * (a - b)).Average());
+            Assert.InRange(error, 0, .018);
+            Assert.Contains(pcm, sample => Math.Abs(sample) > .02f);
+            files.AssertProject(bytes, history);
+
+            float[] Audio(string key, int origin, int length)
+            {
+                var scene = new BackendRenderedMontage(key, origin, length, 24, (int)head.Project.Revision, head.Fingerprint).Scene();
+                var stream = connection.OpenPlaybackAsync(scene, "audio", 0, CancellationToken.None).GetAwaiter().GetResult();
+                using var data = new MemoryStream();
+                try
+                {
+                    while (true)
+                    {
+                        var packet = connection.ReadPlaybackAsync(stream, CancellationToken.None).GetAwaiter().GetResult();
+                        Assert.Equal(data.Length / 8, packet.SampleOffset);
+                        if (packet.Completed) break;
+                        data.Write(packet.Data);
+                    }
+                }
+                finally { connection.ClosePlaybackAsync(stream.SessionId, CancellationToken.None).GetAwaiter().GetResult(); }
+                return MemoryMarshal.Cast<byte, float>(data.ToArray()).ToArray();
+            }
+        }
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+    }
+
+    [BackendMediaFact]
+    public async Task RangeReview_CancelThroughRaster_LeavesProjectAndDurableExportsUntouched()
+    {
+        using var files = new ExportFixture(longRender: true);
+        await files.PrepareAsync();
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            using var host = Workspace(session);
+            Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+            var setup = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            SetField(setup, "Начало диапазона", "1");
+            SetField(setup, "Конец диапазона (не входит)", "3635");
+            host.Click(ButtonIn(setup, "Подготовить диапазон"));
+            var cancel = ButtonIn(setup, "Отменить подготовку");
+            host.PumpUntil(() => cancel.IsEnabled);
+            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var id = "export-" + Path.GetFileName(folder)[8..];
+            host.Click(cancel);
+            host.PumpUntil(() => !setup.NeedsFrame, TimeSpan.FromSeconds(20));
+            var job = session.Connection.WorkingReviewStatusAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.Equal("cancelled", job.State);
+            Assert.Null(job.ArtifactSha256);
+            Assert.False(ButtonIn(setup, "Смотреть диапазон").IsEnabled);
+            Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
+            files.AssertProject(bytes, history);
+        }
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
     }
 
     [BackendMediaFact]

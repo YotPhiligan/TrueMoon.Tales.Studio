@@ -140,9 +140,13 @@ def source_position(clip,frame,fps):
 
 def parts(request):
     """A complete nonoverlapping partition, including black pauses and music tail."""
-    cursor=0;result=[]
+    start=request.get('start_frame',0)
+    end=start+request['frames']
+    cursor=start;result=[]
     for clip in request['clips']:
-        if clip['start_frame']>cursor:result.append({'start_frame':cursor,'duration_frames':clip['start_frame']-cursor,'clip':None})
-        result.append({'start_frame':clip['start_frame'],'duration_frames':clip['duration_frames'],'clip':clip});cursor=timeline.end(clip)
-    if cursor<request['frames']:result.append({'start_frame':cursor,'duration_frames':request['frames']-cursor,'clip':None})
+        left=max(start,clip['start_frame']);right=min(end,timeline.end(clip))
+        if left>=right:continue
+        if left>cursor:result.append({'start_frame':cursor,'duration_frames':left-cursor,'clip':None})
+        result.append({'start_frame':left,'duration_frames':right-left,'clip':clip});cursor=right
+    if cursor<end:result.append({'start_frame':cursor,'duration_frames':end-cursor,'clip':None})
     return result

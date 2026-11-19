@@ -5,6 +5,11 @@ using TrueMoon.Tales.Studio.Contracts.Serialization;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
+internal readonly record struct BackendReviewRange(int Start, int End)
+{
+    internal bool IsValid => Start >= 0 && End > Start;
+}
+
 // Builds the renderer request solely from saved placements and workspace-approved inputs.
 internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps, int Width = 0, int Height = 0)
 {
@@ -15,11 +20,12 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     private static readonly StringComparer PathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     internal static async Task<BackendExportPlan> CreateAsync(ProjectContract project, string fingerprint, string profile,
-        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, CancellationToken token)
+        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, CancellationToken token,
+        BackendReviewRange? range = null)
     {
         try
         {
-            return await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, token).ConfigureAwait(false);
+            return await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token).ConfigureAwait(false);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ScenarioEditException)
         {
@@ -28,20 +34,23 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     }
 
     private static async Task<BackendExportPlan> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,
-        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, CancellationToken token)
+        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendReviewRange? range, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         ProjectContractJson.Validate(project);
         if (fingerprint.Length != 64 || !fingerprint.All(Uri.IsHexDigit))
             throw new InvalidDataException("An exact project SHA256 is required.");
         if (profile is not ("draft" or "project" or "final")) throw new InvalidDataException("Unknown export profile.");
+        if (range is { } selection && (profile != "draft" || !selection.IsValid))
+            throw new InvalidDataException("Invalid working review range.");
         if (project.Fps is < 1 or > 120 || project.Fps != Math.Truncate(project.Fps))
             throw new InvalidDataException("CPU export requires integral project FPS from 1 to 120.");
         var fps = (int)project.Fps;
         var frameLimit = MaxSeconds * fps;
         var montage = project.Montage;
         var titles = BackendTrackEdits.ReadTitles(BackendTrackEdits.Rows(montage, "titles"));
-        if (montage.Clips.Length > 2000 || montage.Windows.Length > 200 || montage.Clips.Length == 0 && titles.Length == 0)
+        if (montage.Clips.Length > 2000 || montage.Windows.Length > 200 ||
+            range is null && montage.Clips.Length == 0 && titles.Length == 0)
             throw new InvalidDataException("CPU export requires saved clips or titles, with at most 2000 clips and 200 windows.");
         var transitionWindows = BackendBlackTransitions.Compile(montage);
 
@@ -61,6 +70,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             if (clip.StartFrame < clipEnd || clip.AnchorFrame is { } anchor && anchor != clip.StartFrame)
                 throw new InvalidDataException("Saved clips overlap or conflict with an anchor.");
             clipEnd = End(clip.StartFrame, clip.DurationFrames, frameLimit);
+            if (!Intersects(clip.StartFrame, clip.DurationFrames)) continue;
             var assetId = sources[clip.SourceId].Takes.FirstOrDefault(take => take.Id == clip.TakeId)?.VideoAssetId;
             if (string.IsNullOrWhiteSpace(assetId)) throw new InvalidDataException("An export clip lacks a selected video take.");
             var exit = clip.SourceOutFrame ?? (clip.SourceInFrame + clip.DurationFrames * clip.Speed);
@@ -77,6 +87,10 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         if (music is not null) frames = Math.Max(frames, End(music.StartFrame, music.DurationFrames, frameLimit));
         foreach (var sound in sounds) frames = Math.Max(frames, End(sound.StartFrame, sound.DurationFrames, frameLimit));
         foreach (var (_, title) in titles) frames = Math.Max(frames, End(title.StartFrame, title.DurationFrames, frameLimit));
+        if (range is { } bounds && bounds.End > frames)
+            throw new InvalidDataException("Working review range exceeds the saved montage.");
+        if (music is not null && !Intersects(music.StartFrame, music.DurationFrames)) music = null;
+        sounds.RemoveAll(sound => !Intersects(sound.StartFrame, sound.DurationFrames));
         var size = Size(project.Properties, profile);
         var titleCanvas = Size(project.Properties, "project");
         var registry = new Inputs(project, resolver, decoder);
@@ -95,6 +109,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var titleRows = new List<Dictionary<string, JsonElement>>();
         foreach (var (id, title) in titles)
         {
+            if (!Intersects(title.StartFrame, title.DurationFrames)) continue;
             var fontInput = await registry.FontAsync(title.FontId, token).ConfigureAwait(false);
             var fields = JsonSerializer.SerializeToElement(title, Json).EnumerateObject().ToDictionary(row => row.Name, row => row.Value);
             fields["id"] = JsonSerializer.SerializeToElement(id);
@@ -103,6 +118,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         }
 
         var final = profile == "final";
+        var startFrame = range?.Start ?? 0;
+        frames = (range?.End ?? frames) - startFrame;
         var request = JsonSerializer.SerializeToUtf8Bytes(new
         {
             version = 1, backend_mode = true, project_id = project.Id, project_name = project.Name,
@@ -113,7 +130,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 read_roots = registry.Assets.Values.Select(row => row.Path).Distinct(PathComparer).ToArray(),
                 write_roots = new[] { jobDirectory }, protected_roots = Array.Empty<string>()
             },
-            fps, frames, seconds = frames / (double)fps, size, profile,
+            fps, frames, start_frame = startFrame, seconds = frames / (double)fps, size, profile,
             encoding = new
             {
                 video_codec = "libx264", pixel_format = "yuv420p",
@@ -125,6 +142,9 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         }, Json);
         token.ThrowIfCancellationRequested();
         return new(request, frames, fps, size[0], size[1]);
+
+        bool Intersects(int start, int length) =>
+            range is null || start < range.Value.End && (long)start + length > range.Value.Start;
 
         async Task CheckAudio(string id, int stream, double start, int duration, double gain, bool muted)
         {

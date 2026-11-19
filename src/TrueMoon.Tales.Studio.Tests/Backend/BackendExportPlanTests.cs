@@ -75,6 +75,30 @@ public sealed class BackendExportPlanTests
         Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(fixture.Audio));
     }
 
+    [PythonWriterFact]
+    public async Task RangePlan_PinsOnlyIntersectingInputsWithoutChangingTheirProjectTime()
+    {
+        using var fixture = new PlanFixture();
+        var project = fixture.Project;
+        var montage = project.Montage;
+        // The unfinished clip and its mix are outside the selected area.
+        montage.Clips[1] = montage.Clips[1] with { TakeId = null };
+        var plan = await fixture.CreateAsync(project, "draft", new(47, 51));
+        using var document = JsonDocument.Parse(plan.Request);
+        var request = document.RootElement;
+        Assert.Equal(47, request.GetProperty("start_frame").GetInt32());
+        Assert.Equal(4, plan.Frames);
+        var selected = Assert.Single(request.GetProperty("clips").EnumerateArray());
+        Assert.Equal("b", selected.GetProperty("id").GetString());
+        Assert.Equal(46, selected.GetProperty("start_frame").GetInt32());
+        Assert.Equal(6, selected.GetProperty("source_in_frame").GetDouble());
+        Assert.Equal(2, selected.GetProperty("speed").GetDouble());
+        Assert.Empty(request.GetProperty("sounds").EnumerateArray());
+        Assert.Equal(new[] { "video-b", "sound" }, request.GetProperty("assets").EnumerateObject().Select(row => row.Name));
+        Assert.Equal(1, fixture.VideoProbes);
+        Assert.Equal(1, fixture.AudioProbes);
+    }
+
     [Theory]
     [InlineData("overlap")]
     [InlineData("anchor")]
@@ -218,8 +242,8 @@ public sealed class BackendExportPlanTests
             };
         }
 
-        internal Task<BackendExportPlan> CreateAsync(ProjectContract project, string profile) =>
-            BackendExportPlan.CreateAsync(project, Fingerprint, profile, Job, _resolver, _decoder, CancellationToken.None);
+        internal Task<BackendExportPlan> CreateAsync(ProjectContract project, string profile, BackendReviewRange? range = null) =>
+            BackendExportPlan.CreateAsync(project, Fingerprint, profile, Job, _resolver, _decoder, CancellationToken.None, range);
 
         private Process StartProbe(ProcessStartInfo request, int frames, string seconds)
         {

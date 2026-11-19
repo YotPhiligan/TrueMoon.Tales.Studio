@@ -1,3 +1,4 @@
+using System.Globalization;
 using TrueMoon.Alloy.Runtime;
 using TrueMoon.Argentis;
 using TrueMoon.Tales.Studio.Backend;
@@ -13,10 +14,12 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private readonly Action<BackendRenderedMontage, bool> _open;
     private readonly Action _close;
     private readonly CancellationTokenSource _closing = new();
-    private readonly string _key = "preview-" + Guid.NewGuid().ToString("N");
+    private string? _key;
     private readonly Text _status = new();
     private readonly ProgressBar _progress = new() { Height = 6, AccessibleName = "Подготовка CPU" };
-    private readonly Button _segment, _project, _cancel, _back, _inspect;
+    private readonly TextBox _start = new() { Width = 88, AccessibleName = "Начало диапазона" };
+    private readonly TextBox _end = new() { Width = 88, AccessibleName = "Конец диапазона (не входит)" };
+    private readonly Button _prepareRange, _prepareProject, _reset, _range, _segment, _project, _cancel, _back, _inspect;
     private BackendExportStatus? _job;
     private Task<BackendExportStatus>? _pending;
     private TimeSpan _elapsed;
@@ -28,16 +31,49 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     {
         _backend = backend; _scene = scene; _open = open; _close = close;
         Padding = new Thickness(16, 44, 16, 16);
+        SetSegmentRange();
+        _reset = Button("По сегменту", SetSegmentRange);
+        _prepareRange = Button("Подготовить диапазон", () => Prepare(wholeProject: false));
+        _prepareProject = Button("Подготовить проект", () => Prepare(wholeProject: true));
+        _range = Button("Смотреть диапазон", () => View(false));
         _segment = Button("Смотреть сегмент", () => View(true));
         _project = Button("Смотреть проект", () => View(false));
         _cancel = Button("Отменить подготовку", Cancel);
         _back = Button("К монтажу", Back);
         _inspect = Button("Проверить статус", Inspect);
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 12).WithChildren(
-            Text.Plain("Рабочий предпросмотр"), _status, _progress,
-            HStack.Create().Configure(row => row.Spacing = 8).WithChildren(_segment, _project),
-            HStack.Create().Configure(row => row.Spacing = 8).WithChildren(_cancel, _inspect, _back)));
-        Start("Готовлю сохранённый монтаж…", () => backend.StartWorkingReviewAsync(_key, scene.Revision, scene.Fingerprint!, _closing.Token));
+            Text.Plain("Рабочий предпросмотр"),
+            Row(Text.Plain("Кадр начала"), _start, Text.Plain("Конец (не входит)"), _end, _reset),
+            Row(_prepareRange, _prepareProject), _status, _progress,
+            Row(_range, _segment, _project), Row(_cancel, _inspect, _back)));
+        Refresh();
+    }
+
+    private void SetSegmentRange()
+    {
+        _start.Value = _scene.Segment.StartFrame.ToString(CultureInfo.InvariantCulture);
+        _end.Value = ((long)_scene.Segment.StartFrame + _scene.Segment.DurationFrames).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void Prepare(bool wholeProject)
+    {
+        if (!CanClose) return;
+        BackendReviewRange? range = null;
+        if (!wholeProject)
+        {
+            if (!int.TryParse(_start.Value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var start) ||
+                !int.TryParse(_end.Value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var end) || start >= end)
+            {
+                Show("Укажите два кадра проекта. Конец должен быть больше начала.", true);
+                return;
+            }
+            range = new(start, end);
+        }
+        var key = "preview-" + Guid.NewGuid().ToString("N");
+        _key = key;
+        _job = null;
+        Start("Готовлю сохранённый монтаж…", () =>
+            _backend.StartWorkingReviewAsync(key, _scene.Revision, _scene.Fingerprint!, _closing.Token, range));
     }
 
     internal bool CanClose => _pending is null && !Active && !_unresolved;
@@ -51,6 +87,12 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private void View(bool segment)
     {
         if (_job is not { State: "completed" } job || !CanClose) return;
+        if (job.RangeStart is { } start)
+        {
+            _open(new(BackendRenderedMontage.Identifier(job.Id, null), start, job.Frames,
+                job.Fps, _scene.Revision, job.ProjectFingerprint, Bounded: true), false);
+            return;
+        }
         var key = BackendRenderedMontage.Identifier(job.Id, segment ? _scene.Segment.StartFrame : null);
         _open(new(key, segment ? _scene.Segment.StartFrame : 0, segment ? _scene.Segment.DurationFrames : job.Frames,
             job.Fps, _scene.Revision, job.ProjectFingerprint), segment);
@@ -58,7 +100,8 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
 
     private void Inspect()
     {
-        var id = _job?.Id ?? BackendExportJobs.JobId(_key);
+        if (_key is not { } key) return;
+        var id = _job?.Id ?? BackendExportJobs.JobId(key);
         Start("Проверяю статус…", () => _backend.WorkingReviewStatusAsync(id, _closing.Token));
     }
 
@@ -122,7 +165,9 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private void Refresh()
     {
         var ready = _pending is null && _job?.State == "completed";
-        _segment.IsEnabled = _project.IsEnabled = ready;
+        _range.IsVisible = _range.IsEnabled = ready && _job!.RangeStart is not null;
+        _segment.IsVisible = _project.IsVisible = _segment.IsEnabled = _project.IsEnabled = ready && _job!.RangeStart is null;
+        _prepareRange.IsEnabled = _prepareProject.IsEnabled = _reset.IsEnabled = _start.IsEnabled = _end.IsEnabled = CanClose;
         _cancel.IsEnabled = _pending is null && _job?.State == "running";
         _inspect.IsEnabled = _pending is null && _unresolved;
         _back.IsEnabled = CanClose;
@@ -131,6 +176,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     }
 
     private void Show(string status, bool error = false) { _status.Value = status; _status.HasError = error; }
+    private static HStack Row(params Element[] children) => HStack.Create().Configure(row => row.Spacing = 8).WithChildren(children);
     private static Button Button(string label, Action action) => TrueMoon.Argentis.Button.Simple(label).WithRole(SceneView.CommandRole).OnClick(action);
 
     public override void Dispose()

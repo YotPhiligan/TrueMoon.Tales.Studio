@@ -9,11 +9,12 @@ internal sealed partial class StudioBackendService
     private readonly BackendExportJobs _exports = new(options);
 
     public Task<BackendExportReply> WorkingReviewAsync(string sessionKey, string operation, string key, long revision,
-        string fingerprint, CancellationToken cancellationToken = default) =>
+        string fingerprint, int startFrame, int endFrame, CancellationToken cancellationToken = default) =>
         ExecuteExportAsync(sessionKey, write: false, token => operation switch
         {
             "start" => _exports.StartAsync(key, "draft", revision, fingerprint,
-                ct => ExportBaselineAsync(revision, fingerprint, ct), token, working: true),
+                ct => ExportBaselineAsync(revision, fingerprint, ct), token, working: true,
+                range: startFrame == 0 && endFrame == 0 ? null : new(startFrame, endFrame)),
             "status" => _exports.StatusAsync(key, token, working: true),
             "cancel" => _exports.CancelAsync(key, revision, token, working: true),
             _ => throw new BackendExportException("invalid_export")

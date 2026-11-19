@@ -12,7 +12,9 @@ internal sealed class BackendExportException(string code) : IOException(code)
 internal sealed record BackendExportStatus(int Version, string Id, string ProjectId, long ProjectRevision,
     string ProjectFingerprint, string Profile, long Revision, string State, string RequestSha256, int Frames,
     double Fps, long? ArtifactSizeBytes = null, string? ArtifactSha256 = null, string? ErrorCode = null,
-    int? ProgressPercent = null);
+    int? ProgressPercent = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    int? RangeStart = null);
 
 internal sealed record BackendExportCheck(long ProjectRevision, string ProjectFingerprint, string Profile, int Width, int Height,
     int Frames, double Fps);

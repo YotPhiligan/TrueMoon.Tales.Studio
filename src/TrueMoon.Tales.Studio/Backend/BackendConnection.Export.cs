@@ -29,20 +29,24 @@ internal sealed partial class BackendConnection
     internal Task<BackendExportStatus> FindExportAsync(string clientKey, CancellationToken token) =>
         ExportJobAsync(BackendExportJobs.JobId(clientKey), ct => service.FindExportAsync(options.SessionKey, clientKey, ct), token);
 
-    internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint, CancellationToken token)
+    internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint,
+        CancellationToken token, BackendReviewRange? range = null)
     {
+        if (range is { IsValid: false }) throw new BackendCommandException("invalid_export");
         var job = await ExportJobAsync(BackendExportJobs.JobId(clientKey),
-            ct => service.WorkingReviewAsync(options.SessionKey, "start", clientKey, revision, fingerprint, ct), token).ConfigureAwait(false);
-        if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Profile != "draft")
+            ct => service.WorkingReviewAsync(options.SessionKey, "start", clientKey, revision, fingerprint,
+                range?.Start ?? 0, range?.End ?? 0, ct), token).ConfigureAwait(false);
+        if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Profile != "draft" ||
+            job.RangeStart != range?.Start || range is { } selection && job.Frames != selection.End - selection.Start)
             throw new InvalidDataException("Preview reply does not match the submitted snapshot.");
         return job;
     }
 
     internal Task<BackendExportStatus> WorkingReviewStatusAsync(string id, CancellationToken token) =>
-        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "status", id, 0, "", ct), token);
+        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "status", id, 0, "", 0, 0, ct), token);
 
     internal Task<BackendExportStatus> CancelWorkingReviewAsync(string id, long revision, CancellationToken token) =>
-        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "cancel", id, revision, "", ct), token);
+        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "cancel", id, revision, "", 0, 0, ct), token);
 
     internal async Task<BackendExportStatus> StartExportAsync(string clientKey, string profile, long revision,
         string fingerprint, CancellationToken token = default)
@@ -99,7 +103,8 @@ internal sealed partial class BackendConnection
             job.ProjectRevision < 0 || job.Revision < 1 || job.Profile is not ("draft" or "project" or "final") ||
             job.State is not ("running" or "stopping" or "completed" or "cancelled" or "failed" or "interrupted") ||
             !IsHash(job.ProjectFingerprint) || !IsHash(job.RequestSha256) ||
-            job.Frames <= 0 || !double.IsFinite(job.Fps) || job.Fps is <= 0 or > 240 ||
+            job.Frames <= 0 || job.RangeStart is < 0 || (long)(job.RangeStart ?? 0) + job.Frames > int.MaxValue ||
+            !double.IsFinite(job.Fps) || job.Fps is <= 0 or > 240 ||
             job.ProgressPercent is < 0 or > 100 || !ValidArtifact(job))
             throw new InvalidDataException("Invalid export job metadata.");
         return (job, reply.Data);

@@ -206,7 +206,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private void ShowWorkingReview(BackendRenderedMontage review, bool segment)
     {
         var workspace = _workingReview;
-        _review = new(_model.ReviewPlayer(review, _backend!), segment, CloseReview);
+        _review = new(_model.ReviewPlayer(review, _backend!), segment, CloseReview,
+            review.Bounded ? new(review.Start, review.Start + review.Frames) : null);
         _workingReview = null;
         _page.SetContent(_review);
         workspace?.Dispose();

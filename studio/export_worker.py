@@ -23,7 +23,12 @@ class DraftRenderer:
             if self.request.get('profile') == 'final':
                 raise ValueError('В снимке финального экспорта нет параметров кодирования.')
             self.encoding = DRAFT_ENCODING
-        self.fps=self.request['fps'];self.frames=self.request['frames'];self.size=self.request['size'];self.samples=round(self.frames/self.fps*48000)
+        self.fps=self.request['fps'];self.frames=self.request['frames'];self.size=self.request['size']
+        self.start_frame=self.request.get('start_frame',0)
+        self.start_sample=self.sample(self.start_frame)
+        self.samples=self.sample(self.start_frame+self.frames)-self.start_sample
+    def sample(self,frame):
+        return round(frame/self.fps*48000)
     def check(self):
         if time.monotonic()>self.deadline:raise TimeoutError('Экспорт остановлен по лимиту времени.')
     def progress(self,stage,percent,force=False):
@@ -86,7 +91,7 @@ class DraftRenderer:
                 if clip:
                     asset=self.request['assets'][clip['asset_id']]
                     container,options=self.input_format(asset)
-                    decoder=SourceFrames(str(self.input_path(asset)),clip['source_in_frame']/self.fps,
+                    decoder=SourceFrames(str(self.input_path(asset)),source_position(clip,part['start_frame'],self.fps),
                                          container=container,options=options)
                 try:
                     cached=None;pixels=black
@@ -101,9 +106,9 @@ class DraftRenderer:
                         level=brightness(index,self.request.get('transition_windows',[]))
                         display=pixels if level==1 else black if level==0 else np.floor(pixels.astype(np.float32)*level+.5).clip(0,255).astype(np.uint8)
                         display=titles.compose(display,index)
-                        frame=av.VideoFrame.from_ndarray(display,format='rgb24');frame.pts=index;frame.time_base=fractions.Fraction(1,self.fps)
+                        frame=av.VideoFrame.from_ndarray(display,format='rgb24');frame.pts=index-self.start_frame;frame.time_base=fractions.Fraction(1,self.fps)
                         for packet in stream.encode(frame):output.mux(packet)
-                        self.progress('Изображение',5+70*(index+1)/self.frames)
+                        self.progress('Изображение',5+70*(index-self.start_frame+1)/self.frames)
                 finally:
                     if decoder:decoder.close()
             for packet in stream.encode(None):output.mux(packet)
@@ -113,7 +118,9 @@ class DraftRenderer:
         files=[];all_parts=parts(self.request)
         for index,part in enumerate(all_parts):
             self.progress('Звук клипов',75+15*index/max(1,len(all_parts)),True)
-            clip=part['clip'];name=f'Audio-{index:04}.wav';files.append(name);target=round((part['start_frame']+part['duration_frames'])/self.fps*48000)-round(part['start_frame']/self.fps*48000)
+            clip=part['clip'];name=f'Audio-{index:04}.wav';files.append(name)
+            start=self.sample(part['start_frame'])
+            target=self.sample(part['start_frame']+part['duration_frames'])-start
             asset=self.request['assets'][clip['asset_id']] if clip and not clip.get('mute_native_audio') else None
             has_audio=False
             if asset:
@@ -125,12 +132,22 @@ class DraftRenderer:
                 while rate<.5:tempos.append('atempo=0.5');rate/=.5
                 while rate>2:tempos.append('atempo=2');rate/=2
                 if rate!=1 or not self.backend_mode:tempos.append(f'atempo={rate:.12g}')
+                offset=start-self.sample(clip['start_frame'])
+                crop=(f'atrim=start_sample={offset}:end_sample={offset+target},asetpts=PTS-STARTPTS'
+                      if offset else f'atrim=end_sample={target}')
                 filters=','.join([f"atrim=start={clip['source_in_frame']/self.fps:.12f}:end={clip['source_out_frame']/self.fps:.12f}",
-                                  'asetpts=PTS-STARTPTS',*tempos,'aresample=48000','apad',f'atrim=end_sample={target}'])
+                                  'asetpts=PTS-STARTPTS',*tempos,'aresample=48000','apad',crop])
                 args=['-threads','2',*self.input_arguments(asset),'-map','0:a:0','-vn','-af',filters]
             else:args=['-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-af',f'atrim=end_sample={target}']
             self.command([*args,'-ar','48000','-ac','2','-c:a','pcm_s16le','-n',str(self.folder/name)])
         (self.folder/'Audio.concat.txt').write_text(''.join("file '"+name+"'\n" for name in files),encoding='utf-8')
+    def mix_track(self,track,input_label,output_label):
+        offset=self.sample(track['start_frame'])-self.start_sample
+        crop=f'atrim=start_sample={-offset},asetpts=PTS-STARTPTS,' if offset<0 else ''
+        return (f"{input_label}atrim=start={track['source_in_frame']/self.fps:.12f}:duration={track['duration_frames']/self.fps:.12f},"
+                f"asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={track['gain']:.12g},"
+                f"{crop}adelay={max(0,offset)}S:all=1,"
+                f"apad,atrim=end_sample={self.samples}{output_label}")
     def mux(self):
         args=['-threads','2','-i',str(self.folder/'Video.mp4')];labels=[];filters=[]
         native=self.request['clip_audio'];music=self.request['music'];input_index=1
@@ -139,14 +156,14 @@ class DraftRenderer:
             filters.append(f'[{input_index}:a]apad,atrim=end_sample={self.samples},asetpts=PTS-STARTPTS[native]');labels.append('[native]');input_index+=1
         if music and not music['muted'] and music['gain']>0:
             args+=self.input_arguments(self.request['assets'][music['asset_id']])
-            filters.append(f"[{input_index}:a]atrim=start={music['source_in_frame']/self.fps:.12f}:duration={music['duration_frames']/self.fps:.12f},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={music['gain']:.12g},adelay={round(music['start_frame']/self.fps*48000)}S:all=1,apad,atrim=end_sample={self.samples}[music]")
+            filters.append(self.mix_track(music,f'[{input_index}:a]','[music]'))
             labels.append('[music]')
             input_index+=1
         for i,e in enumerate(self.request.get('sounds',[])):
             if e['muted'] or e['gain']==0:continue
             args+=self.input_arguments(self.request['assets'][e['asset_id']])
             label=f'event{i}'
-            filters.append(f"[{input_index}:a:{e['stream']}]atrim=start={e['source_in_frame']/self.fps:.12f}:duration={e['duration_frames']/self.fps:.12f},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={e['gain']:.12g},adelay={round(e['start_frame']/self.fps*48000)}S:all=1,apad,atrim=end_sample={self.samples}[{label}]")
+            filters.append(self.mix_track(e,f"[{input_index}:a:{e['stream']}]",f'[{label}]'))
             labels.append(f'[{label}]');input_index+=1
         if not labels:filters.append(f'anullsrc=r=48000:cl=stereo,atrim=end_sample={self.samples}[mixed]')
         elif len(labels)==1:filters.append(labels[0]+'anull[mixed]')
