@@ -49,6 +49,7 @@ internal sealed partial class StudioBackendService
             {
                 BindAdaptationText edit => await BackendAdaptation.BindTextAsync(baseline.Project, edit, new(options), cancellationToken).ConfigureAwait(false),
                 SaveAnimaticStill edit => BackendAdaptation.SetStill(baseline.Project, edit, new(options)),
+                SaveSceneJoin edit => BackendSceneJoins.Apply(baseline.Project, edit),
                 MoveScenarioAction edit => BackendScenarioEdit.MoveAction(baseline.Project, edit, ScenarioActive(baseline)),
                 MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false),
                 _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)

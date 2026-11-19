@@ -196,7 +196,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         if (_backend is null || !_model.ProjectReady || !_model.CanReload || _storyboard is not null) return;
         _model.PausePlayback();
         Overlays.Close();
-        _storyboard = new(_backend, NavigateStoryboard, CloseStoryboard);
+        _storyboard = new(_backend, NavigateStoryboard, () => CloseStoryboard(refreshMontage: true));
         _page.SetContent(_storyboard);
     }
 
@@ -218,12 +218,18 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         }
     }
 
-    private void CloseStoryboard()
+    private void CloseStoryboard(bool refreshMontage = false)
     {
         var storyboard = _storyboard;
+        if (storyboard is null || !storyboard.CanLeave()) return;
         _storyboard = null;
         _page.SetContent(Overlays);
-        storyboard?.Dispose();
+        storyboard.Dispose();
+        if (refreshMontage && storyboard.ProjectFingerprint is { } fingerprint && fingerprint != _model.SavedFingerprint)
+        {
+            _readiness?.InvalidateReport();
+            _model.Open();
+        }
         Refresh();
     }
 
@@ -409,6 +415,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         if (reason == WindowCloseReason.Shutdown) return Task.FromResult(true);
         if (_workingReview is { CanClose: false } review) { review.Back(); return Task.FromResult(false); }
         if (_tracks?.CancelNavigation() == true) return Task.FromResult(false);
+        if (_storyboard?.CanLeave() == false) return Task.FromResult(false);
         if (ScenarioVisible && (_scenario!.HasDraft || _scenario.Busy || _export?.MayInterrupt == true))
         {
             _scenario.ExplainClose();
@@ -441,7 +448,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         if (_storyboard is not null)
         {
             if (input.Kind != InputKind.KeyDown || input.Key != UiKey.Escape) return false;
-            CloseStoryboard();
+            CloseStoryboard(refreshMontage: true);
             return true;
         }
         if (_workingReview is { } working)

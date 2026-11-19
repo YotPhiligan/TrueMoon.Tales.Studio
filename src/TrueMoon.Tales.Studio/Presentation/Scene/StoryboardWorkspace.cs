@@ -6,14 +6,16 @@ using TrueMoon.Tales.Studio.Presentation.Shell;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
-internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
+internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
 {
     private readonly BackendConnection _backend;
     private readonly Action<StoryboardShot, OpenedBackendProject, bool> _navigate;
     private readonly CancellationTokenSource _closing = new();
     private readonly VStack _rows = VStack.Create().Configure(stack => stack.Spacing = 6);
     private readonly Text _count = new(), _title = new(), _timing = new(), _text = new(), _status = new();
-    private readonly Button _reload, _action, _frame;
+    private readonly Button _reload, _action, _frame, _back, _joinToggle;
+    private readonly VStack _planDetails, _joinDetails;
+    private readonly SplitView _split;
     private readonly Image _preview = new();
     private readonly PreviewSurface _surface;
     private readonly RichTextEditor _description = new(new() { IsReadOnly = true }) { Height = 90 };
@@ -31,22 +33,35 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
         var heading = Text.Plain("Раскадровка");
         heading.FontSize = 22;
         _title.FontSize = 19;
-        _reload = Command("Обновить", Reload);
+        _reload = Command("Обновить", () => Reload());
+        _back = Command("К монтажу", close);
+        _joinToggle = Command("Стыки сцен", ToggleJoins);
         _action = Command("К действию", () => Jump(toAction: true));
         _frame = Command("К кадру", () => Jump(toAction: false));
         _surface = new(_preview) { Height = 224, IsVisible = false };
-        var split = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 380 };
-        split.FirstPane.MinWidth = 215;
-        split.SecondPane.MinWidth = 250;
-        split.Divider.AccessibleName = "Ширина списка планов";
-        split.FirstPane.SetContent(ScrollViewer.Create().Content(Stack(_count, _rows)));
-        split.SecondPane.SetContent(ScrollViewer.Create().Content(Border.Create().Configure(border => border.Padding = new Thickness(16))
-            .Content(Stack(_title, _timing, Row(_action, _frame), _status, _surface, _description, _text))));
-        SetContent(new PreviewLayout(new StudioHeading(heading, Row(_reload, Command("К монтажу", close))), split, new Text()));
+        _planDetails = Stack(_title, _timing, Row(_action, _frame), _surface, _description, _text);
+        _joinDetails = CreateJoinDetails();
+        _split = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 380 };
+        _split.FirstPane.MinWidth = 215;
+        _split.SecondPane.MinWidth = 250;
+        _split.Divider.AccessibleName = "Ширина списка планов";
+        _split.FirstPane.SetContent(ScrollViewer.Create().Content(Stack(_count, _rows, _joinRows)));
+        _split.SecondPane.SetContent(ScrollViewer.Create().Content(Border.Create().Configure(border => border.Padding = new Thickness(16))
+            .Content(Stack(_status, _planDetails, _joinDetails))));
+        SetContent(new PreviewLayout(new StudioHeading(heading, Row(_joinToggle, _reload, _back)), _split, new Text()));
         Reload();
     }
 
     public bool NeedsFrame => _pending is not null;
+    internal string? ProjectFingerprint => _snapshot?.Fingerprint;
+
+    internal bool CanLeave()
+    {
+        if (_joinDraft) Show("Сохраните или отмените черновик стыка.", error: true);
+        else if (_joinMode && NeedsFrame) Show("Дождитесь результата операции.");
+        else return true;
+        return false;
+    }
 
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
@@ -55,7 +70,8 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
         try { ready.GetAwaiter().GetResult()(); }
         catch (Exception error) when (error is IOException or InvalidDataException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            Show(error is BackendCommandException { Code: "revision_conflict" }
+            if (_joinMode) ShowJoinError(error);
+            else Show(error is BackendCommandException { Code: "revision_conflict" }
                 ? "Проект изменился. Обновите раскадровку."
                 : _selected is null ? "Не удалось прочитать проект." : "Предпросмотр или переход недоступен.", error: true);
         }
@@ -66,7 +82,11 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
     {
         var snapshot = await _backend.OpenAsync(token).ConfigureAwait(false);
         var shots = StoryboardShot.Read(snapshot.Project);
-        return () => Apply(snapshot, shots);
+        return () =>
+        {
+            if (_joinMode) RefreshJoins(snapshot, shots);
+            else Apply(snapshot, shots);
+        };
     });
 
     private void Apply(OpenedBackendProject snapshot, StoryboardShot[] shots)
@@ -115,16 +135,7 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
         if (shot.Video is null && !shot.Still) { SyncCommands(); return; }
         Start("Читаю кадр…", async token =>
         {
-            var revision = snapshot.Project.Revision;
-            var fingerprint = snapshot.Fingerprint;
-            BackendMediaReply frame;
-            if (shot.Video is { } asset)
-            {
-                var media = await _backend.MediaInfoAsync(asset, revision, fingerprint, token).ConfigureAwait(false);
-                var index = (int)Math.Clamp(Math.Floor(shot.SourceIn * media.Fps / snapshot.Project.Fps), 0, media.FrameCount - 1);
-                frame = await _backend.FrameAsync(asset, index, revision, fingerprint, token).ConfigureAwait(false);
-            }
-            else frame = await _backend.StoryboardStillAsync(shot.SegmentId!, shot.ActionId!, revision, fingerprint, token).ConfigureAwait(false);
+            var frame = (await ReadFrameAsync(shot, 0, snapshot, token).ConfigureAwait(false))!;
             return () =>
             {
                 _pixels = SkiaImageSource.CopyBgraPixels(frame.Width, frame.Height, frame.Pixels);
@@ -134,6 +145,22 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
                 Show(shot.Position is null ? "Проверьте окно и длительность действия." : "");
             };
         });
+    }
+
+    private async Task<BackendMediaReply?> ReadFrameAsync(StoryboardShot? shot, int offset, OpenedBackendProject snapshot, CancellationToken token)
+    {
+        var revision = snapshot.Project.Revision;
+        var fingerprint = snapshot.Fingerprint;
+        if (shot?.Video is { } asset)
+        {
+            var media = await _backend.MediaInfoAsync(asset, revision, fingerprint, token).ConfigureAwait(false);
+            var sourceFrame = (shot.SourceIn + offset * shot.Speed) * media.Fps / snapshot.Project.Fps;
+            var index = (int)Math.Clamp(Math.Floor(sourceFrame), 0, media.FrameCount - 1);
+            return await _backend.FrameAsync(asset, index, revision, fingerprint, token).ConfigureAwait(false);
+        }
+        return shot is { Still: true, SegmentId: { } segment, ActionId: { } action }
+            ? await _backend.StoryboardStillAsync(segment, action, revision, fingerprint, token).ConfigureAwait(false)
+            : null;
     }
 
     private void Jump(bool toAction)
@@ -161,6 +188,7 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
     private void SyncCommands()
     {
         _reload.IsEnabled = !NeedsFrame;
+        _joinToggle.IsEnabled = _back.IsEnabled = !NeedsFrame && !_joinDraft;
         _action.IsVisible = _frame.IsVisible = _selected is not null;
         _action.IsEnabled = !NeedsFrame && _selected?.ActionId is not null;
         _frame.IsEnabled = !NeedsFrame && _selected?.Position is not null;
@@ -169,6 +197,7 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
             button.IsEnabled = !NeedsFrame;
             button.Tone = ReferenceEquals(shot, _selected) ? ControlTone.Accent : ControlTone.Neutral;
         }
+        SyncJoinCommands();
     }
 
     private void Show(string status, bool error = false)
@@ -188,6 +217,8 @@ internal sealed class StoryboardWorkspace : Border, IUiFrameParticipant
         _closing.Dispose();
         if (_pending is { } pending) _ = pending.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
         ClearPreview();
+        _exitSide.ClearPreview();
+        _entrySide.ClearPreview();
         base.Dispose();
     }
 

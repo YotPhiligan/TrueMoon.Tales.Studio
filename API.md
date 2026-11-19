@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. Protocol16 расширил команды экранного сценария. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. Protocol15 добавил чтение стоп-кадра раскадровки. Protocol16 расширил команды экранного сценария. Protocol17 добавил сохранение состояний стыка сцен. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
   в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
@@ -185,6 +185,15 @@ JSON с полем `operation`. Допустимы `save_segment`, `save_action`
 и данным ffprobe. Правки доступны в C#-экране, который читает сравниваемые
 кадры штатным `FrameAsync`. HTTP/CLI читают результат через APIv1.
 [Экран и поведение](src/WindowDesign.md#scenario-library).
+
+Protocol17 добавляет `save_scene_join` с полями `left_window_id`,
+`right_window_id`, `exit_state`, `entry_state` и `bridge`. Нужны
+соседние сохранённые окна двух разных сцен в порядке шкалы. Текстовые поля
+обязательны и ограничены 1600 знаками. Связка требует оба состояния. Три
+пустых поля удаляют запись. Один вызов сохраняет её в
+`project.properties.studio_scene_joins_v1` с общей ревизией и SHA. Новый
+HTTP/CLI-метод для этой записи не добавлялся.
+[Стык в раскадровке](SegmentPreview.md#studio-scene-joins).
 
 <a id="montage-edits"></a>
 ## Правки монтажа и просмотр CPU MP4 через Enerit

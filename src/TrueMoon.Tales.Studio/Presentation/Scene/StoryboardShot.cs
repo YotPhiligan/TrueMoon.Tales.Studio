@@ -8,7 +8,7 @@ namespace TrueMoon.Tales.Studio.Presentation.Scene;
 internal sealed record StoryboardPosition(Segment Window, int Frame, int Duration, string Title, string? ClipId, ClipContract[]? WindowClips = null);
 
 internal sealed record StoryboardShot(string SegmentName, string? SegmentId, string? ActionId, string Title, string Description,
-    StoryboardPosition? Position, int? PlannedDuration, string? Video, double SourceIn, bool Still, ChapterFragment? Text)
+    StoryboardPosition? Position, int? PlannedDuration, string? Video, double SourceIn, bool Still, ChapterFragment? Text, double Speed = 1)
 {
     internal string Medium => Video is not null ? "Видео" : Still ? "Стоп-кадр" : "Карточка";
 
@@ -38,7 +38,7 @@ internal sealed record StoryboardShot(string SegmentName, string? SegmentId, str
                 var take = source.Takes.FirstOrDefault(row => row.Id == clip.TakeId);
                 var title = action?.Title ?? source.Title;
                 var position = new StoryboardPosition(axis, clip.StartFrame, clip.DurationFrames, title, clip.Id);
-                shots.Add(Card(segment, action, title, position, take?.VideoAssetId, clip.SourceInFrame));
+                shots.Add(Card(segment, action, title, position, take?.VideoAssetId, clip.SourceInFrame, clip.Speed));
             }
             foreach (var shot in BackendAnimatic.PlannedShots(window, actions, clips))
             {
@@ -54,14 +54,14 @@ internal sealed record StoryboardShot(string SegmentName, string? SegmentId, str
         return rows.ToArray();
 
         StoryboardShot Card(ScenarioSegmentContract? segment, StoryActionContract? action, string title,
-            StoryboardPosition? position, string? video = null, double sourceIn = 0)
+            StoryboardPosition? position, string? video = null, double sourceIn = 0, double speed = 1)
         {
             var id = segment?.Id;
             var actionId = action?.Id;
             var still = id is not null && actionId is not null && stills.Contains((id, actionId));
             var text = id is null ? null : texts.GetValueOrDefault((id, actionId)) ?? texts.GetValueOrDefault((id, null));
             return new(segment?.Name ?? position?.Window.Name ?? "", id, actionId, title, action?.Description ?? "",
-                position, action?.PlannedDurationFrames, video, sourceIn, still, text);
+                position, action?.PlannedDurationFrames, video, sourceIn, still, text, speed);
         }
     }
 }

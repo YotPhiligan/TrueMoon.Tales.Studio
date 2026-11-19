@@ -763,6 +763,170 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Storyboard_SceneJoins_CompareClockAndMeasurementBoundaries()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(scenarioOnly: true);
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120", "-frames:v", "1", "-threads", "1",
+             "-n", files.MediaPath("Привал.png")], 2048);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var snapshot = await api.AcquireWriterAsync(await api.OpenAsync());
+        async Task<TrueMoon.Tales.Studio.Contracts.Projects.ScenarioSegmentContract> AddScene(string title, int start, int length,
+            params (string Title, string Description, int Frames)[] actions)
+        {
+            snapshot = await api.EditScenarioAsync(new SaveSegment(null, title, "", start, length), snapshot);
+            var id = snapshot.Project.Segments.Last().Id;
+            foreach (var action in actions)
+                snapshot = await api.EditScenarioAsync(new SaveAction(id, null, action.Title, action.Description, action.Frames), snapshot);
+            return snapshot.Project.Segments.Single(row => row.Id == id);
+        }
+        var camp = await AddScene("Разграбленный лагерь", 0, 288,
+            ("Пустой кофр", "", 144), ("Часы в подкладке", "На ладони часы с замершими стрелками.", 144));
+        var measurement = await AddScene("След аномалии", 288, 384,
+            ("Нить отклоняется", "Поток прошёл через поляну.", 192), ("На северо-запад", "Эйко обожгла запястье.", 192));
+        var rest = await AddScene("Тихий привал у заставы", 672, 288, ("Привал у заставы", "Сумерки.", 288));
+        snapshot = await api.EditScenarioAsync(new SaveAnimaticStill(rest.Id, rest.Actions.Single().Id, "@videos/Привал.png"), snapshot);
+        var pairs = BackendSceneJoins.Pairs(snapshot.Project).ToArray();
+        Assert.Equal((camp.Id, measurement.Id, rest.Id), (pairs[0].Left.SegmentId, pairs[0].Right.SegmentId, pairs[1].Right.SegmentId));
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        host.PumpUntil(() => model.ProjectReady && !model.NeedsFrame || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        var originalHistory = files.History();
+        var originalBytes = File.ReadAllBytes(files.ProjectPath);
+        StoryboardWorkspace OpenJoins()
+        {
+            host.Click(ButtonIn(host.Window.Navigation, "Раскадровка"));
+            var board = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+            host.PumpUntil(() => !board.NeedsFrame);
+            host.Click(ButtonIn(board, "Стыки сцен"));
+            host.PumpUntil(() => !board.NeedsFrame);
+            return board;
+        }
+        var board = OpenJoins();
+        void Click(string label)
+        {
+            var button = ButtonIn(board, label);
+            Assert.True(button.IsEffectivelyEnabled);
+            Reveal(button);
+            host.Click(button);
+            host.PumpUntil(() => !board.NeedsFrame);
+        }
+        void Reveal(Element element)
+        {
+            for (var node = element.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(element.Bounds); host.Update(); break; }
+        }
+        RichTextEditor Field(string label) => Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<RichTextEditor>(),
+            editor => editor.AccessibleName == label);
+        void Label(string value) => Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Text>(),
+            text => text.IsVisible && text.Value == value);
+        void Fill(string label, string value)
+        {
+            var field = Field(label);
+            Assert.False(field.Options.IsReadOnly);
+            Reveal(field);
+            host.Click(field);
+            host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
+            host.Input(new(InputKind.Text, Text: value));
+            Assert.Equal(value, field.Text);
+        }
+        const string clock = "0287 / 0288 · След аномалии";
+        const string retreat = "0671 / 0672 · Тихий привал у заставы";
+        const string stopped = "Часы остановились, лежат на ладони Эйко.";
+        const string ticking = "Часы идут, цепочка закреплена на поясе Эйко.";
+        const string departure = "Поляна. Эйко обожгла запястье, перчатка повреждена.";
+        const string arrival = "Застава в сумерках. Лайтер уже помог Эйко.";
+        const string bridge = "Бьёрнс велит уходить. У заставы Лайтер снимает перчатку и частично исцеляет ожог.";
+
+        Click(clock);
+        Assert.Contains("Часы в подкладке", Field("Кадр · Выход").Text);
+        Assert.Contains("Нить отклоняется", Field("Кадр · Вход").Text);
+        Label("Кадр 287 · Карточка");
+        Label("Кадр 288 · Карточка");
+        Label("Оба состояния не заполнены");
+        files.AssertProject(originalBytes, originalHistory);
+        Click("Уточнить стык");
+        Fill("Состояние · Выход", stopped);
+        Fill("Состояние · Вход", ticking);
+        Click("Сохранить стык");
+        Label("Записи различаются · нужна связка или сверка");
+        var clockSaved = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(snapshot.Project.Revision + 1, clockSaved.Project.Revision);
+        Assert.Equal(originalHistory.Length + 1, files.History().Length);
+        Assert.Equal((stopped, ticking, ""), Notes(clockSaved, pairs[0]));
+
+        Click(retreat);
+        Assert.Contains("На северо-запад", Field("Кадр · Выход").Text);
+        Label("Кадр 671 · Карточка");
+        Label("Кадр 672 · Стоп-кадр");
+        var picture = Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<Image>(), image => image.AccessibleName == "Вход · кадр 672");
+        Assert.NotNull(picture.Source);
+        Assert.True(picture.Bounds.X > Field("Кадр · Выход").Bounds.X);
+        host.Capture("scene-join-measurement", new { left = 671, right = 672, ClockRevision = clockSaved.Project.Revision });
+        host.Resize(840, 660, 1.5f);
+        Assert.True(picture.Bounds.Width > 0 && picture.Bounds.X + picture.Bounds.Width <= board.Bounds.X + board.Bounds.Width);
+        host.Capture("scene-join-compact", new { left = 671, right = 672 });
+        host.Resize(1280, 820, 1);
+
+        Click("Уточнить стык");
+        Fill("Состояние · Выход", departure);
+        Fill("Состояние · Вход", arrival);
+        Fill("Что связывает сцены", bridge);
+        host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+        Assert.False(board.IsDisposed);
+        var changed = api.EditScenarioAsync(new SaveSegment(rest.Id, rest.Name, "Сумерки", 0, 0), clockSaved).GetAwaiter().GetResult();
+        var conflictBytes = File.ReadAllBytes(files.ProjectPath);
+        var conflictHistory = files.History();
+        Click("Сохранить стык");
+        Label("Проект изменился. Обновите стыки.");
+        Assert.False(ButtonIn(board, "Сохранить стык").IsEnabled);
+        Assert.Null(picture.Source);
+        Assert.Equal(bridge, Field("Что связывает сцены").Text);
+        files.AssertProject(conflictBytes, conflictHistory);
+        Click("Обновить");
+        Assert.NotNull(picture.Source);
+        Assert.Equal(departure, Field("Состояние · Выход").Text);
+        Assert.Equal(arrival, Field("Состояние · Вход").Text);
+        Assert.Equal(bridge, Field("Что связывает сцены").Text);
+        Click("Сохранить стык");
+        var saved = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(changed.Project.Revision + 1, saved.Project.Revision);
+        Assert.Equal(conflictHistory.Length + 1, files.History().Length);
+        Label("Переход описан");
+        Assert.Equal((departure, arrival, bridge), Notes(saved, pairs[1]));
+        Assert.Equal((stopped, ticking, ""), Notes(saved, pairs[0]));
+        Assert.Equal(snapshot.Project.Montage.Windows, saved.Project.Montage.Windows);
+        Assert.Equal(snapshot.Project.Montage.Clips, saved.Project.Montage.Clips);
+
+        Click(clock);
+        Assert.Equal(stopped, Field("Состояние · Выход").Text);
+        Click("Уточнить стык");
+        Fill("Состояние · Выход", "Отменить это изменение");
+        Click("Отменить правку");
+        Assert.Equal(stopped, Field("Состояние · Выход").Text);
+        var savedHistory = files.History();
+        var savedBytes = File.ReadAllBytes(files.ProjectPath);
+        Click("К монтажу");
+        host.PumpUntil(() => model.SavedFingerprint == saved.Fingerprint && !model.NeedsFrame);
+        board = OpenJoins();
+        Click(retreat);
+        Assert.Equal(bridge, Field("Что связывает сцены").Text);
+        Label("Переход описан");
+        files.AssertProject(savedBytes, savedHistory);
+        Assert.Empty(files.Requests());
+
+        static (string, string, string) Notes(OpenedBackendProject project, SceneJoinWindowPair pair)
+        {
+            var row = BackendSceneJoins.Read(project.Project)[(pair.Left.Id, pair.Right.Id)];
+            return (row.ExitState, row.EntryState, row.Bridge);
+        }
+    }
+
+    [BackendMediaFact]
     public async Task TimelineReadiness_ListsBothProblems_AndRefreshesAfterRelink()
     {
         using var files = new ExportFixture();
