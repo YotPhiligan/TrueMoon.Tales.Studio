@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
+using TrueMoon.Tales.Studio.Backend.Export;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -22,11 +23,12 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
 
     internal static async Task<BackendExportPlan> CreateAsync(ProjectContract project, string fingerprint, string profile,
         string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, CancellationToken token,
-        BackendReviewRange? range = null)
+        BackendReviewRange? range = null, bool animatic = false)
     {
         try
         {
-            return (await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token).ConfigureAwait(false))!;
+            return (await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token,
+                animatic: animatic).ConfigureAwait(false))!;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ScenarioEditException)
         {
@@ -55,7 +57,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
 
     private static async Task<BackendExportPlan?> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,
         string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendReviewRange? range, CancellationToken token,
-        List<BackendReadinessIssue>? issues = null)
+        List<BackendReadinessIssue>? issues = null, bool animatic = false)
     {
         token.ThrowIfCancellationRequested();
         ProjectContractJson.Validate(project);
@@ -72,7 +74,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var titles = BackendTrackEdits.ReadTitles(BackendTrackEdits.Rows(montage, "titles"));
         if (montage.Clips.Length > 2000 || montage.Windows.Length > 200)
             throw new InvalidDataException("CPU export supports at most 2000 clips and 200 windows.");
-        if (range is null && montage.Clips.Length == 0 && titles.Length == 0)
+        if (range is null && montage.Clips.Length == 0 && titles.Length == 0 && (!animatic || montage.Windows.Length == 0))
         {
             if (issues is null) throw new InvalidDataException("CPU export requires saved clips or titles.");
             issues.Add(new("montage_empty", project.Revision, fingerprint));
@@ -106,6 +108,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             var assetId = sources[clip.SourceId].Takes.FirstOrDefault(take => take.Id == clip.TakeId)?.VideoAssetId;
             if (string.IsNullOrWhiteSpace(assetId))
             {
+                if (animatic) continue;
                 Record(Reject("clip_take_missing", clip.Id, clip.StartFrame));
                 continue;
             }
@@ -133,6 +136,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var size = Size(project.Properties, profile);
         var titleCanvas = Size(project.Properties, "project");
         var registry = new Inputs(project, resolver, decoder);
+        var titleRows = new List<Dictionary<string, JsonElement>>();
+        var stillRows = new List<AnimaticImage>();
         var unreadableVideo = issues is null ? null : new Dictionary<string, Exception>(StringComparer.Ordinal);
         foreach (var clip in placements)
         {
@@ -163,7 +168,24 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         foreach (var sound in sounds)
             await CheckAudio(sound.AssetId, sound.Stream, sound.StartFrame, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted,
                 "sound_events", sound.TrackId, sound.OwnerClipId).ConfigureAwait(false);
-        var titleRows = new List<Dictionary<string, JsonElement>>();
+        if (animatic)
+        {
+            foreach (var card in BackendAnimatic.Cards(project))
+            {
+                if (card.Still is { } reference)
+                {
+                    var image = await registry.ImageAsync(reference, token).ConfigureAwait(false);
+                    stillRows.Add(new(image, card.StartFrame, card.DurationFrames));
+                    continue;
+                }
+                var font = OperatingSystem.IsWindows() ? "arial" : "dejavu";
+                var fontId = await registry.FontAsync(font, token).ConfigureAwait(false);
+                var fontSize = Math.Clamp(Math.Min(titleCanvas[0] / 26, titleCanvas[1] / 9), 8, 52);
+                AddTitle("animatic-" + Guid.NewGuid().ToString("N"),
+                    new("Аниматик", card.Text, card.StartFrame, card.DurationFrames, 0, 0, font, fontSize,
+                        "#FFFFFF", "center", "center", "transparent", false), fontId);
+            }
+        }
         foreach (var (id, title) in titles)
         {
             if (!Intersects(title.StartFrame, title.DurationFrames)) continue;
@@ -175,10 +197,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 continue;
             }
             if (issues is not null) continue;
-            var fields = JsonSerializer.SerializeToElement(title, Json).EnumerateObject().ToDictionary(row => row.Name, row => row.Value);
-            fields["id"] = JsonSerializer.SerializeToElement(id);
-            fields["font_asset_id"] = JsonSerializer.SerializeToElement(fontInput);
-            titleRows.Add(fields);
+            AddTitle(id, title, fontInput);
         }
 
         if (issues is not null) return null;
@@ -203,10 +222,19 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 audio_codec = "aac", audio_bitrate_kbps = final ? 320 : 192
             },
             clips = placements, transition_windows = transitionWindows, music, clip_audio = clipAudio, sounds,
-            titles = titleRows, title_canvas = titleCanvas, assets = registry.Assets, timeout_seconds = 300
+            titles = titleRows, title_canvas = titleCanvas, assets = registry.Assets, timeout_seconds = 300,
+            animatic_stills = stillRows
         }, Json);
         token.ThrowIfCancellationRequested();
         return new(request, frames, fps, size[0], size[1]);
+
+        void AddTitle(string id, MontageTitle title, string font)
+        {
+            var fields = JsonSerializer.SerializeToElement(title, Json).EnumerateObject().ToDictionary(row => row.Name, row => row.Value);
+            fields["id"] = JsonSerializer.SerializeToElement(id);
+            fields["font_asset_id"] = JsonSerializer.SerializeToElement(font);
+            titleRows.Add(fields);
+        }
 
         bool Intersects(int start, int length) =>
             range is null || start < range.Value.End && (long)start + length > range.Value.Start;
@@ -347,6 +375,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         double SourceInFrame, int Stream, double Gain, bool Muted,
         [property: JsonIgnore] string? TrackId, [property: JsonIgnore] string? OwnerClipId);
     private sealed record Asset(string Path, string Format, string ExpectedSha256);
+    private sealed record AnimaticImage(string AssetId, int StartFrame, int DurationFrames);
 
     private sealed class Inputs(ProjectContract project, BackendMediaResolver resolver, BackendMediaDecoder decoder)
     {
@@ -355,6 +384,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         private readonly Dictionary<string, BackendVideoInfo> _video = new(PathComparer);
         private readonly Dictionary<(string Path, int Stream), double> _audio = new();
         private readonly Dictionary<string, string> _fonts = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _images = new(StringComparer.Ordinal);
         private long _inputBytes;
 
         internal async Task<Asset> GetAsync(string id, bool video, CancellationToken token)
@@ -375,6 +405,17 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             var format = BackendMediaDecoder.LocalInputFormat(path, audio: !video);
             return Assets[id] = await ReadInputAsync(path, format, () => PathComparer.Equals(resolver.Resolve(logical), path), token)
                 .ConfigureAwait(false);
+        }
+
+        internal async Task<string> ImageAsync(string reference, CancellationToken token)
+        {
+            if (_images.TryGetValue(reference, out var id)) return id;
+            if (Assets.Count == MaxAssets) throw new InvalidDataException("Export input count exceeds its limit.");
+            var path = BackendAdaptation.ResolveStill(resolver, reference);
+            id = "animatic-image-" + Guid.NewGuid().ToString("N");
+            Assets.Add(id, await ReadInputAsync(path, "image", () =>
+                PathComparer.Equals(BackendAdaptation.ResolveStill(resolver, reference), path), token).ConfigureAwait(false));
+            return _images[reference] = id;
         }
 
         internal async Task<string> FontAsync(string font, CancellationToken token)

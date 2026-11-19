@@ -15,6 +15,8 @@ internal sealed partial class StudioBackendService
             "start" => _exports.StartAsync(key, "draft", revision, fingerprint,
                 ct => ExportBaselineAsync(revision, fingerprint, ct), token, working: true,
                 range: startFrame == 0 && endFrame == 0 ? null : new(startFrame, endFrame)),
+            "start_animatic" when startFrame == 0 && endFrame == 0 => _exports.StartAsync(key, "draft", revision, fingerprint,
+                ct => ExportBaselineAsync(revision, fingerprint, ct), token, working: true, animatic: true),
             "status" => _exports.StatusAsync(key, token, working: true),
             "cancel" => _exports.CancelAsync(key, revision, token, working: true),
             _ => throw new BackendExportException("invalid_export")

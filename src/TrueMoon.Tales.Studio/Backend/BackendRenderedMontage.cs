@@ -5,7 +5,8 @@ using TrueMoon.Tales.Studio.Models;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
-internal sealed record BackendRenderedMontage(string Key, int Start, int Frames, double Fps, int Revision, string Fingerprint, bool Bounded = false)
+internal sealed record BackendRenderedMontage(string Key, int Start, int Frames, double Fps, int Revision, string Fingerprint,
+    bool Bounded = false, bool Animatic = false)
 {
     private const string Prefix = "review-";
     internal int FileStart => Bounded ? 0 : Start;
@@ -31,6 +32,11 @@ internal sealed record BackendRenderedMontage(string Key, int Start, int Frames,
     {
         if (job.ProjectId != project.Id || job.Fps != project.Fps)
             throw new InvalidDataException("Rendered montage belongs to another project or time base.");
+        if (job.Animatic)
+        {
+            if (start is not null) throw new InvalidDataException("The animatic is a whole timeline review.");
+            return new(key, 0, job.Frames, job.Fps, checked((int)job.ProjectRevision), job.ProjectFingerprint, Animatic: true);
+        }
         if (job.RangeStart is { } rangeStart)
         {
             if (start is not null) throw new InvalidDataException("A bounded review has no segment inside the rendered file.");

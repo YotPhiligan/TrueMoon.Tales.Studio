@@ -1,6 +1,7 @@
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
 using System.Text;
+using System.Text.Json;
 using TrueMoon.Enerit;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -29,6 +30,22 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
     internal Task<OpenedBackendProject> EditScenarioAsync(ScenarioCommand command, OpenedBackendProject baseline,
         CancellationToken token = default) => CommandAsync(ct => service.EditScenarioAsync(options.SessionKey,
             ScenarioCommand.Encode(command), baseline.Project.Revision, baseline.Fingerprint, ct), token);
+
+    internal async Task<ChapterFragment> ReadAdaptationTextAsync(string reference, int first, int last, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var reply = await TransportAsync(() => service.ReadAdaptationTextAsync(options.SessionKey, reference, first, last, deadline.Token))
+            .ConfigureAwait(false);
+        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
+        if (reply?.FragmentJson is not { Length: > 0 and <= 28_000 } json ||
+            JsonSerializer.Deserialize<ChapterFragment>(json, BackendAdaptation.Json) is not { Excerpt.Length: > 0 and <= 4096 } fragment ||
+            fragment.Reference != reference || fragment.FirstLine != first || fragment.LastLine != last || !IsHash(fragment.Sha256))
+            throw new InvalidDataException("Invalid chapter fragment reply.");
+        return fragment;
+    }
 
     private async Task<OpenedBackendProject> CommandAsync(Func<CancellationToken, Task<BackendProjectReply>> send, CancellationToken token)
     {

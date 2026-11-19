@@ -27,6 +27,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private readonly TimelineReadiness? _readiness;
     private MontageTrackWorkspace? _tracks;
     private readonly Button? _workingButton;
+    private readonly Button? _animaticButton;
     private WorkingReviewWorkspace? _workingReview;
     private readonly ContentControl _page = new();
     private readonly Button? _scenarioButton;
@@ -98,6 +99,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         {
             _workingButton = Button.Simple("Рабочий просмотр").WithRole(CommandRole).OnClick(OpenWorkingReview);
             modes.Add(_workingButton);
+            _animaticButton = Button.Simple("Аниматик").WithRole(CommandRole).OnClick(OpenAnimatic);
+            modes.Add(_animaticButton);
         }
         Preview = new PreviewLayout(Stack(new StudioHeading(modes, _take)),
             _previewSurface, Stack(new StudioHeading(_frame, _play), HStack.Create().Configure(x => x.Spacing = 6).WithChildren(
@@ -219,11 +222,21 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _page.SetContent(_workingReview);
     }
 
+    private void OpenAnimatic()
+    {
+        if (_backend is null || !_model.Idle || !_model.CanReload || _model.Stale ||
+            _model.SavedFingerprint is not { } fingerprint || _model.SavedRevision > int.MaxValue) return;
+        Overlays.Close();
+        _workingReview = new(_backend, (int)_model.SavedRevision, fingerprint, null,
+            ShowWorkingReview, CloseWorkingReview, OpenReadinessIssue);
+        _page.SetContent(_workingReview);
+    }
+
     private void ShowWorkingReview(BackendRenderedMontage review, bool segment)
     {
         var workspace = _workingReview;
         _review = new(_model.ReviewPlayer(review, _backend!), segment, CloseReview,
-            review.Bounded ? new(review.Start, review.Start + review.Frames) : null);
+            review.Bounded ? new(review.Start, review.Start + review.Frames) : null, review.Animatic);
         _workingReview = null;
         _page.SetContent(_review);
         workspace?.Dispose();
@@ -522,6 +535,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         if (_scenarioButton is not null) _scenarioButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         if (_tracksButton is not null) _tracksButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         if (_workingButton is not null) _workingButton.IsEnabled = _model.Scene?.Fingerprint is not null &&
+            _model.Idle && _model.CanReload && !_model.Stale;
+        if (_animaticButton is not null) _animaticButton.IsEnabled = _model.SavedFingerprint is not null &&
             _model.Idle && _model.CanReload && !_model.Stale;
         _frame.Value = _model.FrameLabel;
         _play.Value = _model.PlayLabel;

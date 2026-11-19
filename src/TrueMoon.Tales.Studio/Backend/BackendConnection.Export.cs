@@ -38,14 +38,15 @@ internal sealed partial class BackendConnection
     }
 
     internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint,
-        CancellationToken token, BackendReviewRange? range = null)
+        CancellationToken token, BackendReviewRange? range = null, bool animatic = false)
     {
-        if (range is { IsValid: false }) throw new BackendCommandException("invalid_export");
+        if (range is { IsValid: false } || animatic && range is not null) throw new BackendCommandException("invalid_export");
         var job = await ExportJobAsync(BackendExportJobs.JobId(clientKey),
-            ct => service.WorkingReviewAsync(options.SessionKey, "start", clientKey, revision, fingerprint,
+            ct => service.WorkingReviewAsync(options.SessionKey, animatic ? "start_animatic" : "start", clientKey, revision, fingerprint,
                 range?.Start ?? 0, range?.End ?? 0, ct), token).ConfigureAwait(false);
         if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Profile != "draft" ||
-            job.RangeStart != range?.Start || range is { } selection && job.Frames != selection.End - selection.Start)
+            job.Animatic != animatic || job.RangeStart != range?.Start ||
+            range is { } selection && job.Frames != selection.End - selection.Start)
             throw new InvalidDataException("Preview reply does not match the submitted snapshot.");
         return job;
     }
@@ -60,7 +61,8 @@ internal sealed partial class BackendConnection
         string fingerprint, CancellationToken token = default)
     {
         var (job, _) = await ExportAsync(ct => service.StartExportAsync(options.SessionKey, clientKey, profile, revision, fingerprint, ct), token).ConfigureAwait(false);
-        if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Profile != profile)
+        if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Animatic ||
+            job.RangeStart is not null || job.Profile != profile)
             throw new InvalidDataException("Export reply does not match the submitted snapshot.");
         return job;
     }

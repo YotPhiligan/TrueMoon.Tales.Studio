@@ -3,6 +3,16 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Reads an inclusive line range from an allowed UTF-8 Markdown chapter.</summary>
+    /// <param name="sessionKey">Launch capability.</param>
+    /// <param name="reference">Logical chapter reference under the configured texts mount.</param>
+    /// <param name="firstLine">First one-based line.</param>
+    /// <param name="lastLine">Last included line.</param>
+    /// <param name="cancellationToken">Call deadline.</param>
+    /// <returns>The observed text SHA256 and fragment or a refusal.</returns>
+    Task<BackendTextReply> ReadAdaptationTextAsync(string sessionKey, string reference, int firstLine, int lastLine,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Starts, checks or cancels the session-owned temporary CPU review.</summary>
     /// <param name="sessionKey">Launch capability.</param>
     /// <param name="operation">Start, status or cancel.</param>

@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. Protocol14 добавил привязку к версии главы и аниматик всей шкалы. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
   в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
@@ -31,6 +31,18 @@
   `revision`, `fingerprint`, `total` и до 24 элементов `issues`.
   Порядок соответствует кадрам проекта, общие ошибки идут первыми.
   Проверка не стартует CPU-рендер и не создаёт экспортное задание.
+- `ReadAdaptationTextAsync` читает UTF-8 Markdown из разрешённого `@texts`, до
+  2 МиБ. Номера строк начинаются с 1, обе границы включаются. `FragmentJson`
+  содержит логический путь, SHA-256 исходных байтов, строки и фрагмент до
+  80 строк и 4096 символов. `bind_adaptation_text` сверяет SHA главы при
+  сохранении. При изменении главы возвращается `text_changed`. Привязка и
+  `save_animatic_still` используют writer сценария и ожидаемые ревизию и SHA
+  проекта. `reference: null` удаляет привязку.
+- `WorkingReviewAsync` с операцией `start_animatic` принимает только границы
+  `0, 0`. Сохраняет ревизию, SHA снимка и отпечатки входов, возвращает
+  `animatic: true` в статусе временного задания. При отсутствии длительности,
+  пересечении или выходе временного плана из окна возможен `animatic_timing`.
+  Статус, отмена и воспроизведение используют существующие операции Enerit.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.

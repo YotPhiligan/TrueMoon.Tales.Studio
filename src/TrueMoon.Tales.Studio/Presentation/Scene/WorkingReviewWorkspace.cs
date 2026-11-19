@@ -10,7 +10,10 @@ namespace TrueMoon.Tales.Studio.Presentation.Scene;
 internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
 {
     private readonly BackendConnection _backend;
-    private readonly SceneSnapshot _scene;
+    private readonly Segment? _window;
+    private readonly int _revision;
+    private readonly string _fingerprint;
+    private bool IsAnimatic => _window is null;
     private readonly Action<BackendRenderedMontage, bool> _open;
     private readonly Action _close;
     private readonly CancellationTokenSource _closing = new();
@@ -32,39 +35,45 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
 
     internal WorkingReviewWorkspace(BackendConnection backend, SceneSnapshot scene, Action<BackendRenderedMontage, bool> open, Action close,
         Action<BackendReadinessIssue, bool> navigate)
+        : this(backend, scene.Revision, scene.Fingerprint!, scene.Segment, open, close, navigate) { }
+
+    internal WorkingReviewWorkspace(BackendConnection backend, int revision, string fingerprint, Segment? window,
+        Action<BackendRenderedMontage, bool> open, Action close, Action<BackendReadinessIssue, bool> navigate)
     {
-        _backend = backend; _scene = scene; _open = open; _close = close;
+        _backend = backend; _window = window; _revision = revision; _fingerprint = fingerprint; _open = open; _close = close;
         Padding = new Thickness(16, 44, 16, 16);
         SetSegmentRange();
         _reset = Button("По сегменту", SetSegmentRange);
         _prepareRange = Button("Подготовить диапазон", () => Prepare(wholeProject: false));
-        _prepareProject = Button("Подготовить проект", () => Prepare(wholeProject: true));
+        _prepareProject = Button(IsAnimatic ? "Подготовить аниматик" : "Подготовить проект", () => Prepare(wholeProject: true));
         _range = Button("Смотреть диапазон", () => View(false));
         _segment = Button("Смотреть сегмент", () => View(true));
-        _project = Button("Смотреть проект", () => View(false));
+        _project = Button(IsAnimatic ? "Смотреть аниматик" : "Смотреть проект", () => View(false));
         _cancel = Button("Отменить подготовку", Cancel);
         _back = Button("К монтажу", Back);
         _inspect = Button("Проверить статус", Inspect);
         _issueClip = Button("К клипу", () => OpenIssue(asset: false));
         _issueAsset = Button("К ассету", () => OpenIssue(asset: true));
         _issueActions = Row(_issueClip, _issueAsset);
+        var bounds = Row(Text.Plain("Кадр начала"), _start, Text.Plain("Конец (не входит)"), _end, _reset);
+        bounds.IsVisible = _prepareRange.IsVisible = !IsAnimatic;
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 12).WithChildren(
-            Text.Plain("Рабочий предпросмотр"),
-            Row(Text.Plain("Кадр начала"), _start, Text.Plain("Конец (не входит)"), _end, _reset),
+            Text.Plain(IsAnimatic ? "Аниматик всей шкалы" : "Рабочий предпросмотр"), bounds,
             Row(_prepareRange, _prepareProject), _status, _issueActions, _progress,
             Row(_range, _segment, _project), Row(_cancel, _inspect, _back)));
         Refresh();
 
         void OpenIssue(bool asset)
         {
-            if (CanClose && _issue is { } issue && issue.Matches(_scene.Revision, _scene.Fingerprint)) navigate(issue, asset);
+            if (CanClose && _issue is { } issue && issue.Matches(_revision, _fingerprint)) navigate(issue, asset);
         }
     }
 
     private void SetSegmentRange()
     {
-        _start.Value = _scene.Segment.StartFrame.ToString(CultureInfo.InvariantCulture);
-        _end.Value = ((long)_scene.Segment.StartFrame + _scene.Segment.DurationFrames).ToString(CultureInfo.InvariantCulture);
+        if (_window is not { } window) return;
+        _start.Value = window.StartFrame.ToString(CultureInfo.InvariantCulture);
+        _end.Value = ((long)window.StartFrame + window.DurationFrames).ToString(CultureInfo.InvariantCulture);
     }
 
     private void Prepare(bool wholeProject)
@@ -85,7 +94,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         _key = key;
         _job = null;
         Start("Готовлю сохранённый монтаж…", () =>
-            _backend.StartWorkingReviewAsync(key, _scene.Revision, _scene.Fingerprint!, _closing.Token, range));
+            _backend.StartWorkingReviewAsync(key, _revision, _fingerprint, _closing.Token, range, IsAnimatic));
     }
 
     internal bool CanClose => _pending is null && !Active && !_unresolved;
@@ -102,12 +111,13 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         if (job.RangeStart is { } start)
         {
             _open(new(BackendRenderedMontage.Identifier(job.Id, null), start, job.Frames,
-                job.Fps, _scene.Revision, job.ProjectFingerprint, Bounded: true), false);
+                job.Fps, _revision, job.ProjectFingerprint, Bounded: true), false);
             return;
         }
-        var key = BackendRenderedMontage.Identifier(job.Id, segment ? _scene.Segment.StartFrame : null);
-        _open(new(key, segment ? _scene.Segment.StartFrame : 0, segment ? _scene.Segment.DurationFrames : job.Frames,
-            job.Fps, _scene.Revision, job.ProjectFingerprint), segment);
+        var window = segment ? _window : null;
+        var key = BackendRenderedMontage.Identifier(job.Id, window?.StartFrame);
+        _open(new(key, window?.StartFrame ?? 0, window?.DurationFrames ?? job.Frames,
+            job.Fps, _revision, job.ProjectFingerprint, Animatic: job.Animatic), segment);
     }
 
     private void Inspect()
@@ -158,6 +168,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
                 Show(_issue is { } issue ? ReadinessMessage.Explain(issue) : error.Code switch
                 {
                     "invalid_export" => "Проверьте диапазоны, назначенные дубли, звуковые потоки и шрифты.",
+                    "animatic_timing" => "Задайте длительность и проверьте, что планы помещаются в сохранённые окна.",
                     "export_busy" => "CPU уже занят экспортом или предпросмотром.",
                     "revision_conflict" => "Сохранённый монтаж изменился. Вернитесь к монтажу.",
                     "export_conflict" => "Статус подготовки изменился. Проверьте его.",
@@ -180,12 +191,13 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     {
         var ready = _pending is null && _job?.State == "completed";
         _range.IsVisible = _range.IsEnabled = ready && _job!.RangeStart is not null;
-        _segment.IsVisible = _project.IsVisible = _segment.IsEnabled = _project.IsEnabled = ready && _job!.RangeStart is null;
+        _project.IsVisible = _project.IsEnabled = ready && _job!.RangeStart is null;
+        _segment.IsVisible = _segment.IsEnabled = _project.IsVisible && !IsAnimatic;
         _prepareRange.IsEnabled = _prepareProject.IsEnabled = _reset.IsEnabled = _start.IsEnabled = _end.IsEnabled = CanClose;
         _cancel.IsEnabled = _pending is null && _job?.State == "running";
         _inspect.IsEnabled = _pending is null && _unresolved;
         _back.IsEnabled = CanClose;
-        var canNavigate = CanClose && _issue?.Matches(_scene.Revision, _scene.Fingerprint) == true;
+        var canNavigate = CanClose && _issue?.Matches(_revision, _fingerprint) == true;
         _issueClip.IsVisible = _issueClip.IsEnabled = canNavigate && _issue?.ClipId is not null;
         _issueAsset.IsVisible = _issueAsset.IsEnabled = canNavigate && _issue?.AssetId is not null;
         _issueActions.IsVisible = _issueClip.IsVisible || _issueAsset.IsVisible;

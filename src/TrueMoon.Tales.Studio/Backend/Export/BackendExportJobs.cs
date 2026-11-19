@@ -14,7 +14,7 @@ internal sealed class BackendExportJobs : IDisposable
     private readonly Lazy<BackendExportStorage> _storage;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly Func<ProjectFileDocument, string, string, BackendReviewRange?, CancellationToken, Task<BackendExportPlan>> _plan;
+    private readonly Func<ProjectFileDocument, string, string, BackendReviewRange?, bool, CancellationToken, Task<BackendExportPlan>> _plan;
     private readonly Func<string, string, CancellationToken, Task> _run;
     private ActiveJob? _active;
     private string? _workingId;
@@ -25,20 +25,21 @@ internal sealed class BackendExportJobs : IDisposable
         Func<string, string, CancellationToken, Task>? run = null)
     {
         _storage = new(() => new BackendExportStorage(options));
-        _plan = (document, profile, directory, range, token) => range is null && plan is not null
+        _plan = (document, profile, directory, range, animatic, token) => range is null && !animatic && plan is not null
             ? plan(document, profile, directory, token)
             : BackendExportPlan.CreateAsync(document.Project, document.Fingerprint, profile, directory,
-                new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range);
+                new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range, animatic);
         _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options.ConfigPath, directory, sha, token));
     }
 
     internal async Task<BackendExportReply> StartAsync(string clientKey, string profile, long expectedRevision, string fingerprint,
         Func<CancellationToken, Task<ProjectFileDocument>> observe, CancellationToken token, bool working = false,
-        BackendReviewRange? range = null)
+        BackendReviewRange? range = null, bool animatic = false)
     {
         if (clientKey is not { Length: >= 16 and <= 80 } || !clientKey.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-') ||
             !ValidProfile(profile) || expectedRevision < 0 || !ValidHash(fingerprint) ||
-            range is { } selection && (!working || profile != "draft" || !selection.IsValid))
+            range is { } selection && (!working || profile != "draft" || !selection.IsValid) ||
+            animatic && (!working || profile != "draft" || range is not null))
             throw new BackendExportException("invalid_export");
         var id = JobId(clientKey);
         using var scope = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
@@ -49,20 +50,21 @@ internal sealed class BackendExportJobs : IDisposable
             var storage = _storage.Value;
             var directory = storage.JobDirectory(id, working);
             if (working && Directory.Exists(directory) && _workingId != id) throw new BackendExportException("export_conflict");
-            if (Directory.Exists(directory)) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range);
+            if (Directory.Exists(directory)) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range, animatic);
             if (_active is not null) throw new BackendExportException("export_busy");
 
             FileStream? slot = storage.AcquireSlot();
             try
             {
-                if (Directory.Exists(storage.Check(directory))) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range);
+                if (Directory.Exists(storage.Check(directory))) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range, animatic);
                 var baseline = await observe(scope.Token).ConfigureAwait(false);
-                var plan = await _plan(baseline, profile, directory, range, scope.Token).ConfigureAwait(false);
+                var plan = await _plan(baseline, profile, directory, range, animatic, scope.Token).ConfigureAwait(false);
                 if (plan.Request.Length is < 1 or > MaxRequestBytes || plan.Frames <= 0 || !double.IsFinite(plan.Fps) || plan.Fps <= 0)
                     throw new BackendExportException("invalid_export");
                 await observe(scope.Token).ConfigureAwait(false);
                 var receipt = new BackendExportStatus(1, id, baseline.Project.Id, baseline.Project.Revision,
-                    baseline.Fingerprint, profile, 1, "running", Hash(plan.Request), plan.Frames, plan.Fps, RangeStart: range?.Start);
+                    baseline.Fingerprint, profile, 1, "running", Hash(plan.Request), plan.Frames, plan.Fps, RangeStart: range?.Start,
+                    Animatic: animatic);
                 scope.Token.ThrowIfCancellationRequested();
                 if (working && _workingId is { } old) storage.DropWorking(old);
                 storage.Create(directory, plan.Request, receipt);
@@ -91,7 +93,7 @@ internal sealed class BackendExportJobs : IDisposable
         if (!ValidProfile(profile)) throw new BackendExportException("invalid_export");
         var directory = _storage.Value.JobDirectory("export-00000000000000000000000000000000");
         var baseline = await observe(token).ConfigureAwait(false);
-        var plan = await _plan(baseline, profile, directory, null, token).ConfigureAwait(false);
+        var plan = await _plan(baseline, profile, directory, null, false, token).ConfigureAwait(false);
         if (plan.Request.Length is < 1 or > MaxRequestBytes) throw new BackendExportException("invalid_export");
         await observe(token).ConfigureAwait(false);
         return new() { JobJson = JsonSerializer.Serialize(new BackendExportCheck(baseline.Project.Revision,
@@ -99,11 +101,12 @@ internal sealed class BackendExportJobs : IDisposable
     }
 
     private static BackendExportReply Existing(BackendExportStorage storage, string directory, string id, string profile, long revision, string sha,
-        BackendReviewRange? range)
+        BackendReviewRange? range, bool animatic)
     {
         var status = Load(storage, directory, id);
         if (status.Profile != profile || status.ProjectRevision != revision || !EqualHash(status.ProjectFingerprint, sha) ||
-            status.RangeStart != range?.Start || range is { } selection && status.Frames != selection.End - selection.Start)
+            status.Animatic != animatic || status.RangeStart != range?.Start ||
+            range is { } selection && status.Frames != selection.End - selection.Start)
             throw new BackendExportException("export_conflict");
         return Reply(WithProgress(storage, directory, status));
     }
@@ -329,6 +332,7 @@ internal sealed class BackendExportJobs : IDisposable
         if (status.Version != 1 || status.Id != id || status.ProjectId is not { Length: > 0 and <= 256 } ||
             status.ProjectRevision < 0 || !ValidHash(status.ProjectFingerprint) || !ValidProfile(status.Profile) ||
             !ValidHash(status.RequestSha256) || status.Frames <= 0 || !double.IsFinite(status.Fps) || status.Fps <= 0 ||
+            status.Animatic && (status.Profile != "draft" || status.RangeStart is not null) ||
             status.RangeStart is { } start && (status.Profile != "draft" || start < 0 || (long)start + status.Frames > int.MaxValue))
             return false;
         if (status.State == "completed")

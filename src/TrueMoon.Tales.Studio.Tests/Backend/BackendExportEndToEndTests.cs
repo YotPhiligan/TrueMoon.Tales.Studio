@@ -288,6 +288,232 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task AdaptationText_RasterBindsExactChapterVersion_AndRejectsChangesBeforeSaving()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var texts = Directory.CreateDirectory(Path.Combine(files.Files.Files.Root, "texts")).FullName;
+        var chapter = Path.Combine(texts, "Глава.md");
+        File.WriteAllText(chapter, "# Глава\r\nСтарый фрагмент.\r\nСвет в окне.\r\n");
+        var configPath = files.Files.Base.ConfigPath;
+        var config = JsonNode.Parse(File.ReadAllText(configPath))!;
+        config["mounts"]!["texts"] = texts;
+        File.WriteAllText(configPath, config.ToJsonString());
+        await using var session = await files.OpenAsync(workspace: true);
+        var backend = session.Connection;
+        var head = await backend.AcquireWriterAsync(await backend.OpenAsync());
+        head = await backend.EditScenarioAsync(new SaveSegment(null, "Адаптация главы", "", 72, 48), head);
+        var segment = head.Project.Segments.Last();
+        head = await backend.EditScenarioAsync(new SaveAction(segment.Id, null, "Свет в окне", "", 24), head);
+        var action = head.Project.Segments.Last().Actions.Single();
+        const string reference = "@texts/Глава.md";
+        var observed = await backend.ReadAdaptationTextAsync(reference, 1, 1, CancellationToken.None);
+        Assert.Equal(Hash(File.ReadAllBytes(chapter)), observed.Sha256, ignoreCase: true);
+        head = await backend.EditScenarioAsync(new BindAdaptationText(segment.Id, null, reference, 1, 1, observed.Sha256), head);
+        var denied = await Assert.ThrowsAsync<BackendCommandException>(() =>
+            backend.ReadAdaptationTextAsync("@videos/Красный.mp4", 1, 1, CancellationToken.None));
+        Assert.Equal("invalid_text_reference", denied.Code);
+        var before = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !scenario.Busy);
+        host.Click(ButtonIn(scenario, "Адаптация главы"));
+        host.Click(ButtonIn(scenario, "Текст действия"));
+        SetField(scenario, "Глава (@texts/… .md)", reference);
+        SetField(scenario, "Первая строка", "2");
+        SetField(scenario, "Последняя строка", "3");
+        host.Click(ButtonIn(scenario, "Прочитать фрагмент"));
+        host.PumpUntil(() => !scenario.Busy);
+        var fragment = Assert.Single(RasterWindow<SceneView>.Walk(scenario).OfType<RichTextEditor>());
+        Assert.True(fragment.Options.IsReadOnly);
+        Assert.Equal("Старый фрагмент.\nСвет в окне.", fragment.Text);
+
+        File.WriteAllText(chapter, "# Глава\nУточнённый фрагмент.\nСвет в окне.\n");
+        var changed = File.ReadAllBytes(chapter);
+        host.Click(ButtonIn(scenario, "Сохранить"));
+        host.PumpUntil(() => !scenario.Busy);
+        Assert.Contains("Исходный текст изменился", scenario.Status);
+        Assert.True(scenario.HasDraft);
+        files.AssertProject(before, history);
+
+        host.Click(ButtonIn(scenario, "Прочитать фрагмент"));
+        host.PumpUntil(() => !scenario.Busy);
+        Assert.Equal("Уточнённый фрагмент.\nСвет в окне.", fragment.Text);
+        host.Capture("adaptation-text-version", new { segment.Id, Action = action.Id });
+        host.Click(ButtonIn(scenario, "Сохранить"));
+        host.PumpUntil(() => !scenario.Busy && !scenario.HasDraft);
+        var saved = backend.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(head.Project.Revision + 1, saved.Project.Revision);
+        var notes = BackendAdaptation.Read(saved.Project);
+        var binding = Assert.Single(notes.Texts, row => row.ActionId == action.Id);
+        Assert.Equal((segment.Id, reference, 2, 3), (binding.SegmentId, binding.Fragment.Reference, binding.Fragment.FirstLine, binding.Fragment.LastLine));
+        Assert.Equal(Hash(changed), binding.Fragment.Sha256, ignoreCase: true);
+        Assert.Equal("Уточнённый фрагмент.\nСвет в окне.", binding.Fragment.Excerpt);
+        Assert.Equal(observed, Assert.Single(notes.Texts, row => row.ActionId is null).Fragment);
+        Assert.Contains(files.History(), row => row.SequenceEqual(before));
+        Assert.Equal(changed, File.ReadAllBytes(chapter));
+        var savedBytes = File.ReadAllBytes(files.ProjectPath);
+        var savedHistory = files.History();
+
+        File.WriteAllText(chapter, "# Другая версия\n");
+        host.Click(ButtonIn(scenario, "Текст действия"));
+        Assert.Equal(binding.Fragment.Excerpt,
+            Assert.Single(RasterWindow<SceneView>.Walk(scenario).OfType<RichTextEditor>()).Text);
+        files.AssertProject(savedBytes, savedHistory);
+        Assert.Empty(files.Requests());
+    }
+
+    [BackendMediaFact]
+    public async Task Animatic_RasterStartsWithoutAnyVideo_AndRequiresPlannedTiming()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(scenarioOnly: true);
+        await using var session = await files.OpenAsync(workspace: true);
+        var connection = session.Connection;
+        var head = await connection.AcquireWriterAsync(await connection.OpenAsync());
+        head = await connection.EditScenarioAsync(new SaveSegment(null, "Сцена до съёмки", "", 0, 24), head);
+        var segment = head.Project.Segments.Last();
+        head = await connection.EditScenarioAsync(new SaveAction(segment.Id, null, "Черновой план", "", null), head);
+        var action = head.Project.Segments.Last().Actions.Single();
+
+        var missing = await Assert.ThrowsAsync<BackendCommandException>(() => connection.StartWorkingReviewAsync(Guid.NewGuid().ToString("N"),
+            head.Project.Revision, head.Fingerprint, CancellationToken.None, animatic: true));
+        Assert.Equal("animatic_timing", missing.Code);
+        Assert.Empty(files.Requests());
+        head = await connection.EditScenarioAsync(new SaveAction(segment.Id, action.Id, action.Title, "", 16), head);
+        var stale = await Assert.ThrowsAsync<BackendCommandException>(() => connection.StartWorkingReviewAsync(Guid.NewGuid().ToString("N"),
+            head.Project.Revision, new string('1', 64), CancellationToken.None, animatic: true));
+        Assert.Equal("revision_conflict", stale.Code);
+        Assert.Empty(files.Requests());
+        var before = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        var animatic = ButtonIn(host.Window.Preview, "Аниматик");
+        host.PumpUntil(() => animatic.IsEnabled);
+        Assert.NotNull(model.EmptyProject);
+        host.Click(animatic);
+        var preparation = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+        host.Click(ButtonIn(preparation, "Подготовить аниматик"));
+        var play = ButtonIn(preparation, "Смотреть аниматик");
+        host.PumpUntil(() => play.IsEnabled || !preparation.NeedsFrame, TimeSpan.FromSeconds(30));
+        Assert.True(play.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(preparation).OfType<Text>().Select(row => row.Value)));
+        var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+        Assert.Empty(request["clips"]!.AsArray());
+        var card = Assert.Single(request["titles"]!.AsArray())!;
+        Assert.Equal((0, 16), ((int)card["start_frame"]!, (int)card["duration_frames"]!));
+        host.Click(play);
+        var player = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+        ReviewReady(host, player);
+        Assert.Contains(RasterWindow<SceneView>.Walk(player).OfType<Text>(), row => row.Value.Contains("0000 / 0023"));
+        files.AssertProject(before, history);
+    }
+
+    [BackendMediaFact]
+    public async Task Animatic_RasterPlaysFullTimelineWithVideoStillCardGapAndTemporarySound()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var ffmpeg = Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
+        await BackendTrimFixture.RunAsync(ffmpeg, ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120",
+            "-frames:v", "1", "-threads", "1", "-n", files.MediaPath("Опора.png")], 2048);
+        byte[] bytes;
+        byte[][] history;
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            var connection = session.Connection;
+            var head = await connection.AcquireWriterAsync(await connection.OpenAsync());
+            head = await connection.EditScenarioAsync(new SaveSegment(null, "Поздний сегмент", "", 72, 72), head);
+            var segment = head.Project.Segments.Last();
+            head = await connection.EditScenarioAsync(new SaveAction(segment.Id, null, "Эскиз", "", 24), head);
+            var action = head.Project.Segments.Last().Actions.Single();
+            head = await connection.EditScenarioAsync(new SaveAnimaticStill(segment.Id, action.Id, "@videos/Опора.png"), head);
+            head = await connection.EditScenarioAsync(new SaveAction(segment.Id, null, "Свет в окне", "Немой план", 24), head);
+            head = await connection.EditScenarioAsync(new SaveMontageSound(null, segment.Id, null, "Черновая реплика",
+                "voice", "video-a", 0, 0, 48, 0, .8, false), head);
+            bytes = File.ReadAllBytes(files.ProjectPath);
+            history = files.History();
+
+            using var host = Workspace(session);
+            Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Preview, "Аниматик"));
+            var preparing = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            host.Click(ButtonIn(preparing, "Подготовить аниматик"));
+            var view = ButtonIn(preparing, "Смотреть аниматик");
+            host.PumpUntil(() => view.IsEnabled || !preparing.NeedsFrame, TimeSpan.FromSeconds(35));
+            Assert.True(view.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(preparing).OfType<Text>().Select(row => row.Value)));
+            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var jobId = "export-" + Path.GetFileName(folder)[8..];
+            var status = connection.WorkingReviewStatusAsync(jobId, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.True(status.Animatic);
+            Assert.Equal((144, 24d), (status.Frames, status.Fps));
+            Assert.Equal(head.Fingerprint, status.ProjectFingerprint);
+            Assert.Equal(head.Project.Revision, status.ProjectRevision);
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            var still = Assert.Single(request["animatic_stills"]!.AsArray())!;
+            Assert.Equal((72, 24), ((int)still["start_frame"]!, (int)still["duration_frames"]!));
+            Assert.Single(request["titles"]!.AsArray());
+            Assert.Equal(2, request["clips"]!.AsArray().Count);
+
+            host.Click(view);
+            var player = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+            ReviewReady(host, player);
+            SetField(player, "Кадр предпросмотра", "99");
+            host.Click(ButtonIn(player, "Перейти"));
+            ReviewReady(host, player);
+            Assert.Contains(RasterWindow<SceneView>.Walk(player).OfType<Text>(), row => row.Value.Contains("0099 / 0143"));
+            host.Capture("animatic-whole-timeline", new { status.Frames, status.ProjectRevision });
+            host.Click(ButtonIn(player, "К монтажу"));
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+            host.PumpUntil(() => !model.NeedsFrame);
+
+            var key = BackendRenderedMontage.Identifier(status.Id, null);
+            BackendMediaReply Frame(int frame) =>
+                connection.FrameAsync(key, frame, head.Project.Revision, head.Fingerprint).GetAwaiter().GetResult();
+            int center = (135 * 480 + 240) * 4;
+            var red = Frame(head.Project.Montage.Clips.First(clip => clip.Id == "clip-main").StartFrame + 1).Pixels;
+            var green = Frame(72).Pixels;
+            Assert.InRange(red[center + 2], 200, 255);
+            Assert.InRange(green[center + 1], 200, 255);
+            Assert.InRange(green[center + 2], 0, 35);
+            Assert.Equal(Frame(72).PixelSha256, Frame(95).PixelSha256);
+            Assert.Contains(Frame(96).Pixels.Where((pixel, index) => index % 4 != 3), pixel => pixel > 120);
+            foreach (var pause in new[] { 71, 120, 143 })
+                Assert.All(Frame(pause).Pixels.Where((pixel, index) => index % 4 != 3), pixel => Assert.InRange(pixel, 0, 6));
+
+            var rendered = new BackendRenderedMontage(key, 0, 144, 24, (int)head.Project.Revision, head.Fingerprint, Animatic: true);
+            var audio = connection.OpenPlaybackAsync(rendered.Scene(), "audio", 0, CancellationToken.None).GetAwaiter().GetResult();
+            using var data = new MemoryStream();
+            try
+            {
+                while (true)
+                {
+                    var packet = connection.ReadPlaybackAsync(audio, CancellationToken.None).GetAwaiter().GetResult();
+                    Assert.Equal(data.Length / 8, packet.SampleOffset);
+                    if (packet.Completed) break;
+                    data.Write(packet.Data);
+                }
+            }
+            finally { connection.ClosePlaybackAsync(audio.SessionId, CancellationToken.None).GetAwaiter().GetResult(); }
+            Assert.Equal(144 * 4000 * sizeof(float), data.Length);
+            var samples = MemoryMarshal.Cast<byte, float>(data.ToArray()).ToArray();
+            double Rms(int frame) => Math.Sqrt(samples.Skip(frame * 4000).Take(4 * 4000).Select(value => (double)value * value).Average());
+            Assert.True(Rms(100) > .01);
+            Assert.InRange(Rms(130), 0, .003);
+            Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
+            files.AssertProject(bytes, history);
+        }
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        files.AssertProject(bytes, history);
+    }
+
+    [BackendMediaFact]
     public async Task TimelineReadiness_ListsBothProblems_AndRefreshesAfterRelink()
     {
         using var files = new ExportFixture();
@@ -1165,7 +1391,7 @@ public sealed class BackendExportEndToEndTests
         internal string JobDirectory(string id) => Directory.GetDirectories(Exports, id, SearchOption.AllDirectories).Single();
         internal byte[][] History() => Files.Files.HistoryFiles.Order().Select(File.ReadAllBytes).ToArray();
 
-        internal async Task PrepareAsync(bool withTransition = false)
+        internal async Task PrepareAsync(bool withTransition = false, bool scenarioOnly = false)
         {
             Directory.CreateDirectory(Media);
             Directory.CreateDirectory(Exports);
@@ -1177,8 +1403,11 @@ public sealed class BackendExportEndToEndTests
             config["ffmpeg_executable"] = Ffmpeg;
             config["ffprobe_executable"] = Ffprobe;
             File.WriteAllText(Files.Base.ConfigPath, config.ToJsonString());
-            await SourceAsync("red", 440, "Красный.mp4");
-            await SourceAsync("blue", 660, "Синий.mp4");
+            if (!scenarioOnly)
+            {
+                await SourceAsync("red", 440, "Красный.mp4");
+                await SourceAsync("blue", 660, "Синий.mp4");
+            }
             var project = JsonNode.Parse(File.ReadAllText(ProjectPath))!;
             project["output_size"] = longRender ? new JsonArray(1600, 900) : new JsonArray(160, 120);
             project["assets"]!["video-a"]!["path"] = "@videos/Красный.mp4";
@@ -1200,6 +1429,11 @@ public sealed class BackendExportEndToEndTests
                     ["left_clip_id"] = "clip-main", ["right_clip_id"] = "clip-extra",
                     ["fade_out_frames"] = 4, ["pause_frames"] = 4, ["fade_in_frames"] = 4
                 });
+            }
+            if (scenarioOnly)
+            {
+                windows.Clear();
+                clips.Clear();
             }
             File.WriteAllText(ProjectPath, project.ToJsonString());
             var store = Files.Files.Store();

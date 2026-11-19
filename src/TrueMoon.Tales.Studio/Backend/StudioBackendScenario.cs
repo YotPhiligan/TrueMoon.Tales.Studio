@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
 using TrueMoon.Tales.Studio.Persistence;
 
@@ -7,6 +8,24 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService
 {
+    public async Task<BackendTextReply> ReadAdaptationTextAsync(string sessionKey, string reference, int firstLine, int lastLine,
+        CancellationToken cancellationToken = default)
+    {
+        Authorize(sessionKey);
+        using var scope = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        scope.CancelAfter(TimeSpan.FromSeconds(8));
+        try
+        {
+            var fragment = await BackendAdaptation.ReadTextAsync(new(options), reference, firstLine, lastLine, scope.Token).ConfigureAwait(false);
+            return new() { FragmentJson = JsonSerializer.Serialize(fragment, BackendAdaptation.Json) };
+        }
+        catch (ScenarioEditException error) { return new() { ErrorCode = error.Code }; }
+        catch (UnauthorizedAccessException) { return new() { ErrorCode = "access_denied" }; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return new() { ErrorCode = "text_timeout" }; }
+        catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException or JsonException)
+        { return new() { ErrorCode = "text_unavailable" }; }
+    }
+
     public Task<BackendProjectReply> EditScenarioAsync(string sessionKey, string commandJson, long expectedRevision, string fingerprint,
         CancellationToken cancellationToken = default) => ExecuteAsync(sessionKey, async () =>
     {
@@ -26,9 +45,13 @@ internal sealed partial class StudioBackendService
                 _montageHistory.Complete(restored.Fingerprint, undo);
                 return Reply(restored);
             }
-            var draft = command is MontageTrackCommand track
-                ? await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false)
-                : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
+            var draft = command switch
+            {
+                BindAdaptationText edit => await BackendAdaptation.BindTextAsync(baseline.Project, edit, new(options), cancellationToken).ConfigureAwait(false),
+                SaveAnimaticStill edit => BackendAdaptation.SetStill(baseline.Project, edit, new(options)),
+                MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false),
+                _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)
+            };
             if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);
             if (draft.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the editor range.");
             if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)

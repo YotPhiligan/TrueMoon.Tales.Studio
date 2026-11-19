@@ -48,6 +48,62 @@ internal sealed partial class ScenarioWorkspace
             () => new LinkSource(segment.Id, action.Id, source.Id, purpose.Value));
     }
 
+    private void TextForm(ScenarioSegmentContract segment, StoryActionContract? action)
+    {
+        var previous = BackendAdaptation.Read(_baseline!.Project).Texts.SingleOrDefault(row =>
+            row.SegmentId == segment.Id && row.ActionId == action?.Id)?.Fragment;
+        var path = Input("Глава (@texts/… .md)", previous?.Reference);
+        var first = Input("Первая строка", (previous?.FirstLine ?? 1).ToString(CultureInfo.InvariantCulture));
+        var last = Input("Последняя строка", (previous?.LastLine ?? 1).ToString(CultureInfo.InvariantCulture));
+        var version = Text.Plain(previous is null ? "" : $"Сохранённая версия · {previous.Sha256}");
+        var fragment = new RichTextEditor(new() { IsReadOnly = true })
+        { AccessibleName = "Фрагмент главы", Text = previous?.Excerpt ?? "", Height = 152 };
+        ChapterFragment? observed = null;
+        var read = ButtonFor("Прочитать фрагмент", () =>
+        {
+            string reference = path.Value.Trim();
+            int start, end;
+            try { start = Number(first, "первую строку"); end = Number(last, "последнюю строку"); }
+            catch (ArgumentException error) { Show(error.Message, error: true); return; }
+            observed = null;
+            Start("Читаю выбранные строки…", async token =>
+            {
+                var result = await _backend.ReadAdaptationTextAsync(reference, start, end, token).ConfigureAwait(false);
+                return () =>
+                {
+                    observed = result;
+                    fragment.Text = result.Excerpt;
+                    version.Value = $"Прочитанная версия · {result.Sha256}";
+                    Show("После сохранения фрагмент будет связан со сценарием.");
+                };
+            });
+        });
+        Form(action is null ? $"Текст сегмента · {segment.Name}" : $"Текст действия · {action.Title}",
+            [Field(path), Row(Field(first), Field(last)), read, version, Field(fragment),
+                Text.Plain("Пустая ссылка снимает привязку.")], () =>
+        {
+            var reference = path.Value.Trim();
+            if (reference.Length == 0) return new BindAdaptationText(segment.Id, action?.Id, null, 0, 0, null);
+            var start = Number(first, "первую строку");
+            var end = Number(last, "последнюю строку");
+            if (observed is not { } value || value.Reference != reference || value.FirstLine != start || value.LastLine != end)
+                throw new ArgumentException("Прочитайте фрагмент с указанными строками перед сохранением.");
+            return new BindAdaptationText(segment.Id, action?.Id, reference, start, end, value.Sha256);
+        });
+    }
+
+    private void AnimaticStillForm()
+    {
+        var segment = Segment!;
+        var action = Story!;
+        var previous = BackendAdaptation.Read(_baseline!.Project).Stills.SingleOrDefault(row =>
+            row.SegmentId == segment.Id && row.ActionId == action.Id);
+        var path = Input("Кадр (PNG или JPEG из @mount)", previous?.Reference);
+        Form($"Кадр аниматика · {action.Title}", [Field(path),
+            Text.Plain("При пустой ссылке используется текст действия.")], () =>
+            new SaveAnimaticStill(segment.Id, action.Id, string.IsNullOrWhiteSpace(path.Value) ? null : path.Value.Trim()));
+    }
+
     private void ImportForm(SourceContract? source)
     {
         var title = source is null ? Input("Название источника") : null;

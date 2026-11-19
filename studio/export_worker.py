@@ -85,6 +85,15 @@ class DraftRenderer:
         stream.codec_context.max_b_frames=0;stream.options={'preset':self.encoding['preset'],'crf':str(self.encoding['crf'])}
         black=np.zeros((self.size[1],self.size[0],3),dtype=np.uint8)
         titles=TitleCompositor(self.request)
+        stills=iter(self.request.get('animatic_stills',[]))
+        still=next(stills,None);still_pixels=None
+        def fit(image):
+            scale=min(self.size[0]/image.width,self.size[1]/image.height)
+            width=max(1,round(image.width*scale));height=max(1,round(image.height*scale))
+            canvas=Image.new('RGB',tuple(self.size))
+            canvas.paste(image.resize((width,height),Image.Resampling.BILINEAR),
+                         ((self.size[0]-width)//2,(self.size[1]-height)//2))
+            return np.asarray(canvas)
         try:
             for part in parts(self.request):
                 clip=part['clip'];decoder=None
@@ -100,9 +109,18 @@ class DraftRenderer:
                         if decoder:
                             source=decoder.at(source_position(clip,index,self.fps));key=(source.pts,source.time_base)
                             if key!=cached:
-                                image=source.to_image();scale=min(self.size[0]/image.width,self.size[1]/image.height)
-                                w=max(1,round(image.width*scale));h=max(1,round(image.height*scale));image=image.resize((w,h),Image.Resampling.BILINEAR)
-                                canvas=Image.new('RGB',tuple(self.size));canvas.paste(image,((self.size[0]-w)//2,(self.size[1]-h)//2));pixels=np.asarray(canvas);cached=key
+                                pixels=fit(source.to_image());cached=key
+                        else:
+                            while still is not None and index>=still['start_frame']+still['duration_frames']:
+                                still=next(stills,None);still_pixels=None
+                            pixels=black
+                            if still is not None and index>=still['start_frame']:
+                                if still_pixels is None:
+                                    with Image.open(self.input_path(self.request['assets'][still['asset_id']]),formats=('PNG','JPEG')) as image:
+                                        if image.width*image.height>16_000_000 or getattr(image,'n_frames',1)!=1:
+                                            raise ValueError('Недопустимый размер или формат кадра аниматика.')
+                                        still_pixels=fit(image.convert('RGB'))
+                                pixels=still_pixels
                         level=brightness(index,self.request.get('transition_windows',[]))
                         display=pixels if level==1 else black if level==0 else np.floor(pixels.astype(np.float32)*level+.5).clip(0,255).astype(np.uint8)
                         display=titles.compose(display,index)

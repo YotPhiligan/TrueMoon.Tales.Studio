@@ -22,6 +22,8 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(SaveMontageMarker), "save_marker")]
 [JsonDerivedType(typeof(RemoveMontageTrackItem), "remove_track_item")]
 [JsonDerivedType(typeof(SetMontageClipAudio), "set_clip_audio")]
+[JsonDerivedType(typeof(BindAdaptationText), "bind_adaptation_text")]
+[JsonDerivedType(typeof(SaveAnimaticStill), "save_animatic_still")]
 internal abstract record ScenarioCommand
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -41,6 +43,9 @@ internal abstract record ScenarioCommand
 internal sealed record SaveSegment(string? SegmentId, string Name, string Description, int Start, int Duration) : ScenarioCommand;
 internal sealed record SaveAction(string SegmentId, string? ActionId, string Title, string Description, int? PlannedDuration) : ScenarioCommand;
 internal sealed record LinkSource(string SegmentId, string ActionId, string SourceId, string? Purpose) : ScenarioCommand;
+internal sealed record BindAdaptationText(string SegmentId, string? ActionId, string? Reference, int FirstLine, int LastLine,
+    string? TextSha256) : ScenarioCommand;
+internal sealed record SaveAnimaticStill(string SegmentId, string ActionId, string? Reference) : ScenarioCommand;
 internal sealed record ImportVideo(string? SourceId, string Title, string TakeName, string Reference) : ScenarioCommand;
 internal sealed record RelinkVideo(string SourceId, string TakeId, string Reference) : ScenarioCommand;
 internal sealed record PlaceClip(string SegmentId, string ActionId, string SourceId, string TakeId,

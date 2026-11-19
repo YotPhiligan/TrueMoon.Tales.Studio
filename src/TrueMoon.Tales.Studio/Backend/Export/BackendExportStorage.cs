@@ -14,7 +14,9 @@ internal sealed record BackendExportStatus(int Version, string Id, string Projec
     double Fps, long? ArtifactSizeBytes = null, string? ArtifactSha256 = null, string? ErrorCode = null,
     int? ProgressPercent = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    int? RangeStart = null);
+    int? RangeStart = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    bool Animatic = false);
 
 internal sealed record BackendExportCheck(long ProjectRevision, string ProjectFingerprint, string Profile, int Width, int Height,
     int Frames, double Fps);

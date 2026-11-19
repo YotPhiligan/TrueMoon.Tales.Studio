@@ -20,11 +20,11 @@ internal sealed class RenderedReviewPanel : Border, IUiFrameParticipant
     private SkiaImageSource? _image;
     private byte[]? _shown;
 
-    internal RenderedReviewPanel(SceneViewModel model, bool segment, Action close, BackendReviewRange? range = null)
+    internal RenderedReviewPanel(SceneViewModel model, bool segment, Action close, BackendReviewRange? range = null, bool animatic = false)
     {
         _model = model;
         Padding = new Thickness(16, 40, 16, 16);
-        var title = Text.Plain(range is { } bounds ? $"Предпросмотр · кадры {bounds.Start}–{bounds.End - 1}" :
+        var title = Text.Plain(animatic ? "Аниматик всей шкалы" : range is { } bounds ? $"Предпросмотр · кадры {bounds.Start}–{bounds.End - 1}" :
             segment ? "Предпросмотр сегмента" : "Предпросмотр проекта");
         title.FontSize = 22;
         _play = Command("Старт", model.TogglePlayback);
