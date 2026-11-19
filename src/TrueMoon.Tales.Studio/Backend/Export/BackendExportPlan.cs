@@ -26,7 +26,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     {
         try
         {
-            return await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token).ConfigureAwait(false);
+            return (await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token).ConfigureAwait(false))!;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ScenarioEditException)
         {
@@ -34,8 +34,28 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         }
     }
 
-    private static async Task<BackendExportPlan> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,
-        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendReviewRange? range, CancellationToken token)
+    internal static async Task<BackendReadinessReport> ReadinessAsync(ProjectContract project, string fingerprint,
+        BackendOptions options, CancellationToken token)
+    {
+        List<BackendReadinessIssue> issues = [];
+        try
+        {
+            await CreateCoreAsync(project, fingerprint, "draft", "", new BackendMediaResolver(options),
+                BackendMediaReader.Decoder(options), null, token, issues).ConfigureAwait(false);
+        }
+        catch (InvalidDataException error) when (error.InnerException is DisabledLegacyOverlapException)
+        { issues.Add(new("legacy_root_overlap", project.Revision, fingerprint)); }
+        catch (Exception error) when (error is JsonException or InvalidDataException or InvalidOperationException or
+            KeyNotFoundException or FormatException or ScenarioEditException or ArgumentException or OverflowException)
+        { issues.Add(new("montage_invalid", project.Revision, fingerprint)); }
+        token.ThrowIfCancellationRequested();
+        return new(project.Revision, fingerprint, issues.Count,
+            issues.OrderBy(issue => issue.Frame ?? -1).Where(issue => issue.Valid).Take(BackendReadinessReport.MaxRows).ToArray());
+    }
+
+    private static async Task<BackendExportPlan?> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,
+        string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendReviewRange? range, CancellationToken token,
+        List<BackendReadinessIssue>? issues = null)
     {
         token.ThrowIfCancellationRequested();
         ProjectContractJson.Validate(project);
@@ -50,9 +70,14 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var frameLimit = MaxSeconds * fps;
         var montage = project.Montage;
         var titles = BackendTrackEdits.ReadTitles(BackendTrackEdits.Rows(montage, "titles"));
-        if (montage.Clips.Length > 2000 || montage.Windows.Length > 200 ||
-            range is null && montage.Clips.Length == 0 && titles.Length == 0)
-            throw new InvalidDataException("CPU export requires saved clips or titles, with at most 2000 clips and 200 windows.");
+        if (montage.Clips.Length > 2000 || montage.Windows.Length > 200)
+            throw new InvalidDataException("CPU export supports at most 2000 clips and 200 windows.");
+        if (range is null && montage.Clips.Length == 0 && titles.Length == 0)
+        {
+            if (issues is null) throw new InvalidDataException("CPU export requires saved clips or titles.");
+            issues.Add(new("montage_empty", project.Revision, fingerprint));
+            return null;
+        }
         var transitionWindows = BackendBlackTransitions.Compile(montage);
 
         var windows = montage.Windows.OrderBy(row => row.StartFrame).ToArray();
@@ -68,17 +93,29 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         int clipEnd = 0;
         foreach (var clip in clips)
         {
-            if (clip.StartFrame < clipEnd || clip.AnchorFrame is { } anchor && anchor != clip.StartFrame ||
-                clip.DurationFrames <= 0 || (long)clip.StartFrame + clip.DurationFrames > frameLimit)
-                throw Reject("clip_timing", clip.Id);
-            clipEnd = End(clip.StartFrame, clip.DurationFrames, frameLimit);
+            var end = (long)clip.StartFrame + clip.DurationFrames;
+            var invalidTiming = clip.StartFrame < clipEnd || clip.AnchorFrame is { } anchor && anchor != clip.StartFrame ||
+                clip.DurationFrames <= 0 || end > frameLimit;
+            clipEnd = Math.Max(clipEnd, (int)Math.Min(end, frameLimit));
+            if (invalidTiming)
+            {
+                Record(Reject("clip_timing", clip.Id, clip.StartFrame));
+                continue;
+            }
             if (!Intersects(clip.StartFrame, clip.DurationFrames)) continue;
             var assetId = sources[clip.SourceId].Takes.FirstOrDefault(take => take.Id == clip.TakeId)?.VideoAssetId;
-            if (string.IsNullOrWhiteSpace(assetId)) throw Reject("clip_take_missing", clip.Id);
+            if (string.IsNullOrWhiteSpace(assetId))
+            {
+                Record(Reject("clip_take_missing", clip.Id, clip.StartFrame));
+                continue;
+            }
             var exit = clip.SourceOutFrame ?? (clip.SourceInFrame + clip.DurationFrames * clip.Speed);
             if (!double.IsFinite(exit) || exit <= clip.SourceInFrame ||
                 Math.Ceiling((exit - clip.SourceInFrame) / clip.Speed - 1e-8) != clip.DurationFrames)
-                throw Reject("clip_timing", clip.Id, assetId);
+            {
+                Record(Reject("clip_timing", clip.Id, clip.StartFrame, assetId));
+                continue;
+            }
             placements.Add(new(clip.Id, assetId, clip.StartFrame, clip.DurationFrames, clip.SourceInFrame, exit,
                 clip.Speed, clip.MuteNativeAudio));
         }
@@ -96,8 +133,14 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var size = Size(project.Properties, profile);
         var titleCanvas = Size(project.Properties, "project");
         var registry = new Inputs(project, resolver, decoder);
+        var unreadableVideo = issues is null ? null : new Dictionary<string, Exception>(StringComparer.Ordinal);
         foreach (var clip in placements)
         {
+            if (unreadableVideo?.TryGetValue(clip.AssetId, out var unreadable) == true)
+            {
+                Record(DescribeMedia(unreadable, clip.AssetId, clip.StartFrame, clip.Id));
+                continue;
+            }
             BackendVideoInfo info;
             try
             {
@@ -105,28 +148,40 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 info = await registry.VideoAsync(asset, token).ConfigureAwait(false);
             }
             catch (Exception error) when (IsMediaFailure(error))
-            { throw DescribeMedia(error, clip.AssetId, clip.Id); }
+            {
+                unreadableVideo?.Add(clip.AssetId, error);
+                Record(DescribeMedia(error, clip.AssetId, clip.StartFrame, clip.Id));
+                continue;
+            }
             var capacity = info.FrameCount / info.Fps * fps;
             if (clip.SourceOutFrame > capacity + 1e-7)
-                throw Reject("clip_source_range", clip.Id, clip.AssetId);
+                Record(Reject("clip_source_range", clip.Id, clip.StartFrame, clip.AssetId));
         }
         if (music is not null)
-            await CheckAudio(music.AssetId, 0, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted, "music", "music")
+            await CheckAudio(music.AssetId, 0, music.StartFrame, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted, "music", "music")
                 .ConfigureAwait(false);
         foreach (var sound in sounds)
-            await CheckAudio(sound.AssetId, sound.Stream, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted,
+            await CheckAudio(sound.AssetId, sound.Stream, sound.StartFrame, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted,
                 "sound_events", sound.TrackId, sound.OwnerClipId).ConfigureAwait(false);
         var titleRows = new List<Dictionary<string, JsonElement>>();
         foreach (var (id, title) in titles)
         {
             if (!Intersects(title.StartFrame, title.DurationFrames)) continue;
-            var fontInput = await registry.FontAsync(title.FontId, token).ConfigureAwait(false);
+            string fontInput;
+            try { fontInput = await registry.FontAsync(title.FontId, token).ConfigureAwait(false); }
+            catch (Exception error) when (issues is not null && IsMediaFailure(error))
+            {
+                issues.Add(new("title_font", project.Revision, fingerprint, Frame: title.StartFrame));
+                continue;
+            }
+            if (issues is not null) continue;
             var fields = JsonSerializer.SerializeToElement(title, Json).EnumerateObject().ToDictionary(row => row.Name, row => row.Value);
             fields["id"] = JsonSerializer.SerializeToElement(id);
             fields["font_asset_id"] = JsonSerializer.SerializeToElement(fontInput);
             titleRows.Add(fields);
         }
 
+        if (issues is not null) return null;
         var final = profile == "final";
         var startFrame = range?.Start ?? 0;
         frames = (range?.End ?? frames) - startFrame;
@@ -156,10 +211,16 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         bool Intersects(int start, int length) =>
             range is null || start < range.Value.End && (long)start + length > range.Value.Start;
 
-        BackendReadinessException Reject(string reason, string clip, string? asset = null) =>
-            new("invalid_export", new(reason, project.Revision, fingerprint, clip, asset));
+        void Record(BackendReadinessException error)
+        {
+            if (issues is null) throw error;
+            issues.Add(error.Issue);
+        }
 
-        BackendReadinessException DescribeMedia(Exception error, string asset, string? clip = null, string? track = null, string? trackId = null)
+        BackendReadinessException Reject(string reason, string clip, int frame, string? asset = null) =>
+            new("invalid_export", new(reason, project.Revision, fingerprint, clip, asset, Frame: frame));
+
+        BackendReadinessException DescribeMedia(Exception error, string asset, int frame, string? clip = null, string? track = null, string? trackId = null)
         {
             var (code, reason) = error switch
             {
@@ -170,10 +231,10 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                     ("invalid_export", "asset_invalid"),
                 _ => ("export_unavailable", "asset_invalid")
             };
-            return new(code, new(reason, project.Revision, fingerprint, clip, asset, trackId is null ? null : track, trackId), error);
+            return new(code, new(reason, project.Revision, fingerprint, clip, asset, trackId is null ? null : track, trackId, frame), error);
         }
 
-        async Task CheckAudio(string id, int stream, double start, int duration, double gain, bool muted,
+        async Task CheckAudio(string id, int stream, int frame, double start, int duration, double gain, bool muted,
             string track, string? trackId, string? clip = null)
         {
             try
@@ -185,7 +246,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                     throw new InvalidDataException("Saved audio range exceeds the probed stream duration.");
             }
             catch (Exception error) when (IsMediaFailure(error))
-            { throw DescribeMedia(error, id, clip, track, trackId); }
+            { Record(DescribeMedia(error, id, frame, clip, track, trackId)); }
         }
     }
 

@@ -10,14 +10,15 @@ namespace TrueMoon.Tales.Studio.Presentation.Shell;
 internal sealed class StudioLayout : ElementList
 {
     // Defaults match the initial 1280x820 window: chrome 36, width 1256, content 710.
-    private const float DefaultNavigation = 224, DefaultInspector = 282, DefaultTimeline = 150, TrackSpace = 68, Divider = 8;
+    private const float DefaultNavigation = 224, DefaultInspector = 282, DefaultTimeline = 150,
+        TrackSpace = 68, ReadinessSpace = 112, Divider = 8;
 
     private readonly StudioPanelState _panels;
     private readonly Element _notice, _heading, _navigation, _preview, _inspector, _timeline, _footer;
     private readonly ContentControl _center = new();
     private readonly SplitView _navigationSplit = new(), _inspectorSplit = new(), _workspaceSplit = new();
     private bool _synced;
-    private bool _trackLanes;
+    private float _timelineExtra;
     private (bool Navigation, bool Inspector, bool Timeline, bool Wide) _shown;
 
     public StudioLayout(StudioPanelState panels, Element notice, Element heading, Element navigation, Element preview, Element inspector, Element timeline, Element footer)
@@ -48,16 +49,17 @@ internal sealed class StudioLayout : ElementList
     {
         _navigationSplit.FirstPaneSize = DefaultNavigation;
         _inspectorSplit.FirstPaneSize = Math.Max(0, 1256 - DefaultNavigation - Divider) - DefaultInspector - Divider;
-        _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider - (_trackLanes ? TrackSpace : 0);
+        _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider - _timelineExtra;
     }
 
-    internal void ShowTrackLanes(bool visible)
+    internal void ShowTimelineDetails(bool tracks, bool readiness)
     {
-        if (visible == _trackLanes) return;
-        var defaultSize = 710 - DefaultTimeline - Divider - (_trackLanes ? TrackSpace : 0);
-        _trackLanes = visible;
+        var extra = (tracks ? TrackSpace : 0) + (readiness ? ReadinessSpace : 0);
+        if (extra == _timelineExtra) return;
+        var defaultSize = 710 - DefaultTimeline - Divider - _timelineExtra;
+        _timelineExtra = extra;
         if (Math.Abs(_workspaceSplit.FirstPaneSize - defaultSize) < .1f)
-            _workspaceSplit.FirstPaneSize = defaultSize + (visible ? -TrackSpace : TrackSpace);
+            _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider - extra;
     }
 
     // Called from the shared refresh path; rebuilds the chain only when panel flags changed.
@@ -185,11 +187,35 @@ internal sealed class PreviewSurface : ContentControl
 internal sealed class TimelineLayout : ElementList
 {
     private readonly Element _heading, _strip;
-    public TimelineLayout(Element heading, Element strip) { _heading = heading; _strip = strip; Add(heading); Add(strip); }
+    private readonly Element? _readiness;
+
+    public TimelineLayout(Element heading, Element strip, Element? readiness = null)
+    {
+        _heading = heading; _strip = strip; _readiness = readiness;
+        Add(heading); Add(strip);
+        if (readiness is not null) Add(readiness);
+    }
+
+    private float PanelWidth(float width) => _readiness?.IsVisible == true ? Math.Min(430, width * .52f) : 0;
+
     protected override Size MeasureCore(Size available, ITextLayoutService text)
-    { _heading.Measure(new(available.Width, 30), text); _strip.Measure(new(available.Width, Math.Max(0, available.Height - 34)), text); return available; }
+    {
+        var panel = PanelWidth(available.Width);
+        var bodyHeight = Math.Max(0, available.Height - 34);
+        _heading.Measure(new(available.Width, 30), text);
+        _strip.Measure(new(available.Width - panel, bodyHeight), text);
+        if (panel > 0) _readiness!.Measure(new(Math.Max(0, panel - 8), bodyHeight), text);
+        return available;
+    }
+
     protected override void ArrangeCore(Rect area)
-    { _heading.Arrange(new(area.X, area.Y, area.Width, 30)); _strip.Arrange(new(area.X, area.Y + 34, area.Width, Math.Max(0, area.Height - 34))); }
+    {
+        var panel = PanelWidth(area.Width);
+        var bodyHeight = Math.Max(0, area.Height - 34);
+        _heading.Arrange(new(area.X, area.Y, area.Width, 30));
+        _strip.Arrange(new(area.X, area.Y + 34, area.Width - panel, bodyHeight));
+        if (panel > 0) _readiness!.Arrange(new(area.X + area.Width - panel + 8, area.Y + 34, Math.Max(0, panel - 8), bodyHeight));
+    }
 }
 
 internal sealed class InspectorLayout : ElementList

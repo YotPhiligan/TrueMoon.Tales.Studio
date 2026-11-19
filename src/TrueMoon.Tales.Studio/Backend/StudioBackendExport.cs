@@ -25,6 +25,16 @@ internal sealed partial class StudioBackendService
         ExecuteExportAsync(sessionKey, write: false,
             token => _exports.CheckAsync(profile, ct => ExportBaselineAsync(expectedRevision, fingerprint, ct), token), cancellationToken);
 
+    public Task<BackendExportReply> CheckReadinessAsync(string sessionKey, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false, async token =>
+        {
+            var before = await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
+            var report = await BackendExportPlan.ReadinessAsync(before.Project, before.Fingerprint, options, token).ConfigureAwait(false);
+            await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
+            return new() { JobJson = report.Encode() };
+        }, cancellationToken);
+
     public Task<BackendExportReply> FindExportAsync(string sessionKey, string clientKey, CancellationToken cancellationToken = default) =>
         ExecuteExportAsync(sessionKey, write: false, token => _exports.StatusAsync(BackendExportJobs.JobId(clientKey), token), cancellationToken);
 

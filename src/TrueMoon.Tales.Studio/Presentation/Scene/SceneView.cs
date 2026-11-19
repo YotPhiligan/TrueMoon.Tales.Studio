@@ -23,6 +23,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private readonly ScenarioWorkspace? _scenario;
     private readonly BackendConnection? _backend;
     private readonly Button? _tracksButton;
+    private readonly Button? _readinessButton;
+    private readonly TimelineReadiness? _readiness;
     private MontageTrackWorkspace? _tracks;
     private readonly Button? _workingButton;
     private WorkingReviewWorkspace? _workingReview;
@@ -115,13 +117,21 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _strip = new(model, Refresh, OpenTrack) { AccessibleName = "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена" };
         _timelineWidth = Command("Компактно", StudioCommand.WideTimeline);
         var timelineActions = HStack.Create().Configure(row => row.Spacing = 6);
+        var timelineTitle = HStack.Create().Configure(row => row.Spacing = 8).WithChildren(_timelineCaption.WithRole(CaptionRole));
         if (backend is not null)
         {
             _tracksButton = Button.Simple("Дорожки").WithRole(CommandRole).OnClick(() => OpenTrack(null));
             timelineActions.Add(_tracksButton);
+            _readiness = new(model, backend, OpenReadinessIssue, Refresh);
+            _readinessButton = Button.Simple("Проблемы").WithRole(CommandRole).OnClick(() =>
+            {
+                _readiness.Toggle();
+                Refresh();
+            });
+            timelineTitle.Add(_readinessButton);
         }
         timelineActions.Add(_timelineWidth);
-        Timeline = new TimelineLayout(new StudioHeading(_timelineCaption.WithRole(CaptionRole), timelineActions), _strip);
+        Timeline = new TimelineLayout(new StudioHeading(timelineTitle, timelineActions), _strip, _readiness);
         var footerActions = HStack.Create().Configure(x => x.Spacing = 12).WithChildren(_revision);
         if (initialOpen is not null) footerActions.Items.Add(Command("К проектам", StudioCommand.Close));
         Footer = new StudioHeading(_status, footerActions);
@@ -166,6 +176,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         _scenario?.ClearPreview();
         _page.SetContent(Overlays);
+        _readiness?.InvalidateReport();
         _model.Open();
         Refresh();
     }
@@ -187,6 +198,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _tracks = null;
         _page.SetContent(Overlays);
         tracks?.Dispose();
+        _readiness?.InvalidateReport();
         _model.Open();
         Refresh();
     }
@@ -299,11 +311,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private static Border ValueBox(Text value) => Border.Create().Configure(x =>
     { x.ColorRole = EditorColorRole.Number; x.Padding = new(8, 5, 8, 5); }).Content(value);
 
-    public bool NeedsFrame => _model.NeedsFrame || _openExport || _export?.NeedsFrame == true;
+    public bool NeedsFrame => _model.NeedsFrame || _openExport || _export?.NeedsFrame == true || _readiness?.NeedsFrame == true;
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
         var sceneChanged = _model.Poll(elapsed);
         var exportChanged = _export?.Poll(elapsed) == true;
+        var readinessChanged = _readiness?.Poll() == true;
         if (_initialOpen is { } notify && (_model.ProjectReady || _model.HasError))
         {
             _initialOpen = null;
@@ -323,7 +336,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 panel.FocusFirst(context);
             }
         }
-        if (!sceneChanged && !exportChanged) return;
+        if (!sceneChanged && !exportChanged && !readinessChanged) return;
         if (sceneChanged && _closeAfterSave)
         {
             _closeAfterSave = false;
@@ -498,7 +511,13 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Navigation.IsVisible = _panels.Navigation;
         Inspector.IsVisible = _panels.Inspector;
         Timeline.IsVisible = _panels.Timeline;
-        _layout.ShowTrackLanes(SceneStrip.HasVisibleTracks(_model.Scene));
+        _layout.ShowTimelineDetails(SceneStrip.HasVisibleTracks(_model.Scene), _readiness?.IsVisible == true);
+        _readiness?.Sync(_panels.Timeline && _page.Child == Overlays);
+        if (_readinessButton is not null)
+        {
+            _readinessButton.IsEnabled = _model.SavedFingerprint is not null;
+            _readinessButton.Value = _readiness!.Caption;
+        }
         foreach (var (button, command) in _buttons) button.IsEnabled = _commands[command].CanExecute;
         if (_scenarioButton is not null) _scenarioButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         if (_tracksButton is not null) _tracksButton.IsEnabled = _model.ProjectReady && _model.CanReload;
@@ -580,6 +599,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _preview.Source = null; _image?.Dispose(); _image = null;
         if (ScenarioVisible || _review is not null || _tracks is not null || _workingReview is not null) Overlays.Dispose();
         if (!ScenarioVisible) _scenario?.Dispose();
+        _readiness?.Stop();
         base.Dispose();
     }
 }

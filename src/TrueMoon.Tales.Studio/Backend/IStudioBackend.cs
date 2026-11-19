@@ -16,6 +16,15 @@ public interface IStudioBackend
     Task<BackendExportReply> WorkingReviewAsync(string sessionKey, string operation, string key, long revision, string fingerprint,
         int startFrame, int endFrame, CancellationToken cancellationToken = default);
 
+    /// <summary>Checks the saved montage for blocking problems without starting a render.</summary>
+    /// <param name="sessionKey">Launch capability.</param>
+    /// <param name="expectedRevision">Observed project revision.</param>
+    /// <param name="fingerprint">Observed exact project SHA256.</param>
+    /// <param name="cancellationToken">Call deadline.</param>
+    /// <returns>The bounded readiness report or a classified refusal.</returns>
+    Task<BackendExportReply> CheckReadinessAsync(string sessionKey, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Applies one bounded scenario, library or placement command through the exclusive project writer.</summary>
     /// <param name="sessionKey">Launch capability.</param>
     /// <param name="commandJson">Closed command envelope for the selected project.</param>

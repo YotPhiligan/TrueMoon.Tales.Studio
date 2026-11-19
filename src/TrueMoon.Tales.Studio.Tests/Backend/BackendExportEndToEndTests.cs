@@ -288,6 +288,118 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task TimelineReadiness_ListsBothProblems_AndRefreshesAfterRelink()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        File.Move(files.MediaPath("Синий.mp4"), files.MediaPath("Исправленный.mp4"));
+        var store = files.Files.Files.Store();
+        var original = await store.OpenAsync();
+        var main = original.Project.Montage.Clips.Single(clip => clip.Id == "clip-main");
+        var extra = original.Project.Montage.Clips.Single(clip => clip.Id == "clip-extra");
+        var saved = await store.SaveAsync(original, original.Project with
+        {
+            Montage = original.Project.Montage with
+            {
+                Clips = original.Project.Montage.Clips.Select(clip => clip.Id == main.Id
+                    ? clip with { TakeId = null, SourceOutFrame = null, SourceInFrame = 0 }
+                    : clip).ToArray()
+            }
+        }, original.Project.Revision, "timeline-readiness-fixture");
+        var before = File.ReadAllBytes(files.ProjectPath);
+        var originalHistory = files.History();
+
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        host.PumpUntil(() => model.ProjectReady && model.Idle || model.HasError);
+        Assert.False(model.HasError, model.Status);
+        host.Click(ButtonIn(host.Window.Timeline, "Проблемы"));
+        var panel = Assert.Single(RasterWindow<SceneView>.Walk(host.Window.Timeline).OfType<TimelineReadiness>());
+        host.PumpUntil(() => HasText(panel, "Проблем: 2"));
+        Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row => row.Value.Contains("Клип без видеодубля"));
+        Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row => row.Value.Contains("Файл материала не найден"));
+        var strip = Assert.Single(RasterWindow<SceneView>.Walk(host.Window.Timeline).OfType<SceneStrip>());
+        Assert.True(strip.Bounds.X + strip.Bounds.Width <= panel.Bounds.X);
+        host.Capture("timeline-two-problems", new { saved.Project.Revision });
+
+        host.Click(ButtonIn(AtFrame(panel, main.StartFrame), "К клипу"));
+        host.PumpUntil(() => model.Scene?.Clip.Id == main.Id && model.Idle);
+        Assert.Equal(saved.Fingerprint, model.Scene!.Fingerprint);
+        files.AssertProject(before, originalHistory);
+
+        var jump = ButtonIn(AtFrame(panel, extra.StartFrame), "К ассету");
+        for (var node = jump.Parent; node is not null; node = node.Parent)
+            if (node is ScrollViewer scroll) { scroll.BringIntoView(jump.Bounds); host.Update(); }
+        host.Click(jump);
+        var library = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !library.Busy);
+        host.Click(ButtonIn(library, "Перепривязать файл"));
+        SetField(library, "Путь или ссылка на видео", "@videos/Исправленный.mp4");
+        host.Click(ButtonIn(library, "Сохранить"));
+        host.PumpUntil(() => !library.Busy && !library.HasDraft);
+        var repaired = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(saved.Project.Revision + 1, repaired.Project.Revision);
+        var take = repaired.Project.Sources.Single(source => source.Id == extra.SourceId).Takes.Single(take => take.Id == extra.TakeId);
+        Assert.Equal("@videos/Исправленный.mp4", BackendScenarioEdit.TryReference(repaired.Project, take.VideoAssetId!));
+        Assert.Contains(files.History(), row => row.SequenceEqual(before));
+        host.Click(ButtonIn(library, "К монтажу"));
+        host.PumpUntil(() => HasText(panel, $"Проблем: 1 · рев. {repaired.Project.Revision}"));
+        Assert.DoesNotContain(RasterWindow<SceneView>.Walk(panel).OfType<Button>(), button => button.Value == "К ассету");
+        Assert.True(ButtonIn(AtFrame(panel, main.StartFrame), "К клипу").IsEnabled);
+
+        var ready = api.EditScenarioAsync(new AssignTake(main.Id, main.TakeId!), repaired).GetAwaiter().GetResult();
+        var finalBytes = File.ReadAllBytes(files.ProjectPath);
+        var finalHistory = files.History();
+        host.Click(ButtonIn(panel, "Обновить"));
+        host.PumpUntil(() => HasText(panel, $"Проблем нет · рев. {ready.Project.Revision}"));
+        Assert.DoesNotContain(RasterWindow<SceneView>.Walk(panel).OfType<Button>(), button => button.Value is "К клипу" or "К ассету");
+        Assert.Empty(files.Requests());
+        files.AssertProject(finalBytes, finalHistory);
+
+        static Element AtFrame(Element panel, int frame) =>
+            Assert.Single(RasterWindow<SceneView>.Walk(panel).OfType<VStack>(), row => row.AccessibleName.StartsWith($"Кадр {frame} ·", StringComparison.Ordinal));
+        static bool HasText(Element panel, string value) =>
+            RasterWindow<SceneView>.Walk(panel).OfType<Text>().Any(row => row.Value.Contains(value, StringComparison.Ordinal));
+    }
+
+    [BackendMediaFact]
+    public async Task TimelineReadiness_ReportsTotalWithBoundedRows_AndChecksTheSavedSnapshot()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var store = files.Files.Files.Store();
+        var original = await store.OpenAsync();
+        var montage = original.Project.Montage;
+        var first = montage.Clips.First();
+        var saved = await store.SaveAsync(original, original.Project with
+        {
+            Montage = montage with
+            {
+                Clips = Enumerable.Range(0, 30).Select(frame => first with
+                {
+                    Id = $"problem-{frame}", ActionId = null, TakeId = null, StartFrame = frame,
+                    DurationFrames = 1, SourceInFrame = 0, SourceOutFrame = null, AnchorFrame = null
+                }).ToArray()
+            }
+        }, original.Project.Revision, "timeline-readiness-many");
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await using var session = await files.OpenAsync();
+        var api = session.Connection;
+        var report = await api.CheckReadinessAsync(saved.Project.Revision, saved.Fingerprint, CancellationToken.None);
+        Assert.Equal(30, report.Total);
+        Assert.Equal(24, report.Issues.Length);
+        Assert.Equal(Enumerable.Range(0, 24).Select(frame => (int?)frame), report.Issues.Select(row => row.Frame));
+        Assert.All(report.Issues, row => Assert.Equal("clip_take_missing", row.Reason));
+        Assert.Equal("revision_conflict", (await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.CheckReadinessAsync(saved.Project.Revision, original.Fingerprint, CancellationToken.None))).Code);
+        Assert.Empty(files.Requests());
+        files.AssertProject(bytes, history);
+    }
+
+    [BackendMediaFact]
     public async Task Readiness_Placeholder_FromExport_SelectsTheClipWithoutWriting()
     {
         using var files = new ExportFixture();

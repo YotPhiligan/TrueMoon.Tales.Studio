@@ -59,6 +59,7 @@ public sealed class BackendLostReplyTests
     // Only fault injection is doubled: the invocation, process, store and UI are real.
     private sealed class DropReply(IStudioBackend inner) : IStudioBackend
     {
+        public Task<BackendExportReply> CheckReadinessAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => inner.CheckReadinessAsync(key, revision, hash, cancellationToken);
         public Task<BackendExportReply> WorkingReviewAsync(string key, string operation, string id, long revision, string hash, int startFrame, int endFrame, CancellationToken cancellationToken = default) => inner.WorkingReviewAsync(key, operation, id, revision, hash, startFrame, endFrame, cancellationToken);
         public Task<BackendProjectReply> EditScenarioAsync(string key, string command, long revision, string hash, CancellationToken cancellationToken = default) =>
             inner.EditScenarioAsync(key, command, revision, hash, cancellationToken);

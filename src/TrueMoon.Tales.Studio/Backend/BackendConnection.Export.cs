@@ -29,6 +29,14 @@ internal sealed partial class BackendConnection
     internal Task<BackendExportStatus> FindExportAsync(string clientKey, CancellationToken token) =>
         ExportJobAsync(BackendExportJobs.JobId(clientKey), ct => service.FindExportAsync(options.SessionKey, clientKey, ct), token);
 
+    internal async Task<BackendReadinessReport> CheckReadinessAsync(long revision, string fingerprint, CancellationToken token)
+    {
+        var reply = await SendExportAsync(ct => service.CheckReadinessAsync(options.SessionKey, revision, fingerprint, ct), token)
+            .ConfigureAwait(false);
+        if (reply.Data.Length != 0) throw new InvalidDataException("Unexpected bytes in a readiness report.");
+        return BackendReadinessReport.Decode(reply.JobJson, revision, fingerprint);
+    }
+
     internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint,
         CancellationToken token, BackendReviewRange? range = null)
     {

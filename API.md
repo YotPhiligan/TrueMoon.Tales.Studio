@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. Protocol11 добавил диапазон рабочего просмотра, protocol12 — структурированные ошибки готовности, protocol13 — список проблем. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - Enerit `WorkingReviewAsync` принимает границы `startFrame` и `endFrame`
   в кадрах сохранённого проекта. Правая граница исключается. Пара `0, 0`
@@ -26,6 +26,11 @@
   причину и ID клипа, ассета или дорожки. Для перехода UI сверяет `revision`
   и `fingerprint`. Ошибка пересечения отключённого legacy-корня не имеет
   цели перехода. Физические пути и текст системного исключения не передаются.
+- Enerit `CheckReadinessAsync` читает сохранённые `expectedRevision` и
+  `fingerprint` до и после проверки монтажа. В `JobJson` возвращаются
+  `revision`, `fingerprint`, `total` и до 24 элементов `issues`.
+  Порядок соответствует кадрам проекта, общие ошибки идут первыми.
+  Проверка не стартует CPU-рендер и не создаёт экспортное задание.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
