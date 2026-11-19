@@ -5,7 +5,7 @@ namespace TrueMoon.Tales.Studio.Presentation.Scene;
 internal sealed partial class SceneViewModel
 {
     public bool SupportsMontageEdits => api.SupportsMontageEdits;
-    public bool CanEditMontage => SupportsMontageEdits && ProjectReady && Idle && CanReload && !_stale;
+    public bool CanEditMontage => SupportsMontageEdits && ProjectReady && Idle && CanReload && !_stale && StoryboardPlan is null;
     public bool CanUndoMontage => CanEditMontage && (Scene?.CanUndoMontage ?? EmptyProject?.CanUndoMontage) == true;
     public bool CanRedoMontage => CanEditMontage && (Scene?.CanRedoMontage ?? EmptyProject?.CanRedoMontage) == true;
     public bool CanSplitMontage => CanEditMontage && Scene is not null && SplitFrame > TimelineStart &&

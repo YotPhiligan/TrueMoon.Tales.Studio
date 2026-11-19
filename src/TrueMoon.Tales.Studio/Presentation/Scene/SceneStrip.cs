@@ -18,9 +18,10 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
     public bool IsDragging => _context is not null;
     public override bool Focusable => true;
 
-    private double Span => Math.Max(1, model.Scene!.Segment.DurationFrames / _zoom);
+    private Segment? Window => model.StoryboardPlan?.Window ?? model.Scene?.Segment;
+    private double Span => Math.Max(1, Window!.DurationFrames / _zoom);
     private float Scale => (float)(Bounds.Width / Span);
-    private double Origin => model.Scene!.Segment.StartFrame + _offset;
+    private double Origin => Window!.StartFrame + _offset;
     private float FrameX(double frame) => Bounds.X + (float)((frame - Origin) * Scale);
     private double FrameAt(float x) => Origin + (x - Bounds.X) / Math.Max(float.Epsilon, Scale);
     internal Rect ClipBounds => model.Scene is { } scene
@@ -158,9 +159,14 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
 
     private void SyncWindow()
     {
-        var id = model.Scene?.Segment.Id;
+        var id = Window?.Id;
         if (_window == id) return;
         _window = id;
+        ResetView();
+    }
+
+    internal void ResetView()
+    {
         _offset = 0;
         _zoom = 1;
     }
@@ -202,12 +208,12 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
     protected override Size MeasureCore(Size available, ITextLayoutService text) => new(available.Width, 80);
     protected override void DrawCore(IDrawingContext context)
     {
-        if (model.EmptyProject is not null)
+        if (model.EmptyProject is not null && model.StoryboardPlan is null)
         {
             context.Text("Монтажных клипов пока нет", Bounds.X + 8, Bounds.Y + 16, Theme.Disabled, FontSize, FontFamily);
             return;
         }
-        if (model.Scene is not { } scene) return;
+        if (Window is null) return;
         SyncWindow();
         var area = Bounds;
         context.Save();
@@ -218,6 +224,22 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
             context.Fill(new(x, area.Y + 18, 1, Math.Max(0, area.Height - 18)), Theme.Border with { A = 55 });
             if (i < 6) context.Text($"{(int)Math.Floor(Origin + Span * i / 6)} к", x + 4, area.Y, Theme.Disabled, 10, Theme.FontFamily);
         }
+        if (model.StoryboardPlan is { } plan)
+        {
+            var x = FrameX(plan.Frame);
+            var rectangle = new Rect(x, area.Y + 24, plan.Duration * Scale, Math.Min(38, Math.Max(0, area.Height - 24)));
+            foreach (var clip in plan.WindowClips ?? [])
+                context.Fill(new(FrameX(clip.StartFrame), rectangle.Y, clip.DurationFrames * Scale, rectangle.Height), Theme.Border with { A = 100 }, 4);
+            context.Fill(rectangle, Theme.Modified with { A = 65 }, 4);
+            context.Stroke(rectangle, Theme.Modified, 1, 4);
+            context.Save(); context.Clip(rectangle);
+            context.Text(plan.Title, x + 7, rectangle.Y + 10, Theme.Foreground, 12, Theme.FontFamily);
+            context.Restore();
+            context.Fill(new(x, area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
+            context.Restore();
+            return;
+        }
+        var scene = model.Scene!;
         foreach (var marker in scene.MarkerFrames ?? [])
         {
             var x = FrameX(marker);
@@ -291,7 +313,7 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<Tr
             }
         }
         var frame = model.TimelineCursor;
-        if ((model.Assigned || IsDragging) && frame >= model.TimelineStart && frame < model.TimelineStart + model.TimelineDuration)
+        if ((model.HasTimelineCursor || IsDragging) && frame >= model.TimelineStart && frame < model.TimelineStart + model.TimelineDuration)
             context.Fill(new(FrameX(frame), area.Y + 18, 2, Math.Max(0, area.Height - 18)), Theme.Focus);
         context.Restore();
     }

@@ -12,6 +12,18 @@ internal sealed partial class BackendConnection
         ArgumentOutOfRangeException.ThrowIfNegative(frame);
         return MediaAsync(assetId, frame, revision, fingerprint, token);
     }
+
+    internal async Task<BackendMediaReply> StoryboardStillAsync(string segmentId, string actionId, long revision, string fingerprint, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var reply = await TransportAsync(() => service.StoryboardStillAsync(options.SessionKey, segmentId, actionId,
+            revision, fingerprint, deadline.Token)).ConfigureAwait(false);
+        ValidateMedia(reply, actionId, 0, revision, fingerprint);
+        return reply;
+    }
     private async Task<BackendMediaReply> MediaAsync(string assetId, int frame, long revision, string fingerprint, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

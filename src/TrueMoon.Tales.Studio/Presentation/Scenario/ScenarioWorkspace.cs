@@ -3,6 +3,7 @@ using TrueMoon.Alloy.Runtime;
 using TrueMoon.Argentis;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Contracts.Projects;
+using TrueMoon.Tales.Studio.Presentation.Scene;
 using TrueMoon.Tales.Studio.Presentation.Shell;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scenario;
@@ -25,6 +26,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private Task<Action>? _pending;
     private OpenedBackendProject? _baseline;
     private Func<ScenarioCommand>? _draft;
+    private Button? _storyboardFocus;
     private bool _stale;
     private string _query = "";
     private string? _segmentId, _actionId, _sourceId, _takeId, _clipId;
@@ -93,6 +95,25 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
 
     internal void Reload() => Reload(null);
 
+    internal void OpenStoryboard(OpenedBackendProject snapshot, StoryboardShot shot)
+    {
+        _baseline = snapshot;
+        _stale = false;
+        _segmentId = shot.SegmentId;
+        _actionId = shot.ActionId;
+        _clipId = shot.Position?.ClipId;
+        if (Clip is { } clip)
+        {
+            _sourceId = clip.SourceId;
+            _takeId = clip.TakeId;
+            _query = _search.Value = "";
+        }
+        Show("");
+        RefreshLists();
+        var index = Array.FindIndex(Segment?.Actions ?? [], row => row.Id == shot.ActionId);
+        _storyboardFocus = index < 0 ? null : (Button)_actions.Items[index];
+    }
+
     internal void Reload(BackendReadinessIssue? issue)
     {
         Start("Читаю проект…", async token =>
@@ -135,10 +156,19 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     internal void ExplainClose() => Show(HasDraft ? "Сохраните или отмените черновик." :
         Busy ? "Дождитесь результата операции." : "Откройте монтаж, чтобы подтвердить остановку экспорта.", error: true);
 
-    public bool NeedsFrame => Busy;
+    public bool NeedsFrame => Busy || _storyboardFocus is not null;
 
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
+        if (_storyboardFocus is { } focus)
+        {
+            if (focus.IsDisposed) _storyboardFocus = null;
+            else if (focus.Bounds is { Width: > 0, Height: > 0 } && focus.IsEffectivelyEnabled)
+            {
+                _storyboardFocus = null;
+                context.Focus(focus);
+            }
+        }
         if (_pending is not { IsCompleted: true } ready) return;
         _pending = null;
         try { ready.GetAwaiter().GetResult()(); }

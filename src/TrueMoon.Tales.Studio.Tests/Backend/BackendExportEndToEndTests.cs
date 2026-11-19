@@ -514,6 +514,117 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Storyboard_RasterShowsBothCutsAndJumpsToSavedFrameOrAction()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120", "-frames:v", "1", "-threads", "1", "-n",
+             files.MediaPath("Опора.png")], 2048);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var snapshot = await api.AcquireWriterAsync(await api.OpenAsync());
+        var existing = snapshot.Project.Montage.Clips.First(clip => clip.Id == "clip-main");
+        snapshot = await api.EditScenarioAsync(new SaveSegment(null, "Ночная сцена", "", 72, 72), snapshot);
+        var segment = snapshot.Project.Segments.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Две склейки", "Она подходит к окну.", 36), snapshot);
+        var action = snapshot.Project.Segments.Last().Actions.Single();
+        snapshot = await api.EditScenarioAsync(new LinkSource(segment.Id, action.Id, existing.SourceId, "Окно"), snapshot);
+        snapshot = await api.EditScenarioAsync(new PlaceClip(segment.Id, action.Id, existing.SourceId, existing.TakeId!, 72, 12, 4), snapshot);
+        snapshot = await api.EditScenarioAsync(new PlaceClip(segment.Id, action.Id, existing.SourceId, existing.TakeId!, 88, 12, 11), snapshot);
+        var secondCut = snapshot.Project.Montage.Clips.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Опорный план", "Свет в комнате гаснет.", 16), snapshot);
+        var still = snapshot.Project.Segments.Last().Actions.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAnimaticStill(segment.Id, still.Id, "@videos/Опора.png"), snapshot);
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Без времени", "", null), snapshot);
+        var untimed = snapshot.Project.Segments.Last().Actions.Last();
+        var initialHistory = files.History();
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+
+        var bitmap = await api.StoryboardStillAsync(segment.Id, still.Id, snapshot.Project.Revision, snapshot.Fingerprint, CancellationToken.None);
+        Assert.InRange(bitmap.Pixels[(135 * 480 + 240) * 4 + 1], 210, 255);
+        var wrongAction = await Assert.ThrowsAsync<BackendCommandException>(() => api.StoryboardStillAsync(segment.Id, action.Id,
+            snapshot.Project.Revision, snapshot.Fingerprint, CancellationToken.None));
+        Assert.Equal("media_not_found", wrongAction.Code);
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        StoryboardWorkspace OpenBoard()
+        {
+            host.Click(ButtonIn(host.Window.Navigation, "Раскадровка"));
+            var board = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+            host.PumpUntil(() => !board.NeedsFrame);
+            return board;
+        }
+        void Select(StoryboardWorkspace board, string label)
+        {
+            var button = ButtonIn(board, label);
+            for (var node = button.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); break; }
+            host.Click(button);
+            host.PumpUntil(() => !board.NeedsFrame);
+        }
+        var board = OpenBoard();
+        Assert.True(ButtonIn(board, "0072 · Две склейки").Bounds.Y < ButtonIn(board, "0088 · Две склейки").Bounds.Y);
+        Select(board, "0088 · Две склейки");
+        Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Image>(), picture => picture.AccessibleName == "Видео · Две склейки" && picture.Source is not null);
+        host.Click(ButtonIn(board, "К действию"));
+        host.PumpUntil(() => RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>().Any());
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => ButtonIn(scenario, action.Title).IsFocused);
+        Assert.Equal(ControlTone.Accent, Assert.Single(RasterWindow<SceneView>.Walk(scenario).OfType<Button>(),
+            button => button.Value.StartsWith("88 · ") && button.Value.EndsWith("12 к.")).Tone);
+        host.Click(ButtonIn(scenario, "К монтажу"));
+        Ready(host, model);
+        board = OpenBoard();
+        Select(board, "0088 · Две склейки");
+        host.Click(ButtonIn(board, "К кадру"));
+        host.PumpUntil(() => model.Scene?.Clip.Id == secondCut.Id && model.Idle);
+        Assert.Equal((88d, 11), (model.TimelineCursor, model.FrameIndex));
+        Assert.Equal(snapshot.Fingerprint, model.Scene!.Fingerprint);
+
+        board = OpenBoard();
+        Select(board, "0100 · Опорный план");
+        Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Image>(), picture => picture.AccessibleName == "Стоп-кадр · Опорный план" && picture.Source is not null);
+        host.Capture("storyboard-still", new { snapshot.Project.Revision, Frame = 100 });
+        host.Resize(840, 660, 1.5f);
+        host.Capture("storyboard-compact", new { snapshot.Project.Revision, Frame = 100 });
+        host.Resize(1280, 820, 1);
+        host.Click(ButtonIn(board, "К кадру"));
+        host.PumpUntil(() => model.StoryboardPlan is not null);
+        Assert.Equal((100d, 16), (model.TimelineCursor, model.StoryboardPlan!.Duration));
+        var strip = Assert.Single(RasterWindow<SceneView>.Walk(host.Window.Timeline).OfType<SceneStrip>());
+        Assert.Contains("Опорный план", strip.AccessibleName);
+        host.Capture("storyboard-plan-on-timeline", new { Frame = model.TimelineCursor, model.StoryboardPlan.Duration });
+
+        board = OpenBoard();
+        Select(board, "— · Без времени");
+        Assert.False(ButtonIn(board, "К кадру").IsEnabled);
+        host.Click(ButtonIn(board, "К действию"));
+        host.PumpUntil(() => RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>().Any());
+        scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        Assert.Equal(ControlTone.Accent, ButtonIn(scenario, untimed.Title).Tone);
+        Assert.Equal(ControlTone.Accent, ButtonIn(scenario, segment.Name).Tone);
+        files.AssertProject(bytes, initialHistory);
+        Assert.Empty(files.Requests());
+
+        host.Click(ButtonIn(scenario, "К монтажу"));
+        Ready(host, model);
+        board = OpenBoard();
+        Select(board, "0100 · Опорный план");
+        snapshot = api.EditScenarioAsync(new SaveAction(segment.Id, still.Id, "Обновлённая опора", still.Description, 16), snapshot).GetAwaiter().GetResult();
+        bytes = File.ReadAllBytes(files.ProjectPath);
+        var updatedHistory = files.History();
+        host.Click(ButtonIn(board, "К кадру"));
+        host.PumpUntil(() => RasterWindow<SceneView>.Walk(board).OfType<Text>().Any(row => row.Value.Contains("Выберите план заново")));
+        Assert.False(ButtonIn(board, "К кадру").IsEnabled);
+        Assert.True(ButtonIn(board, "0100 · Обновлённая опора").IsEnabled);
+        Assert.Null(model.StoryboardPlan);
+        files.AssertProject(bytes, updatedHistory);
+    }
+
+    [BackendMediaFact]
     public async Task TimelineReadiness_ListsBothProblems_AndRefreshesAfterRelink()
     {
         using var files = new ExportFixture();

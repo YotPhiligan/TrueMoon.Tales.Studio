@@ -31,6 +31,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private WorkingReviewWorkspace? _workingReview;
     private readonly ContentControl _page = new();
     private readonly Button? _scenarioButton;
+    private readonly Button? _storyboardButton;
+    private StoryboardWorkspace? _storyboard;
     private Action<string?>? _initialOpen;
     private readonly IFactory<StudioTitleBar, StudioTitleBarArguments> _headers;
     private readonly StudioCommands _commands;
@@ -87,6 +89,11 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _scenarioButton = Button.Simple("Сценарий и материалы").WithRole(CommandRole).OnClick(OpenScenario);
             _scenario.ReturnToMontage = ReturnToMontage;
             navigation.Add(_scenarioButton);
+            if (backend is not null)
+            {
+                _storyboardButton = Button.Simple("Раскадровка").WithRole(CommandRole).OnClick(OpenStoryboard);
+                navigation.Add(_storyboardButton);
+            }
         }
         navigation.AddRange([_clips, Text.Plain("Дубли клипа").WithRole(CaptionRole), _takes]);
         Navigation = Pane("Клипы проекта", navigation.ToArray());
@@ -181,6 +188,42 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _page.SetContent(Overlays);
         _readiness?.InvalidateReport();
         _model.Open();
+        Refresh();
+    }
+
+    private void OpenStoryboard()
+    {
+        if (_backend is null || !_model.ProjectReady || !_model.CanReload || _storyboard is not null) return;
+        _model.PausePlayback();
+        Overlays.Close();
+        _storyboard = new(_backend, NavigateStoryboard, CloseStoryboard);
+        _page.SetContent(_storyboard);
+    }
+
+    private void NavigateStoryboard(StoryboardShot shot, OpenedBackendProject snapshot, bool toAction)
+    {
+        CloseStoryboard();
+        if (toAction && _scenario is not null)
+        {
+            _scenario.OpenStoryboard(snapshot, shot);
+            _page.SetContent(_scenario);
+        }
+        else if (shot.Position is { } position)
+        {
+            _panels.Timeline = true;
+            _strip.ResetView();
+            _readiness?.InvalidateReport();
+            _model.ShowStoryboard(position, snapshot);
+            Refresh();
+        }
+    }
+
+    private void CloseStoryboard()
+    {
+        var storyboard = _storyboard;
+        _storyboard = null;
+        _page.SetContent(Overlays);
+        storyboard?.Dispose();
         Refresh();
     }
 
@@ -302,7 +345,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _commands.Add(StudioCommand.Inspector, () => _panels.Inspector = !_panels.Inspector);
         _commands.Add(StudioCommand.Timeline, () => _panels.Timeline = !_panels.Timeline);
         _commands.Add(StudioCommand.WideTimeline, () => _panels.WideTimeline = !_panels.WideTimeline);
-        _commands.Add(StudioCommand.PreviewMontage, _model.ResumeMontagePreview, () => _model.CanChangePreview && _model.ViewingSource);
+        _commands.Add(StudioCommand.PreviewMontage, _model.ResumeMontagePreview, () => _model.StoryboardPlan is not null
+            ? _model.CanReload : _model.CanChangePreview && _model.ViewingSource);
         _commands.Add(StudioCommand.PreviewSource, _model.PreviewSource, () => _model.CanChangePreview && !_model.ViewingSource);
         _commands.Add(StudioCommand.FocusPreview, _panels.ToggleFocus);
         _commands.Add(StudioCommand.ResetLayout, () => { _panels.Reset(); _panels.WideTimeline = true; _layout.ResetSizes(); });
@@ -394,6 +438,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     public int InputPriority => -10;
     public bool PreviewInput(UiInput input, IInputContext context)
     {
+        if (_storyboard is not null)
+        {
+            if (input.Kind != InputKind.KeyDown || input.Key != UiKey.Escape) return false;
+            CloseStoryboard();
+            return true;
+        }
         if (_workingReview is { } working)
         {
             if (input.Kind != InputKind.KeyDown || input.Key != UiKey.Escape) return false;
@@ -533,24 +583,27 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         }
         foreach (var (button, command) in _buttons) button.IsEnabled = _commands[command].CanExecute;
         if (_scenarioButton is not null) _scenarioButton.IsEnabled = _model.ProjectReady && _model.CanReload;
+        if (_storyboardButton is not null) _storyboardButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         if (_tracksButton is not null) _tracksButton.IsEnabled = _model.ProjectReady && _model.CanReload;
         if (_workingButton is not null) _workingButton.IsEnabled = _model.Scene?.Fingerprint is not null &&
             _model.Idle && _model.CanReload && !_model.Stale;
         if (_animaticButton is not null) _animaticButton.IsEnabled = _model.SavedFingerprint is not null &&
             _model.Idle && _model.CanReload && !_model.Stale;
-        _frame.Value = _model.FrameLabel;
+        _frame.Value = _model.StoryboardPlan is { } plan ? $"Кадр шкалы {plan.Frame}" : _model.FrameLabel;
         _play.Value = _model.PlayLabel;
         _play.AccessibleName = _model.Playing ? "Приостановить просмотр · Пробел" : "Воспроизвести монтажный клип · Пробел";
-        _timelineCaption.Value = "Таймлайн";
+        _timelineCaption.Value = _model.StoryboardPlan is not null ? "Таймлайн · план" : "Таймлайн";
         _strip.IsEnabled = _model.EmptyProject is null;
-        _strip.AccessibleName = _model.EmptyProject is not null ? "Монтажных клипов пока нет" :
-            "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена";
+        _strip.AccessibleName = _model.StoryboardPlan is { } location ? $"План «{location.Title}», кадр {location.Frame}" :
+            _model.EmptyProject is not null ? "Монтажных клипов пока нет" :
+                "Линейка — перемотка; тело клипа — перенос; края — обрезка; Escape — отмена";
         _timelineWidth.Value = _panels.WideTimeline ? "Компактно" : "На всю ширину";
         _timelineWidth.AccessibleName = _timelineWidth.Value + " · таймлайн";
         _timelineCaption.AccessibleName = _model.MediaStatus;
         _take.Value = _model.TakeLabel;
         _mode.Value = _export?.Job is { } job ? SceneExport.StateText(job) : _model.ViewingSource ? "Исходник" : "Монтаж";
-        _previewMontage.AccessibleName = _model.ViewingSource ? "Перейти к монтажу" : "Монтаж · выбран";
+        _previewMontage.AccessibleName = _model.StoryboardPlan is not null ? "Вернуться к клипам" :
+            _model.ViewingSource ? "Перейти к монтажу" : "Монтаж · выбран";
         _previewSource.AccessibleName = _model.ViewingSource ? "Исходник · выбран" : "Просмотреть исходник";
         _edit.Value = _model.EditLabel; _status.Value = _model.Status; _status.HasError = _model.HasError;
         _status.AccessibleName = _model.Status;
@@ -612,7 +665,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Overlays.Closed -= ContextClosed;
         _export?.Dispose();
         _preview.Source = null; _image?.Dispose(); _image = null;
-        if (ScenarioVisible || _review is not null || _tracks is not null || _workingReview is not null) Overlays.Dispose();
+        if (ScenarioVisible || _review is not null || _tracks is not null || _workingReview is not null || _storyboard is not null) Overlays.Dispose();
         if (!ScenarioVisible) _scenario?.Dispose();
         _readiness?.Stop();
         base.Dispose();

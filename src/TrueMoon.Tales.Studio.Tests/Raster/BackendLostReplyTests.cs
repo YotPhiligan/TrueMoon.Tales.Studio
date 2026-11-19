@@ -77,6 +77,7 @@ public sealed class BackendLostReplyTests
         public Task<BackendPlaybackReply> ClosePlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => inner.ClosePlaybackAsync(key, id, cancellationToken);
         public Task<BackendMediaReply> MediaInfoAsync(string key, string id, long revision, string hash, CancellationToken cancellationToken = default) => inner.MediaInfoAsync(key, id, revision, hash, cancellationToken);
         public Task<BackendMediaReply> FrameAsync(string key, string id, int frame, long revision, string hash, CancellationToken cancellationToken = default) => inner.FrameAsync(key, id, frame, revision, hash, cancellationToken);
+        public Task<BackendMediaReply> StoryboardStillAsync(string key, string segment, string action, long revision, string hash, CancellationToken cancellationToken = default) => inner.StoryboardStillAsync(key, segment, action, revision, hash, cancellationToken);
         internal int MoveCalls;
         public Task<BackendIdentity> HelloAsync(string key, CancellationToken cancellationToken = default) => inner.HelloAsync(key, cancellationToken);
         public Task<BackendProjectReply> OpenProjectAsync(string key, CancellationToken cancellationToken = default) => inner.OpenProjectAsync(key, cancellationToken);

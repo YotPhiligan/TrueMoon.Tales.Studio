@@ -3,6 +3,7 @@ using TrueMoon.Tales.Studio.Contracts.Projects;
 namespace TrueMoon.Tales.Studio.Backend.Export;
 
 internal sealed record AnimaticCard(int StartFrame, int DurationFrames, string Text, string? Still);
+internal sealed record PlannedShot(StoryActionContract Action, int? Start, int? Duration);
 
 internal static class BackendAnimatic
 {
@@ -27,23 +28,11 @@ internal static class BackendAnimatic
                 AddCard(clip.StartFrame, clip.DurationFrames, action, source.Title, window.SegmentId);
             }
 
-            long cursor = window.StartFrame;
-            var end = cursor + window.DurationFrames;
-            var actionClips = clips.ToLookup(row => row.ActionId);
-            foreach (var action in actions)
+            foreach (var shot in PlannedShots(window, actions, clips))
             {
-                if (actionClips.Contains(action.Id))
-                {
-                    cursor = Math.Max(cursor, actionClips[action.Id].Max(clip => (long)clip.StartFrame + clip.DurationFrames));
-                    continue;
-                }
-                var earliest = cursor + action.GapBeforeFrames;
-                var start = action.AnchorFrame ?? earliest;
-                if (action.PlannedDurationFrames is not { } length || start < earliest || start + length > end ||
-                    clips.Any(clip => clip.StartFrame < start + length && (long)clip.StartFrame + clip.DurationFrames > start))
+                if (shot.Start is not { } start || shot.Duration is not { } length)
                     throw new BackendExportException("animatic_timing");
-                AddCard((int)start, length, action, "", window.SegmentId);
-                cursor = start + length;
+                AddCard(start, length, shot.Action, "", window.SegmentId);
             }
         }
         if (cards.Count > 500) throw new BackendExportException("animatic_timing");
@@ -56,6 +45,34 @@ internal static class BackendAnimatic
             var reference = action is not null && segmentId is not null ? stills.GetValueOrDefault((segmentId, action.Id)) : null;
             var text = string.Join('\n', new[] { title.Length == 0 ? "Монтажный план" : title, description }.Where(line => line.Length != 0));
             cards.Add(new(start, duration, text, reference));
+        }
+    }
+
+    internal static IEnumerable<PlannedShot> PlannedShots(SegmentWindowContract window, StoryActionContract[] actions, ClipContract[] clips)
+    {
+        long cursor = window.StartFrame;
+        var end = cursor + window.DurationFrames;
+        var actionClips = clips.ToLookup(row => row.ActionId);
+        var unresolved = false;
+        foreach (var action in actions)
+        {
+            if (actionClips.Contains(action.Id))
+            {
+                cursor = Math.Max(cursor, actionClips[action.Id].Max(clip => (long)clip.StartFrame + clip.DurationFrames));
+                continue;
+            }
+            var earliest = cursor + action.GapBeforeFrames;
+            var start = action.AnchorFrame ?? earliest;
+            var duration = action.PlannedDurationFrames;
+            if (unresolved || duration is not { } length || start < earliest || start > int.MaxValue || start + length > end ||
+                clips.Any(clip => clip.StartFrame < start + length && (long)clip.StartFrame + clip.DurationFrames > start))
+            {
+                unresolved = true;
+                yield return new(action, null, duration);
+                continue;
+            }
+            yield return new(action, (int)start, duration);
+            cursor = start + length;
         }
     }
 

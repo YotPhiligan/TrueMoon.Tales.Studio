@@ -127,6 +127,10 @@ public interface IStudioBackend
     /// <returns>Owned BGRA pixels with SHA256, or a classified refusal.</returns>
     Task<BackendMediaReply> FrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
 
+    /// <summary>Returns the assigned storyboard still for a saved action through the bounded frame envelope.</summary>
+    Task<BackendMediaReply> StoryboardStillAsync(string sessionKey, string segmentId, string actionId, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Checks readiness and the identity of the owned service.</summary>
     /// <param name="sessionKey">The per-launch capability.</param><param name="cancellationToken">The local call deadline.</param>
     /// <returns>The role and contract identity.</returns>

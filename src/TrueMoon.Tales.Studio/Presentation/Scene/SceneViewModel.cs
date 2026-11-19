@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Net;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Editing;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Media;
@@ -36,6 +37,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     public SceneSnapshot? Scene { get; private set; }
     public EmptyProject? EmptyProject { get; private set; }
+    internal StoryboardPosition? StoryboardPlan { get; private set; }
     public bool ProjectReady => Scene is not null || EmptyProject is not null;
     internal long SavedRevision => Scene?.Revision ?? EmptyProject?.Revision ?? 0;
     internal string? SavedFingerprint => Scene?.Fingerprint ?? EmptyProject?.Fingerprint;
@@ -61,7 +63,8 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     public bool CanBeginMove => Editable && !Modified && !Trimming && !Moving && Idle && Scene is { } scene && new TimelineMove(scene).CanMove;
     public int TimelineStart => _timelineStart;
     public int TimelineDuration => Scene is { } scene ? TimelineTrim.Duration(_start, _end, scene.Clip.Speed ?? 1) : 0;
-    public double TimelineCursor => ViewingSource ? _montageCursor : _playCursor ? _timelineStart + _playFrame :
+    internal bool HasTimelineCursor => Assigned || _playCursor;
+    public double TimelineCursor => StoryboardPlan is { } plan ? plan.Frame : ViewingSource ? _montageCursor : _playCursor ? _timelineStart + _playFrame :
         Scene is { } scene ? _timelineStart + (DesiredSourceFrame - _start) / (scene.Clip.Speed ?? 1) : 0;
     private double DesiredSourceFrame => _seekRequested is { } seek ? seek.Frame * Scene!.Fps / seek.Media.Fps : CurrentSourceFrame;
     public int TakeIndex => _takeIndex;
@@ -198,19 +201,30 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         });
     }
 
+    internal void ShowStoryboard(StoryboardPosition position, OpenedBackendProject snapshot)
+    {
+        if (!CanReload) return;
+        ClearPreparedPlayback();
+        if (position.ClipId is not { } clip)
+        {
+            SetEmpty(BackendSceneService.Empty(snapshot), $"План · кадр {position.Frame}");
+            StoryboardPlan = position;
+            return;
+        }
+        Begin("Открываю кадр раскадровки…", async token =>
+        {
+            var opened = await api.OpenEditorAsync(clip, token);
+            if (opened.Scene is not { } scene || scene.Revision != snapshot.Project.Revision ||
+                !string.Equals(scene.Fingerprint, snapshot.Fingerprint, StringComparison.OrdinalIgnoreCase) || scene.Clip.StartFrame != position.Frame)
+                throw new BackendCommandException("revision_conflict");
+            var apply = await PrepareOpeningAsync(opened, token, $"Раскадровка · кадр {position.Frame}");
+            return () => { apply(); _playFrame = 0; _playCursor = true; };
+        });
+    }
+
     private async Task<Action> PrepareOpeningAsync(EditorOpening opened, CancellationToken token, string status)
     {
-            if (opened.Empty is { } empty) return () =>
-            {
-                EmptyProject = empty;
-                Scene = null;
-                Pixels = null;
-                _media = _assignedMedia = null;
-                _stale = false;
-                ClearPreparedPlayback();
-                Status = status;
-                MediaStatus = "Нет клипа с назначенным видеодублем";
-            };
+            if (opened.Empty is { } empty) return () => SetEmpty(empty, status);
             var scene = opened.Scene ?? throw new InvalidDataException("Отсутствует снимок редактора.");
             var index = Array.FindIndex(scene.Takes, take => take.Id == scene.Clip.TakeId);
             if (index < 0) return () =>
@@ -261,7 +275,11 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
     }
 
     public void PreviewSource() => SelectTake(_takeIndex);
-    public void ResumeMontagePreview() => SeekTimeline(_montageCursor);
+    public void ResumeMontagePreview()
+    {
+        if (StoryboardPlan is not null) Open();
+        else SeekTimeline(_montageCursor);
+    }
 
     public void Step(int delta)
     {
@@ -484,6 +502,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
 
     private void SetScene(SceneSnapshot scene)
     {
+        StoryboardPlan = null;
         EmptyProject = null;
         Scene = scene;
         _viewingSource = false;
@@ -491,6 +510,19 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
         _stale = false;
         (_timelineStart, _start, _end) = (scene.Clip.StartFrame, scene.Clip.SourceInFrame, scene.Clip.SourceEnd);
         if (Loaded) PreparePlayback(scene);
+    }
+
+    private void SetEmpty(EmptyProject empty, string status)
+    {
+        StoryboardPlan = null;
+        EmptyProject = empty;
+        Scene = null;
+        Pixels = null;
+        _media = _assignedMedia = null;
+        _stale = false;
+        ClearPreparedPlayback();
+        Status = status;
+        MediaStatus = "Нет клипа с назначенным видеодублем";
     }
 
     private void Present(byte[]? pixels, int index, int frame, MediaInfo media)
