@@ -127,6 +127,15 @@ public interface IStudioBackend
     /// <returns>Owned BGRA pixels with SHA256, or a classified refusal.</returns>
     Task<BackendMediaReply> FrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads one SHA-verified side of a saved draft/final comparison.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="sourceId">Owning library source.</param>
+    /// <param name="finalTakeId">Final take with the saved derivation.</param><param name="draft">Selects the draft side.</param>
+    /// <param name="finalFrame">Frame used to locate the comparison time.</param>
+    /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>
+    /// <param name="cancellationToken">Local call deadline.</param><returns>Bounded verified pixels or a refusal.</returns>
+    Task<BackendMediaReply> TakePairFrameAsync(string sessionKey, string sourceId, string finalTakeId, bool draft, int finalFrame,
+        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Returns the assigned storyboard still for a saved action through the bounded frame envelope.</summary>
     Task<BackendMediaReply> StoryboardStillAsync(string sessionKey, string segmentId, string actionId, long expectedRevision,
         string fingerprint, CancellationToken cancellationToken = default);

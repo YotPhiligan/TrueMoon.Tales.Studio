@@ -30,9 +30,7 @@ internal sealed partial class StudioBackendService
             var version = Convert.ToHexString(await SHA256.HashDataAsync(source, token).ConfigureAwait(false));
             source.Position = 0;
             using var codec = SKCodec.Create(source);
-            if (codec is null || codec.EncodedFormat is not (SKEncodedImageFormat.Png or SKEncodedImageFormat.Jpeg) ||
-                codec.FrameCount > 1 || codec.Info.Width is < 1 or > 8192 || codec.Info.Height is < 1 or > 8192 ||
-                (long)codec.Info.Width * codec.Info.Height > 16_000_000)
+            if (codec is null || !BackendAdaptation.ValidStill(codec))
                 return new() { ErrorCode = "invalid_animatic_still" };
             using var bitmap = SKBitmap.Decode(codec);
             if (bitmap is null) return new() { ErrorCode = "invalid_animatic_still" };

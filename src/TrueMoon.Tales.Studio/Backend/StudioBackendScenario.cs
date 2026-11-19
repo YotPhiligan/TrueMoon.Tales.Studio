@@ -52,6 +52,11 @@ internal sealed partial class StudioBackendService
                 SaveSceneJoin edit => BackendSceneJoins.Apply(baseline.Project, edit),
                 SaveFrameNote edit => await BackendFrameNotes.ApplyAsync(baseline.Project, edit,
                     (anchor, location) => ObserveFrameNoteAsync(baseline, anchor, location, cancellationToken)).ConfigureAwait(false),
+                AddReferenceVersion edit => await BackendReferenceLibrary.AddAsync(baseline.Project, edit, new(options), cancellationToken).ConfigureAwait(false),
+                AssignSceneReference edit => BackendReferenceLibrary.Assign(baseline.Project, edit),
+                RecordTakeReference edit => await BackendReferenceLibrary.RecordInputAsync(baseline.Project, edit, new(options), cancellationToken).ConfigureAwait(false),
+                LinkDraftFinalTake edit => await BackendTakePairs.LinkAsync(baseline.Project, edit,
+                    media ?? throw new ScenarioEditException("decoder_unavailable"), cancellationToken).ConfigureAwait(false),
                 MoveScenarioAction edit => BackendScenarioEdit.MoveAction(baseline.Project, edit, ScenarioActive(baseline)),
                 MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false),
                 _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)

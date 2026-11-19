@@ -13,6 +13,23 @@ internal sealed partial class BackendConnection
         return MediaAsync(assetId, frame, revision, fingerprint, token);
     }
 
+    internal async Task<BackendMediaReply> TakePairFrameAsync(string sourceId, DraftFinalPair pair, bool draft, int finalFrame,
+        OpenedBackendProject baseline, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var revision = baseline.Project.Revision;
+        var reply = await TransportAsync(() => service.TakePairFrameAsync(options.SessionKey, sourceId, pair.Final.TakeId,
+            draft, finalFrame, revision, baseline.Fingerprint, deadline.Token)).ConfigureAwait(false);
+        var sample = draft ? pair.Draft : pair.Final;
+        ValidateMedia(reply, sample.AssetId, draft ? pair.DraftFrameAt(finalFrame) : finalFrame, revision, baseline.Fingerprint);
+        if (!string.Equals(reply.SourceSha256, sample.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Take comparison source SHA mismatch.");
+        return reply;
+    }
+
     internal async Task<BackendMediaReply> StoryboardStillAsync(string segmentId, string actionId, long revision, string fingerprint, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

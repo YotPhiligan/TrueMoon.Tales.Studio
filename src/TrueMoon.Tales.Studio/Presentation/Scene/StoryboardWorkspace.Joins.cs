@@ -284,6 +284,7 @@ internal sealed partial class StoryboardWorkspace
         private readonly PreviewSurface _surface;
         private readonly RichTextEditor _placeholder;
         private readonly VStack _stateFields;
+        private readonly VStack _references = Stack();
         private SkiaImageSource? _pixels;
 
         internal JoinSide(string side)
@@ -295,7 +296,7 @@ internal sealed partial class StoryboardWorkspace
             _placeholder.Height = 122;
             AddNote = Button.Simple(side == "Выход" ? "Замечание к выходу" : "Замечание ко входу").WithRole(SceneView.CommandRole);
             _stateFields = Stack(Text.Plain(State.AccessibleName), State);
-            Content = Stack(_heading, _planTitle, _surface, _placeholder, _caption, _sample, _stateFields, AddNote);
+            Content = Stack(_heading, _planTitle, _surface, _placeholder, _caption, _sample, _references, _stateFields, AddNote);
         }
 
         internal VStack Content { get; }
@@ -314,6 +315,7 @@ internal sealed partial class StoryboardWorkspace
             _image.AccessibleName = $"{_side} · кадр {frame}";
             _placeholder.Text = shot is null ? "На границе нет плана." : shot.Video is null && !shot.Still
                 ? $"{shot.Title}\n{shot.Description}".TrimEnd() : "Читаю кадр…";
+            ShowReferences(_references, shot);
         }
 
         internal void ShowFrame(BackendMediaReply? frame, bool unavailable)

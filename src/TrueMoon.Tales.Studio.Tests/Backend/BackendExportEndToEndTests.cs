@@ -927,6 +927,206 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task TakePairs_FromRaster_RecordFullTransferAndRejectReplacedInput()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=green:s=80x60:r=24:d=1", "-threads", "1", "-n", files.MediaPath("Короткий.mp4")], 2048);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var baseline = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = baseline.Project.Sources.First();
+        var draft = source.Takes.First();
+        baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "Полный дубль", "@videos/Синий.mp4"), baseline);
+        var final = baseline.Project.Sources.First().Takes.Last();
+        baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "Короткий дубль", "@videos/Короткий.mp4"), baseline);
+        var shortTake = baseline.Project.Sources.First().Takes.Last();
+        var link = new LinkDraftFinalTake(source.Id, draft.Id, final.Id, BackendTakePairs.FullTransfer);
+        byte[] before = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await Reject(link with { FinalTakeId = shortTake.Id }, baseline, "take_pair_timing");
+        await Reject(link with { DraftTakeId = final.Id }, baseline, "invalid_take_pair");
+        files.AssertProject(before, history);
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !scenario.NeedsFrame);
+        Click("Библиотека");
+        Click("Полный дубль");
+        Click("Связать с черновиком");
+        Click(BackendScenarioEdit.TakeName(draft));
+        Click("Full Transfer");
+        Click("Сохранить");
+        Assert.False(scenario.HasDraft, scenario.Status);
+        var saved = api.OpenAsync().GetAwaiter().GetResult();
+        var pair = BackendTakePairs.Read(saved.Project.Sources.First().Takes.Single(take => take.Id == final.Id))!;
+        Assert.Equal(("full_transfer", draft.Id, final.Id, 48, 48), (pair.Method, pair.Draft.TakeId, pair.Final.TakeId, pair.Draft.Frames, pair.Final.Frames));
+        var originalDraft = File.ReadAllBytes(files.MediaPath("Красный.mp4"));
+        Assert.Equal(Hash(originalDraft), pair.Draft.Sha256);
+        Assert.Equal(Hash(File.ReadAllBytes(files.MediaPath("Синий.mp4"))), pair.Final.Sha256);
+        Assert.Equal(baseline.Project.Revision + 1, saved.Project.Revision);
+        Assert.Equal(history.Length + 1, files.History().Length);
+        Assert.Contains(files.History(), row => row.SequenceEqual(before));
+        Assert.Equal(baseline.Project.Montage.Clips, saved.Project.Montage.Clips);
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var savedHistory = files.History();
+        Assert.Equal(saved.Fingerprint, api.EditScenarioAsync(link, saved).GetAwaiter().GetResult().Fingerprint);
+        Assert.Equal("take_pair_recorded", Assert.Throws<BackendCommandException>(() =>
+            api.EditScenarioAsync(link with { Method = BackendTakePairs.Direct }, saved).GetAwaiter().GetResult()).Code);
+        Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+            api.EditScenarioAsync(link with { FinalTakeId = shortTake.Id, Method = BackendTakePairs.Direct }, baseline).GetAwaiter().GetResult()).Code);
+
+        var index = Assert.Single(RasterWindow<SceneView>.Walk(scenario).OfType<TextBox>(), row => row.AccessibleName == "Кадр дубля");
+        Reveal(index);
+        host.Click(index);
+        host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
+        host.Input(new(InputKind.Text, Text: "23"));
+        Click("Сравнить с черновиком");
+        var images = RasterWindow<SceneView>.Walk(scenario).OfType<Image>().Where(row => row.Source is not null).ToArray();
+        Assert.Equal(2, images.Length);
+        Assert.All(images, row => Assert.EndsWith("23/47", row.AccessibleName));
+        try
+        {
+            File.Copy(files.MediaPath("Синий.mp4"), files.MediaPath("Красный.mp4"), overwrite: true);
+            Click("Сравнить с черновиком");
+            Assert.Contains("Видео отличается от записанной версии", scenario.Status);
+            Assert.All(images, row => Assert.Null(row.Source));
+        }
+        finally { File.WriteAllBytes(files.MediaPath("Красный.mp4"), originalDraft); }
+        files.AssertProject(bytes, savedHistory);
+        var direct = api.EditScenarioAsync(link with { FinalTakeId = shortTake.Id, Method = BackendTakePairs.Direct }, saved).GetAwaiter().GetResult();
+        var directSource = direct.Project.Sources.First();
+        var alternative = Assert.IsType<DraftFinalPair>(BackendTakePairs.Read(directSource.Takes.Single(take => take.Id == shortTake.Id)));
+        Assert.Equal(("direct", draft.Id, 48, 24), (alternative.Method, alternative.Draft.TakeId, alternative.Draft.Frames, alternative.Final.Frames));
+        Assert.Equal(pair, BackendTakePairs.Read(directSource.Takes.Single(take => take.Id == final.Id)));
+        Assert.Empty(files.Requests());
+
+        async Task Reject(ScenarioCommand command, OpenedBackendProject head, string code) =>
+            Assert.Equal(code, (await Assert.ThrowsAsync<BackendCommandException>(() => api.EditScenarioAsync(command, head))).Code);
+        void Click(string label)
+        {
+            var button = ButtonIn(scenario, label);
+            Assert.True(button.IsVisible && button.IsEffectivelyEnabled);
+            Reveal(button);
+            host.Click(button);
+            host.PumpUntil(() => !scenario.NeedsFrame);
+        }
+        void Reveal(Element element)
+        {
+            for (var node = element.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(element.Bounds); host.Update(); break; }
+        }
+    }
+
+    [BackendMediaFact]
+    public async Task ReferenceVersions_FromRaster_ReassignSceneAndKeepObservedTakeInput()
+    {
+        TrueMoon.Alloy.Rendering.Skia.SkiaNativeLibrary.Initialize();
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        WritePng("Watch-1.png", SkiaSharp.SKColors.Red);
+        WritePng("Watch-2.png", SkiaSharp.SKColors.Lime);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var opened = await api.AcquireWriterAsync(await api.OpenAsync());
+        var legacy = opened.Project.Sources.First();
+        Assert.Empty(BackendReferenceLibrary.Read(opened.Project).Entries);
+        Assert.Empty(BackendReferenceLibrary.Inputs(legacy.Takes[0]));
+        var baseline = await api.EditScenarioAsync(new SaveSegment(null, "Привал с часами", "", 800, 160), opened);
+        var segment = baseline.Project.Segments.Last();
+        baseline = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Ладонь", "", 12), baseline);
+        var action = baseline.Project.Segments.Last().Actions.Single();
+        baseline = await api.EditScenarioAsync(new LinkSource(segment.Id, action.Id, legacy.Id, null), baseline);
+        baseline = await api.EditScenarioAsync(new PlaceClip(segment.Id, action.Id, legacy.Id, legacy.Takes[0].Id, 800, 12, 0), baseline);
+        var create = new AddReferenceVersion(null, "Часы Эйко", "prop", "До завода", "@videos/Watch-1.png");
+        var first = await api.EditScenarioAsync(create, baseline);
+        var entry = Assert.Single(BackendReferenceLibrary.Read(first.Project).Entries);
+        Assert.Equal(Hash(File.ReadAllBytes(files.MediaPath("Watch-1.png"))), entry.Versions[0].Sha256);
+        Assert.Equal(first.Fingerprint, (await api.EditScenarioAsync(create, first)).Fingerprint);
+        var second = await api.EditScenarioAsync(new AddReferenceVersion(entry.Id, null, null, "После завода", "@videos/Watch-2.png"), first);
+        var assign = new AssignSceneReference(segment.Id, null, entry.Id, 1);
+        var assigned = await api.EditScenarioAsync(assign, second);
+        var pin = new RecordTakeReference(legacy.Id, legacy.Takes[0].Id, entry.Id, 1);
+        var originalImage = File.ReadAllBytes(files.MediaPath("Watch-1.png"));
+        var beforePin = File.ReadAllBytes(files.ProjectPath);
+        var beforePinHistory = files.History();
+        WritePng("Watch-1.png", SkiaSharp.SKColors.Blue);
+        try
+        {
+            await Reject(pin, assigned, "reference_changed");
+            await Reject(new AddReferenceVersion(entry.Id, null, null, "Заменённый файл", "@videos/Watch-1.png"),
+                assigned, "reference_version_exists");
+            files.AssertProject(beforePin, beforePinHistory);
+        }
+        finally { File.WriteAllBytes(files.MediaPath("Watch-1.png"), originalImage); }
+        var pinned = await api.EditScenarioAsync(pin, assigned);
+        Assert.Equal(pinned.Fingerprint, (await api.EditScenarioAsync(pin, pinned)).Fingerprint);
+        var before = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        await Reject(assign with { Version = 2 }, assigned, "revision_conflict");
+        await Reject(pin with { Version = 2 }, pinned, "reference_input_recorded");
+        await Reject(assign with { Version = 9 }, pinned, "invalid_reference_target");
+        await Reject(new AddReferenceVersion(entry.Id, null, null, "Та же опора", "@videos/Watch-1.png"), pinned, "reference_version_exists");
+        files.AssertProject(before, history);
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !scenario.NeedsFrame);
+        Click(scenario, segment.Name);
+        Click(scenario, "Эталоны");
+        Click(scenario, "v2 · После завода");
+        Click(scenario, "Назначить сцене");
+        Click(scenario, "Сохранить");
+        Assert.False(scenario.HasDraft, scenario.Status);
+        var changed = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(pinned.Project.Revision + 1, changed.Project.Revision);
+        Assert.Equal(history.Length + 1, files.History().Length);
+        Assert.Contains(files.History(), item => item.SequenceEqual(before));
+        Assert.Equal(2, Assert.Single(BackendReferenceLibrary.Read(changed.Project).For(segment.Id, action.Id)).Version.Number);
+        Assert.Equal(1, Assert.Single(BackendReferenceLibrary.Inputs(changed.Project.Sources.First().Takes[0])).Version.Number);
+        Assert.Equal(pinned.Project.Montage.Clips, changed.Project.Montage.Clips);
+        Assert.Equal(ProjectTakeJson(pinned), ProjectTakeJson(changed));
+
+        Click(scenario, "К монтажу");
+        host.PumpUntil(() => !model.NeedsFrame);
+        host.Click(ButtonIn(host.Window.Navigation, "Раскадровка"));
+        var board = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+        host.PumpUntil(() => !board.NeedsFrame);
+        Click(board, "0800 · Ладонь");
+        var labels = RasterWindow<SceneView>.Walk(board).OfType<Text>().Where(row => row.IsVisible).Select(row => row.Value).ToArray();
+        Assert.Contains("Сцена · Часы Эйко · v2", labels);
+        Assert.Contains("Дубль · Часы Эйко · v1", labels);
+        host.Capture("scene-reference-and-original-take-input", new { changed.Project.Revision });
+        Assert.Empty(files.Requests());
+
+        void WritePng(string name, SkiaSharp.SKColor color)
+        {
+            using var bitmap = new SkiaSharp.SKBitmap(40, 24);
+            bitmap.Erase(color);
+            using var png = bitmap.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            File.WriteAllBytes(files.MediaPath(name), png.ToArray());
+        }
+        async Task Reject(ScenarioCommand command, OpenedBackendProject head, string code) =>
+            Assert.Equal(code, (await Assert.ThrowsAsync<BackendCommandException>(() => api.EditScenarioAsync(command, head))).Code);
+        string ProjectTakeJson(OpenedBackendProject project) => JsonSerializer.Serialize(project.Project.Sources.First().Takes[0]);
+        void Click(Element root, string label)
+        {
+            var button = ButtonIn(root, label);
+            Assert.True(button.IsVisible && button.IsEffectivelyEnabled);
+            for (var node = button.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); break; }
+            host.Click(button);
+            host.PumpUntil(() => !((IUiFrameParticipant)root).NeedsFrame);
+        }
+    }
+
+    [BackendMediaFact]
     public async Task Storyboard_PlanJoins_CompareLastTakeFrameWithStillInsideScene()
     {
         using var files = new ExportFixture();

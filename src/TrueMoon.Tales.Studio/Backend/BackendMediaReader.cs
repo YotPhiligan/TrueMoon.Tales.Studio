@@ -11,6 +11,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 // One media operation at a time, no retained frame cache or writes to project/cache roots.
 internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolvers, BackendMediaDecoder decoder)
 {
+    private const long MaxTakeBytes = 512L * 1024 * 1024;
     private readonly SemaphoreSlim _slot = new(1, 1);
     private readonly Lazy<BackendMediaResolver> _resolver = new(() => resolvers.Create() ?? throw new InvalidDataException("Missing media resolver."));
 
@@ -23,6 +24,31 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         if (resolver.Resolve(reference) != path)
             throw new UnauthorizedAccessException("Media path changed during inspection.");
         return info;
+    }
+
+    internal async Task<TakeVideoSnapshot> SnapshotTakeAsync(ProjectContract project, TakeContract take, CancellationToken token)
+    {
+        var asset = take.VideoAssetId!;
+        var reference = BackendScenarioEdit.TryReference(project, asset) ?? throw new ScenarioEditException("media_not_found");
+        await _slot.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            var resolver = _resolver.Value;
+            var path = resolver.Resolve(reference);
+            await using var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous);
+            var hash = await HashTakeAsync(lease, token).ConfigureAwait(false);
+            var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
+            if (resolver.Resolve(reference) != path) throw new UnauthorizedAccessException("Media path changed during inspection.");
+            return new(take.Id, BackendScenarioEdit.TakeName(take), asset, reference, hash, info.Fps, info.FrameCount, info.Width, info.Height);
+        }
+        catch (InvalidDataException) { throw new ScenarioEditException("invalid_media"); }
+        finally { _slot.Release(); }
+    }
+
+    private static async Task<string> HashTakeAsync(FileStream lease, CancellationToken token)
+    {
+        if (lease.Length is < 1 or > MaxTakeBytes) throw new InvalidDataException("Video exceeds the take fingerprint limit.");
+        return Convert.ToHexString(await SHA256.HashDataAsync(lease, token).ConfigureAwait(false));
     }
 
     internal async Task<double> ProbeAudioReferenceAsync(string reference, int stream, CancellationToken token)
@@ -111,7 +137,8 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         }
         catch { foreach (var lease in leases) await lease.DisposeAsync().ConfigureAwait(false); throw; }
     }
-    internal async Task<BackendMediaReply> ReadAsync(ProjectContract project, string assetId, int frame, CancellationToken token)
+    internal async Task<BackendMediaReply> ReadAsync(ProjectContract project, string assetId, int frame, CancellationToken token,
+        TakeVideoSnapshot? expected = null)
     {
         if (!await _slot.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
         try
@@ -127,7 +154,12 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
             var path = resolver.Resolve(reference.GetString()!);
             // Deny replacement/write while a decoder opens the validated local file.
             await using var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+            var sourceSha = expected is null ? null : await HashTakeAsync(lease, token).ConfigureAwait(false);
+            if (expected is not null && !string.Equals(sourceSha, expected.Sha256, StringComparison.OrdinalIgnoreCase))
+                return new() { ErrorCode = "take_pair_changed" };
             var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
+            if (expected is not null && (expected.Fps, expected.Frames, expected.Width, expected.Height) !=
+                (info.Fps, info.FrameCount, info.Width, info.Height)) return new() { ErrorCode = "take_pair_changed" };
             if (frame < -1 || frame >= info.FrameCount) return new() { ErrorCode = "invalid_frame" };
             var pixels = frame < 0 ? [] : await decoder.ReadAsync(path, frame, info, token).ConfigureAwait(false);
             if (resolver.Resolve(reference.GetString()!) != path) return new() { ErrorCode = "access_denied" };
@@ -135,7 +167,8 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
             {
                 AssetId = assetId, Revision = project.Revision, Fps = info.Fps, FrameCount = info.FrameCount,
                 SourceWidth = info.Width, SourceHeight = info.Height, Width = FrameDecoder.Width, Height = FrameDecoder.Height,
-                FrameIndex = frame, Pixels = pixels, PixelSha256 = frame < 0 ? "" : Convert.ToHexString(SHA256.HashData(pixels))
+                FrameIndex = frame, Pixels = pixels, PixelSha256 = frame < 0 ? "" : Convert.ToHexString(SHA256.HashData(pixels)),
+                SourceSha256 = sourceSha
             };
         }
         catch (UnauthorizedAccessException) { return new() { ErrorCode = "access_denied" }; }

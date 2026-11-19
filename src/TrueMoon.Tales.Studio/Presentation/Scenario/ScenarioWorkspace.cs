@@ -33,7 +33,8 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private Action? _refreshDraftChapter;
     private Button? _storyboardFocus;
     private bool _stale;
-    private bool? _showChapter;
+    private enum Pane { Chapter, Library, References }
+    private Pane? _pane;
     private string _query = "";
     private string? _segmentId, _actionId, _sourceId, _takeId, _clipId;
 
@@ -62,8 +63,8 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _editAction = ButtonFor("Править действие", () => ActionForm(Story));
         _order = ButtonFor("Переставить", OrderForm);
         _order.AccessibleName = "Изменить порядок планов";
-        _chapterTab = ButtonFor("Текст главы", () => PickChapter(true));
-        _libraryTab = ButtonFor("Библиотека", () => PickChapter(false));
+        _chapterTab = ButtonFor("Текст главы", () => PickPane(Pane.Chapter));
+        _libraryTab = ButtonFor("Библиотека", () => PickPane(Pane.Library));
         _segmentText = ButtonFor("Текст сегмента", () => TextForm(Segment!, null));
         _actionText = ButtonFor("Текст действия", () => TextForm(Segment!, Story));
         _animaticStill = ButtonFor("Кадр аниматика", AnimaticStillForm);
@@ -92,20 +93,21 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
             Caption("Клипы действия"), _clips, _link, _place, _assign);
         var find = ButtonFor("Найти", () => { _query = _search.Value.Trim(); RefreshLists(); });
         _library = Stack(new StudioHeading(_search, find), Row(_import, _addTake),
-            _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink,
+            _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink, CreateTakePairPanel(),
             new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB),
             new FramePair(_first.Content, _second.Content));
         _browser = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 420 };
         _browser.FirstPane.MinWidth = 320; _browser.SecondPane.MinWidth = 340;
         _browser.Divider.AccessibleName = "Ширина сценария";
         _browser.FirstPane.SetContent(ScrollViewer.Create().Content(Inset(story)));
-        _browser.SecondPane.SetContent(new WorkspaceLayout(Inset(Row(_chapterTab, _libraryTab)),
-            ScrollViewer.Create().Content(Inset(Stack(_chapterDetails, _library))), new Text { IsVisible = false }));
+        var references = CreateReferencePane();
+        _browser.SecondPane.SetContent(new WorkspaceLayout(Inset(Row(_chapterTab, _libraryTab, _referenceTab)),
+            ScrollViewer.Create().Content(Inset(Stack(_chapterDetails, _library, references))), new Text { IsVisible = false }));
         _body.SetContent(_browser);
         _title.FontSize = 22;
         SetContent(new WorkspaceLayout(new StudioHeading(_title, _back), _body,
             Stack(_status, Row(_commit, _cancel, _reload))));
-        ShowChapter(false);
+        ShowPane(Pane.Library);
         RefreshCommands();
     }
 
@@ -115,7 +117,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     {
         _baseline = snapshot;
         _stale = false;
-        _showChapter = null;
+        _pane = null;
         _segmentId = shot.SegmentId;
         _actionId = shot.ActionId;
         _clipId = shot.Position?.ClipId;
@@ -166,6 +168,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
 
     internal void ClearPreview()
     {
+        _shownPair = null;
         _first.Clear();
         _second.Clear();
     }
@@ -208,6 +211,16 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "text_changed" => "Исходный текст изменился. Прочитайте новую версию перед сохранением.",
                 "text_unavailable" or "text_timeout" => "Не удалось прочитать исходный текст.",
                 "invalid_animatic_still" => "Укажите доступный PNG или JPEG из настроенного каталога.",
+                "invalid_reference" => "Проверьте название, категорию, метку и путь опоры.",
+                "invalid_reference_target" => "Эталон, версия или назначение отсутствуют. Перечитайте проект.",
+                "reference_name_exists" => "Эталон с таким названием уже есть. Выберите его и добавьте версию.",
+                "reference_version_exists" => "Этот файл уже зарегистрирован. Выберите отдельный файл для новой версии.",
+                "reference_input_recorded" => "Фактическая опора дубля уже записана.",
+                "reference_changed" => "Содержимое файла изменилось. Для новой версии используйте отдельный файл.",
+                "invalid_take_pair" => "Выберите два разных готовых дубля одного источника.",
+                "take_pair_recorded" => "Связь этого финала уже записана. Для другого варианта добавьте новый дубль.",
+                "take_pair_timing" => "Для Full Transfer оба дубля должны иметь 24 кадра/с и одинаковое число кадров.",
+                "take_pair_changed" => "Видео отличается от записанной версии. Для сравнения нужен исходный файл.",
                 "invalid_scenario_edit" => "Проверьте поля и выбранные связи.",
                 _ => error.Message
             }, error: true);
@@ -260,6 +273,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
         var sourceTitle = Source!.Title;
         var takeName = BackendScenarioEdit.TakeName(take);
+        if (_shownPair is not null) ClearPreview();
         Start("Читаю кадр…", async token =>
         {
             var frame = await _backend.FrameAsync(asset, number, baseline.Project.Revision, baseline.Fingerprint, token).ConfigureAwait(false);
@@ -278,6 +292,12 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 var source = edit.SourceId is null ? project.Sources.Last() : project.Sources.Single(row => row.Id == edit.SourceId);
                 _sourceId = source.Id; _takeId = source.Takes.Last().Id; _query = _search.Value = ""; break;
             case PlaceClip: _clipId = project.Montage.Clips.Last().Id; break;
+            case AddReferenceVersion edit:
+                var entries = BackendReferenceLibrary.Read(project).Entries;
+                var entry = edit.ReferenceId is null ? entries.Last() : entries.Single(row => row.Id == edit.ReferenceId);
+                _referenceId = entry.Id;
+                _referenceVersion = entry.Versions[^1].Number;
+                break;
         }
     }
 
@@ -320,8 +340,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _scenePurpose.Text = segment?.Description ?? "";
         _visibleAction.Text = action?.Description ?? "";
         _audibleAction.Text = action?.SoundNotes ?? "";
-        ShowChapter(_showChapter ?? bound is not null);
+        ShowPane(_pane ?? (bound is null ? Pane.Library : Pane.Chapter));
         _sourceInfo.Value = Take?.VideoAssetId is { } asset ? ShortReference(BackendScenarioEdit.TryReference(project, asset) ?? "Файл не указан") : "";
+        RefreshTakePairs();
+        RefreshReferences(project);
         RefreshCommands();
     }
 
@@ -351,6 +373,9 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _assign.IsEnabled = ready && video && Clip is { } clip && clip.SourceId == _sourceId && clip.TakeId != _takeId;
         _addTake.IsEnabled = ready && Source is not null;
         _relink.IsEnabled = _frameA.IsEnabled = _frameB.IsEnabled = ready && video;
+        _linkTakePair.IsEnabled = ready && _baseline?.SchemaVersion == 2;
+        _compareTakePair.IsEnabled = ready && _takePair is not null;
+        RefreshReferenceCommands(ready && _baseline?.SchemaVersion == 2);
     }
 
     private static void Rows(VStack target, IEnumerable<(string Id, string Name)> rows, string? selection, Action<string> select)

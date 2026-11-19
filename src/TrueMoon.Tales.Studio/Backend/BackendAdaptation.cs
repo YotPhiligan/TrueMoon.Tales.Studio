@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SkiaSharp;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -106,6 +107,10 @@ internal static class BackendAdaptation
             throw new ScenarioEditException("invalid_animatic_still");
         return path;
     }
+
+    internal static bool ValidStill(SKCodec codec) => codec.EncodedFormat is SKEncodedImageFormat.Png or SKEncodedImageFormat.Jpeg &&
+        codec.FrameCount <= 1 && codec.Info.Width is >= 1 and <= 8192 && codec.Info.Height is >= 1 and <= 8192 &&
+        (long)codec.Info.Width * codec.Info.Height <= 16_000_000;
 
     private static void RequireTarget(ProjectContract project, string segmentId, string? actionId)
     {

@@ -12,20 +12,22 @@ internal sealed partial class ScenarioWorkspace
             texts.FirstOrDefault(row => row.SegmentId == segmentId && row.ActionId is null);
     }
 
-    private void PickChapter(bool show)
+    private void PickPane(Pane pane)
     {
-        _showChapter = show;
-        ShowChapter(show);
+        _pane = pane;
+        ShowPane(pane);
     }
 
-    private void ShowChapter(bool show)
+    private void ShowPane(Pane pane)
     {
-        _chapterDetails.IsVisible = show;
-        _library.IsVisible = !show;
-        _sceneNotes.IsVisible = show && Segment is not null;
-        _actionNotes.IsVisible = show && Story is not null;
-        _chapterTab.Tone = show ? ControlTone.Accent : ControlTone.Neutral;
-        _libraryTab.Tone = show ? ControlTone.Neutral : ControlTone.Accent;
+        _chapterDetails.IsVisible = pane == Pane.Chapter;
+        _library.IsVisible = pane == Pane.Library;
+        _referencePane.IsVisible = pane == Pane.References;
+        _sceneNotes.IsVisible = _chapterDetails.IsVisible && Segment is not null;
+        _actionNotes.IsVisible = _chapterDetails.IsVisible && Story is not null;
+        _chapterTab.Tone = _chapterDetails.IsVisible ? ControlTone.Accent : ControlTone.Neutral;
+        _libraryTab.Tone = _library.IsVisible ? ControlTone.Accent : ControlTone.Neutral;
+        _referenceTab.Tone = _referencePane.IsVisible ? ControlTone.Accent : ControlTone.Neutral;
     }
 
     private static RichTextEditor ReadOnlyText(string label, float height) => new(new() { IsReadOnly = true })

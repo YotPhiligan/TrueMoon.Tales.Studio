@@ -17,7 +17,12 @@ internal sealed partial class StudioBackendService
             ReadMediaAsync(sessionKey, assetId, frame, expectedRevision, fingerprint, cancellationToken);
     }
 
-    private async Task<BackendMediaReply> ReadMediaAsync(string key, string assetId, int frame, long revision, string fingerprint, CancellationToken token, bool waitForAdmission = false)
+    public Task<BackendMediaReply> TakePairFrameAsync(string sessionKey, string sourceId, string finalTakeId, bool draft, int finalFrame,
+        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
+        ReadMediaAsync(sessionKey, "", finalFrame, expectedRevision, fingerprint, cancellationToken, pair: (sourceId, finalTakeId, draft));
+
+    private async Task<BackendMediaReply> ReadMediaAsync(string key, string assetId, int frame, long revision, string fingerprint,
+        CancellationToken token, bool waitForAdmission = false, (string Source, string Final, bool Draft)? pair = null)
     {
         Authorize(key);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -38,7 +43,12 @@ internal sealed partial class StudioBackendService
             if (document.SchemaVersion != 2) return new() { ErrorCode = "migration_required" };
             if (media is null) return new() { ErrorCode = "decoder_unavailable" };
             BackendMediaReply reply;
-            if (BackendRenderedMontage.IsReview(assetId))
+            if (pair is { } target)
+            {
+                var (sample, index) = BackendTakePairs.Frame(document.Project, target.Source, target.Final, target.Draft, frame);
+                reply = await media.ReadAsync(document.Project, sample.AssetId, index, timeout.Token, sample).ConfigureAwait(false);
+            }
+            else if (BackendRenderedMontage.IsReview(assetId))
             {
                 var (id, start) = BackendRenderedMontage.Parse(assetId);
                 var (job, file) = await _exports.OpenReviewAsync(id, revision, fingerprint, timeout.Token).ConfigureAwait(false);
@@ -57,6 +67,7 @@ internal sealed partial class StudioBackendService
         catch (ProjectRecoveryRequiredException) { return new() { ErrorCode = "recovery_required" }; }
         catch (UnauthorizedAccessException) { return new() { ErrorCode = "access_denied" }; }
         catch (BackendExportException error) { return new() { ErrorCode = error.Code }; }
+        catch (ScenarioEditException error) { return new() { ErrorCode = error.Code }; }
         catch (FileNotFoundException) { return new() { ErrorCode = "media_not_found" }; }
         catch (InvalidDataException) { return new() { ErrorCode = "invalid_media" }; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested) { return new() { ErrorCode = "media_timeout" }; }

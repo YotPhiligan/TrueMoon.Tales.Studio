@@ -13,6 +13,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     private readonly Action<StoryboardShot, OpenedBackendProject, bool> _navigate;
     private readonly CancellationTokenSource _closing = new();
     private readonly VStack _rows = VStack.Create().Configure(stack => stack.Spacing = 6);
+    private readonly VStack _planReferences = Stack();
     private readonly Text _count = new(), _title = new(), _timing = new(), _text = new(), _status = new();
     private readonly Button _reload, _action, _frame, _back, _joinToggle, _planJoinToggle;
     private readonly VStack _planDetails, _joinDetails;
@@ -44,7 +45,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _action = Command("К действию", () => Jump(toAction: true));
         _frame = Command("К кадру", () => Jump(toAction: false));
         _surface = new(_preview) { Height = 224, IsVisible = false };
-        _planDetails = Stack(_title, _timing, Row(_action, _frame), _framePicker, _surface, _addNote, _description, _text);
+        _planDetails = Stack(_title, _timing, Row(_action, _frame), _framePicker, _surface, _addNote, _description, _text, _planReferences);
         _joinDetails = CreateJoinDetails();
         _noteDetails = CreateFrameNoteDetails();
         _split = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 380 };
@@ -125,6 +126,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _timing.Value = _title.Value = _text.Value = "";
         _text.IsVisible = false;
         _description.IsVisible = false;
+        ShowReferences(_planReferences, null);
         Show(shots.Length == 0 ? "Добавьте действие в сценарии или разместите клип." : "Выберите план.");
     }
 
@@ -139,6 +141,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
             : $"{shot.Medium} · без позиции на шкале{(shot.PlannedDuration is { } length ? $" · {length} к." : "")}";
         _description.Text = shot.Description;
         _description.IsVisible = shot.Description.Length > 0;
+        ShowReferences(_planReferences, shot);
         _text.Value = shot.Text is { } text ? $"Строки {text.FirstLine}–{text.LastLine} · {text.Sha256[..12]}" : "";
         _text.IsVisible = _text.Value.Length > 0;
         Show(shot.Position is null ? "Проверьте окно и длительность действия." : "");

@@ -95,6 +95,8 @@ public sealed class BackendConnectionTests
         public Task<BackendPlaybackReply> ClosePlaybackAsync(string key, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendMediaReply> MediaInfoAsync(string key, string id, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendMediaReply> FrameAsync(string key, string id, int frame, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendMediaReply> TakePairFrameAsync(string key, string source, string final, bool draft, int frame, long revision, string hash,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendMediaReply> StoryboardStillAsync(string key, string segment, string action, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> AcquireWriterAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> MigrateProjectAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();

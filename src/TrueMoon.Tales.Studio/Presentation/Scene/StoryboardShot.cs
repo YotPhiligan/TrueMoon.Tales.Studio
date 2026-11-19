@@ -15,10 +15,13 @@ internal sealed record StoryboardShot(string SegmentName, string? SegmentId, str
     StoryboardPosition? Position, int? PlannedDuration, string? Video, double SourceIn, bool Still, ChapterFragment? Text, double Speed = 1)
 {
     internal string Medium => Video is not null ? "Видео" : Still ? "Стоп-кадр" : "Карточка";
+    internal (ReferenceEntry Entry, ReferenceVersion Version, bool Action)[] AssignedReferences { get; init; } = [];
+    internal TakeReferenceInput[] TakeReferences { get; init; } = [];
 
     internal static StoryboardShot[] Read(ProjectContract project)
     {
         var notes = BackendAdaptation.Read(project);
+        var references = BackendReferenceLibrary.Read(project);
         var segments = project.Segments.ToDictionary(segment => segment.Id, StringComparer.Ordinal);
         var sources = project.Sources.ToDictionary(source => source.Id, StringComparer.Ordinal);
         var windows = project.Montage.Windows.ToLookup(window => window.SegmentId);
@@ -42,7 +45,7 @@ internal sealed record StoryboardShot(string SegmentName, string? SegmentId, str
                 var take = source.Takes.FirstOrDefault(row => row.Id == clip.TakeId);
                 var title = action?.Title ?? source.Title;
                 var position = new StoryboardPosition(axis, clip.StartFrame, clip.DurationFrames, title, clip.Id);
-                shots.Add(Card(segment, action, title, position, take?.VideoAssetId, clip.SourceInFrame, clip.Speed));
+                shots.Add(Card(segment, action, title, position, take, clip.SourceInFrame, clip.Speed));
             }
             foreach (var shot in BackendAnimatic.PlannedShots(window, actions, clips))
             {
@@ -58,14 +61,18 @@ internal sealed record StoryboardShot(string SegmentName, string? SegmentId, str
         return rows.ToArray();
 
         StoryboardShot Card(ScenarioSegmentContract? segment, StoryActionContract? action, string title,
-            StoryboardPosition? position, string? video = null, double sourceIn = 0, double speed = 1)
+            StoryboardPosition? position, TakeContract? take = null, double sourceIn = 0, double speed = 1)
         {
             var id = segment?.Id;
             var actionId = action?.Id;
             var still = id is not null && actionId is not null && stills.Contains((id, actionId));
             var text = id is null ? null : texts.GetValueOrDefault((id, actionId)) ?? texts.GetValueOrDefault((id, null));
             return new(segment?.Name ?? position?.Window.Name ?? "", id, actionId, title, action?.Description ?? "",
-                position, action?.PlannedDurationFrames, video, sourceIn, still, text, speed);
+                position, action?.PlannedDurationFrames, take?.VideoAssetId, sourceIn, still, text, speed)
+            {
+                AssignedReferences = id is null ? [] : references.For(id, actionId).ToArray(),
+                TakeReferences = BackendReferenceLibrary.Inputs(take)
+            };
         }
     }
 }

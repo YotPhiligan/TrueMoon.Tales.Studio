@@ -28,6 +28,10 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(SaveAnimaticStill), "save_animatic_still")]
 [JsonDerivedType(typeof(SaveSceneJoin), "save_scene_join")]
 [JsonDerivedType(typeof(SaveFrameNote), "save_frame_note")]
+[JsonDerivedType(typeof(AddReferenceVersion), "add_reference_version")]
+[JsonDerivedType(typeof(AssignSceneReference), "assign_scene_reference")]
+[JsonDerivedType(typeof(RecordTakeReference), "record_take_reference")]
+[JsonDerivedType(typeof(LinkDraftFinalTake), "link_draft_final_take")]
 internal abstract record ScenarioCommand
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -59,6 +63,10 @@ internal sealed record SaveAnimaticStill(string SegmentId, string ActionId, stri
 internal sealed record SaveSceneJoin(string LeftWindowId, string RightWindowId, string ExitState, string EntryState,
     string Bridge) : ScenarioCommand;
 internal sealed record SaveFrameNote(string? Id, FrameNoteAnchor? Anchor, string Text) : ScenarioCommand;
+internal sealed record AddReferenceVersion(string? ReferenceId, string? Name, string? Kind, string Label, string ImageReference) : ScenarioCommand;
+internal sealed record AssignSceneReference(string SegmentId, string? ActionId, string ReferenceId, int? Version) : ScenarioCommand;
+internal sealed record RecordTakeReference(string SourceId, string TakeId, string ReferenceId, int Version) : ScenarioCommand;
+internal sealed record LinkDraftFinalTake(string SourceId, string DraftTakeId, string FinalTakeId, string Method) : ScenarioCommand;
 internal sealed record ImportVideo(string? SourceId, string Title, string TakeName, string Reference) : ScenarioCommand;
 internal sealed record RelinkVideo(string SourceId, string TakeId, string Reference) : ScenarioCommand;
 internal sealed record PlaceClip(string SegmentId, string ActionId, string SourceId, string TakeId,

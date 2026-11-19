@@ -58,6 +58,32 @@
   план теряет позицию, возвращается `scenario_order_timing`.
   Для окна мигрированного сценария сохранённая перестановка фиксирует
   текущее ручное размещение клипов в этом окне.
+- Enerit protocol19 добавляет команды `EditScenarioAsync` для эталонов.
+  `add_reference_version` с `reference_id: null` создаёт эталон по `name`,
+  `kind`, `label` и `image_reference`. Варианты `kind` — `character`,
+  `costume`, `location`, `prop`, `style`. С указанным `reference_id` команда
+  добавляет версию и принимает `name: null`, `kind: null`. Backend фиксирует
+  SHA-256 PNG/JPEG из разрешённого `@mount`. Номера версий начинаются с 1.
+  `assign_scene_reference` принимает `segment_id`, опциональный `action_id`,
+  `reference_id` и номер `version`. `version: null` снимает назначение.
+  `record_take_reference` принимает `source_id`, `take_id`, `reference_id`
+  и номер `version`. Перед записью повторно сверяется SHA. Повтор с той же
+  версией возвращает прежний снимок, попытка выбрать другую даёт
+  `reference_input_recorded`. Все команды используют ревизию и SHA
+  проекта и текущего writer. HTTP APIv1, schema2 и ProjectContract v1 сохранены.
+- Enerit protocol20 добавляет `link_draft_final_take` через `EditScenarioAsync`.
+  Поля `source_id`, `draft_take_id`, `final_take_id` выбирают два готовых
+  видео одного источника. `method` принимает `direct` или `full_transfer`.
+  При Full Transfer ожидаются 24 кадра/с и равное число кадров. Writer
+  сверяет ревизию и SHA проекта, вычисляет SHA файлов (до 512 МиБ каждый)
+  и сохраняет снимки в свойствах финала. Повтор той же связи идемпотентен.
+  Для другого финального результата импортируется новый дубль.
+- `TakePairFrameAsync` выбирает связанную пару по `sourceId` и `finalTakeId`,
+  сторону по `draft` и время по `finalFrame`. Ревизия и SHA проекта
+  сверяются до и после чтения. Ответ использует `BackendMediaReply` с
+  `source_sha256` и SHA пикселей. Если файл изменился, возвращается
+  `take_pair_changed`. Для прямой генерации кадр черновика выбирается по
+  времени финала, по окончании черновика показывается последний кадр.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
