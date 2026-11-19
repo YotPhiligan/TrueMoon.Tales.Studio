@@ -17,6 +17,7 @@ internal sealed class BackendExportJobs : IDisposable
     private readonly Func<ProjectFileDocument, string, string, CancellationToken, Task<BackendExportPlan>> _plan;
     private readonly Func<string, string, CancellationToken, Task> _run;
     private ActiveJob? _active;
+    private string? _workingId;
     private int _disposed;
 
     internal BackendExportJobs(BackendOptions options,
@@ -30,7 +31,7 @@ internal sealed class BackendExportJobs : IDisposable
     }
 
     internal async Task<BackendExportReply> StartAsync(string clientKey, string profile, long expectedRevision, string fingerprint,
-        Func<CancellationToken, Task<ProjectFileDocument>> observe, CancellationToken token)
+        Func<CancellationToken, Task<ProjectFileDocument>> observe, CancellationToken token, bool working = false)
     {
         if (clientKey is not { Length: >= 16 and <= 80 } || !clientKey.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-') ||
             !ValidProfile(profile) || expectedRevision < 0 || !ValidHash(fingerprint))
@@ -42,7 +43,8 @@ internal sealed class BackendExportJobs : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed != 0, this);
             var storage = _storage.Value;
-            var directory = storage.JobDirectory(id);
+            var directory = storage.JobDirectory(id, working);
+            if (working && Directory.Exists(directory) && _workingId != id) throw new BackendExportException("export_conflict");
             if (Directory.Exists(directory)) return Existing(storage, directory, id, profile, expectedRevision, fingerprint);
             if (_active is not null) throw new BackendExportException("export_busy");
 
@@ -58,7 +60,9 @@ internal sealed class BackendExportJobs : IDisposable
                 var receipt = new BackendExportStatus(1, id, baseline.Project.Id, baseline.Project.Revision,
                     baseline.Fingerprint, profile, 1, "running", Hash(plan.Request), plan.Frames, plan.Fps);
                 scope.Token.ThrowIfCancellationRequested();
+                if (working && _workingId is { } old) storage.DropWorking(old);
                 storage.Create(directory, plan.Request, receipt);
+                if (working) _workingId = id;
                 // The rename is the acceptance point. Losing the response cannot submit another worker.
                 var active = new ActiveJob(receipt, directory, slot);
                 _active = active;
@@ -98,26 +102,26 @@ internal sealed class BackendExportJobs : IDisposable
         return Reply(WithProgress(storage, directory, status));
     }
 
-    internal async Task<BackendExportReply> StatusAsync(string id, CancellationToken token)
+    internal async Task<BackendExportReply> StatusAsync(string id, CancellationToken token, bool working = false)
     {
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             var storage = _storage.Value;
-            var directory = storage.JobDirectory(id);
+            var directory = DirectoryFor(storage, id, working);
             return Reply(WithProgress(storage, directory, Load(storage, directory, id)));
         }
         finally { _gate.Release(); }
     }
 
-    internal async Task<BackendExportReply> CancelAsync(string id, long expectedJobRevision, CancellationToken token)
+    internal async Task<BackendExportReply> CancelAsync(string id, long expectedJobRevision, CancellationToken token, bool working = false)
     {
         if (expectedJobRevision < 1) throw new BackendExportException("invalid_export");
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             var storage = _storage.Value;
-            var directory = storage.JobDirectory(id);
+            var directory = DirectoryFor(storage, id, working);
             var status = Load(storage, directory, id);
             if (_active is not { } active || active.Status.Id != id || status.State != "running" || status.Revision != expectedJobRevision)
                 throw new BackendExportException("export_conflict");
@@ -198,7 +202,7 @@ internal sealed class BackendExportJobs : IDisposable
         try
         {
             var storage = _storage.Value;
-            var directory = storage.JobDirectory(id);
+            var directory = DirectoryFor(storage, id, working: _workingId == id);
             var job = Load(storage, directory, id);
             if (job.State != "completed") throw new BackendExportException("export_not_ready");
             if (job.ProjectRevision != revision || !EqualHash(job.ProjectFingerprint, fingerprint))
@@ -217,6 +221,12 @@ internal sealed class BackendExportJobs : IDisposable
             catch { await file.DisposeAsync().ConfigureAwait(false); throw; }
         }
         finally { _gate.Release(); }
+    }
+
+    private string DirectoryFor(BackendExportStorage storage, string id, bool working)
+    {
+        if (working && id != _workingId) throw new BackendExportException("export_not_found");
+        return storage.JobDirectory(id, working);
     }
 
     private async Task RunAsync(BackendExportStorage storage, ActiveJob job)
@@ -362,7 +372,16 @@ internal sealed class BackendExportJobs : IDisposable
         Task? worker;
         try { worker = _active?.Completion; }
         finally { _gate.Release(); }
-        try { worker?.GetAwaiter().GetResult(); }
+        try
+        {
+            worker?.GetAwaiter().GetResult();
+            if (_workingId is { } id)
+            {
+                try { _storage.Value.DropWorking(id); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                { Console.Error.WriteLine("Studio preview: could not remove the temporary review."); }
+            }
+        }
         finally { _shutdown.Dispose(); }
     }
 

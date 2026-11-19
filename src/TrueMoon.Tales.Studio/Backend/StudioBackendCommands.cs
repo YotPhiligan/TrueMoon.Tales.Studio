@@ -155,12 +155,12 @@ internal sealed partial class StudioBackendService
     }
     public void Dispose()
     {
-        _exports.Dispose();
         _mediaStopping.Cancel();
         _playbackGate.Wait();
         try { ClosePlaybackCoreAsync().GetAwaiter().GetResult(); }
         finally { _playbackGate.Release(); }
         _mediaGate.Wait();
+        _exports.Dispose();
         // Drain a command before relinquishing the session lease, including durable commit completion.
         _gate.Wait();
         try { _disposed = true; _writer?.Dispose(); _writer = null; }

@@ -29,6 +29,21 @@ internal sealed partial class BackendConnection
     internal Task<BackendExportStatus> FindExportAsync(string clientKey, CancellationToken token) =>
         ExportJobAsync(BackendExportJobs.JobId(clientKey), ct => service.FindExportAsync(options.SessionKey, clientKey, ct), token);
 
+    internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint, CancellationToken token)
+    {
+        var job = await ExportJobAsync(BackendExportJobs.JobId(clientKey),
+            ct => service.WorkingReviewAsync(options.SessionKey, "start", clientKey, revision, fingerprint, ct), token).ConfigureAwait(false);
+        if (job.ProjectRevision != revision || !SameHash(job.ProjectFingerprint, fingerprint) || job.Profile != "draft")
+            throw new InvalidDataException("Preview reply does not match the submitted snapshot.");
+        return job;
+    }
+
+    internal Task<BackendExportStatus> WorkingReviewStatusAsync(string id, CancellationToken token) =>
+        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "status", id, 0, "", ct), token);
+
+    internal Task<BackendExportStatus> CancelWorkingReviewAsync(string id, long revision, CancellationToken token) =>
+        ExportJobAsync(id, ct => service.WorkingReviewAsync(options.SessionKey, "cancel", id, revision, "", ct), token);
+
     internal async Task<BackendExportStatus> StartExportAsync(string clientKey, string profile, long revision,
         string fingerprint, CancellationToken token = default)
     {

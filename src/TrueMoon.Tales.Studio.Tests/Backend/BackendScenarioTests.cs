@@ -58,27 +58,48 @@ public sealed class BackendScenarioTests
     }
 
     [Fact]
-    public async Task ClipEdits_RejectChangesThatWouldOrphanBoundSound_AndProtectedRemoval()
+    public async Task ClipEdits_SplitBoundSoundAtItsSourceBoundary_AndRejectProtectedRemoval()
     {
         using var files = new BackendWriteFixture(scenario: true);
         using var service = files.Service();
         await files.MigrateAsync(service);
         var project = (await files.Files.Store().OpenAsync()).Project;
         var main = project.Montage.Clips.Single(row => row.Id == "clip-main");
-        using var sound = JsonDocument.Parse("""[{"id":"voice","clip_id":"clip-main","offset_frames":4,"duration_frames":6}]""");
+        using var sound = JsonDocument.Parse("""
+            [{"id":"voice","clip_id":"clip-main","asset_id":"video-a","offset_frames":4,"duration_frames":6,
+              "source_in_frame":12,"gain":0.4,"muted":false,"notes":{"keep":true}},
+             {"id":"late","clip_id":"clip-main","offset_frames":12,"duration_frames":3},
+             {"id":"room","clip_id":null,"offset_frames":1,"duration_frames":3}]
+            """);
         var montage = project.Montage with
         {
             Properties = new Dictionary<string, JsonElement>(project.Montage.Properties) { ["sound_events"] = sound.RootElement.Clone() }
         };
         var withSound = project with { Montage = montage };
-        Assert.Equal("montage_clip_sound", Assert.Throws<ScenarioEditException>(() =>
-            BackendMontageEdits.Split(withSound, new(main.Id, main.StartFrame + 9))).Code);
-        Assert.Equal("montage_clip_sound", Assert.Throws<ScenarioEditException>(() => BackendMontageEdits.Remove(withSound, new(main.Id))).Code);
-        var safe = BackendMontageEdits.Split(withSound, new(main.Id, main.StartFrame + 10));
-        Assert.Equal(sound.RootElement.GetRawText(), safe.Montage.Properties["sound_events"].GetRawText());
+        var split = BackendMontageEdits.Split(withSound, new(main.Id, main.StartFrame + 9));
+        var right = split.Montage.Clips.Single(clip => clip.StartFrame == main.StartFrame + 9);
+        var rows = split.Montage.Properties["sound_events"].EnumerateArray().ToArray();
+        Assert.Equal(4, rows.Length);
+        var head = rows.Single(row => row.GetProperty("id").GetString() == "voice");
+        var late = rows.Single(row => row.GetProperty("id").GetString() == "late");
+        var tail = rows.Single(row => row.GetProperty("id").GetString()!.StartsWith("sound-", StringComparison.Ordinal));
+        Assert.Equal((4, 5, 12d), Timing(head));
+        Assert.Equal((0, 1, 17d), Timing(tail));
+        Assert.Equal(right.Id, tail.GetProperty("clip_id").GetString());
+        Assert.Equal(right.Id, late.GetProperty("clip_id").GetString());
+        Assert.Equal(3, late.GetProperty("offset_frames").GetInt32());
+        Assert.Equal("video-a", tail.GetProperty("asset_id").GetString());
+        Assert.Equal(.4, tail.GetProperty("gain").GetDouble());
+        Assert.True(tail.GetProperty("notes").GetProperty("keep").GetBoolean());
+        var removed = BackendMontageEdits.Remove(split, new(right.Id));
+        Assert.Equal(new[] { "voice", "room" }, removed.Montage.Properties["sound_events"].EnumerateArray()
+            .Select(row => row.GetProperty("id").GetString()));
         var protectedProject = project with { Montage = montage with
             { Clips = montage.Clips.Select(row => row.Id == main.Id ? row with { GapProtected = true } : row).ToArray() } };
         Assert.Equal("montage_protected_clip", Assert.Throws<ScenarioEditException>(() => BackendMontageEdits.Remove(protectedProject, new(main.Id))).Code);
+
+        static (int, int, double) Timing(JsonElement row) => (row.GetProperty("offset_frames").GetInt32(),
+            row.GetProperty("duration_frames").GetInt32(), row.GetProperty("source_in_frame").GetDouble());
     }
 
     [Fact]

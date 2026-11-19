@@ -112,7 +112,7 @@ internal sealed partial class SceneViewModel(ISceneService api, IFrameDecoder de
                 "montage_split_range" => "Курсор должен быть внутри монтажного клипа.",
                 "montage_transition_conflict" => "Переход не помещается у стыка.",
                 "montage_protected_clip" => "Клип связан с опорой или защищённой паузой.",
-                "montage_clip_sound" => "Правка затрагивает привязанный к клипу звук.",
+                "montage_clip_sound" => "Звук клипа превышает лимит событий или содержит неверные границы.",
                 _ => "История монтажа недоступна для этой ревизии."
             });
         }

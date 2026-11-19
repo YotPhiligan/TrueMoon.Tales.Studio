@@ -3,6 +3,17 @@ namespace TrueMoon.Tales.Studio.Backend;
 /// <summary>Same-build project service. Requests cannot select filesystem paths or grant write authority.</summary>
 public interface IStudioBackend
 {
+    /// <summary>Starts, checks or cancels the session-owned temporary CPU review.</summary>
+    /// <param name="sessionKey">Launch capability.</param>
+    /// <param name="operation">Start, status or cancel.</param>
+    /// <param name="key">Submission key on start, opaque review ID otherwise.</param>
+    /// <param name="revision">Project revision on start, job revision on cancel.</param>
+    /// <param name="fingerprint">Exact project SHA256 on start.</param>
+    /// <param name="cancellationToken">Call deadline.</param>
+    /// <returns>The temporary job status or a classified refusal.</returns>
+    Task<BackendExportReply> WorkingReviewAsync(string sessionKey, string operation, string key, long revision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Applies one bounded scenario, library or placement command through the exclusive project writer.</summary>
     /// <param name="sessionKey">Launch capability.</param>
     /// <param name="commandJson">Closed command envelope for the selected project.</param>

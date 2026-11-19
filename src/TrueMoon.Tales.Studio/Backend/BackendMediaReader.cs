@@ -25,6 +25,17 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         return info;
     }
 
+    internal async Task<double> ProbeAudioReferenceAsync(string reference, int stream, CancellationToken token)
+    {
+        var resolver = _resolver.Value;
+        var path = resolver.Resolve(reference);
+        await using var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var seconds = await decoder.ProbeAudioDurationAsync(path, stream, token).ConfigureAwait(false);
+        if (resolver.Resolve(reference) != path)
+            throw new UnauthorizedAccessException("Media path changed during inspection.");
+        return seconds;
+    }
+
     internal async Task<BackendPlaybackSession> OpenReviewedAsync(BackendRenderedMontage review, FileStream file, string kind,
         int localFrame, CancellationToken token, CancellationToken stopping)
     {

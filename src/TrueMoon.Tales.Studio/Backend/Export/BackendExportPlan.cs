@@ -40,9 +40,9 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var fps = (int)project.Fps;
         var frameLimit = MaxSeconds * fps;
         var montage = project.Montage;
-        if (montage.Clips.Length is < 1 or > 2000 || montage.Windows.Length > 200)
-            throw new InvalidDataException("CPU export requires a saved montage with 1 to 2000 clips and at most 200 windows.");
-        RequireEmpty(montage.Properties, "titles");
+        var titles = BackendTrackEdits.ReadTitles(BackendTrackEdits.Rows(montage, "titles"));
+        if (montage.Clips.Length > 2000 || montage.Windows.Length > 200 || montage.Clips.Length == 0 && titles.Length == 0)
+            throw new InvalidDataException("CPU export requires saved clips or titles, with at most 2000 clips and 200 windows.");
         var transitionWindows = BackendBlackTransitions.Compile(montage);
 
         var windows = montage.Windows.OrderBy(row => row.StartFrame).ToArray();
@@ -76,7 +76,9 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         var sounds = PlaceSounds(montage);
         if (music is not null) frames = Math.Max(frames, End(music.StartFrame, music.DurationFrames, frameLimit));
         foreach (var sound in sounds) frames = Math.Max(frames, End(sound.StartFrame, sound.DurationFrames, frameLimit));
+        foreach (var (_, title) in titles) frames = Math.Max(frames, End(title.StartFrame, title.DurationFrames, frameLimit));
         var size = Size(project.Properties, profile);
+        var titleCanvas = Size(project.Properties, "project");
         var registry = new Inputs(project, resolver, decoder);
         foreach (var clip in placements)
         {
@@ -90,6 +92,15 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             await CheckAudio(music.AssetId, 0, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted).ConfigureAwait(false);
         foreach (var sound in sounds)
             await CheckAudio(sound.AssetId, sound.Stream, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted).ConfigureAwait(false);
+        var titleRows = new List<Dictionary<string, JsonElement>>();
+        foreach (var (id, title) in titles)
+        {
+            var fontInput = await registry.FontAsync(title.FontId, token).ConfigureAwait(false);
+            var fields = JsonSerializer.SerializeToElement(title, Json).EnumerateObject().ToDictionary(row => row.Name, row => row.Value);
+            fields["id"] = JsonSerializer.SerializeToElement(id);
+            fields["font_asset_id"] = JsonSerializer.SerializeToElement(fontInput);
+            titleRows.Add(fields);
+        }
 
         var final = profile == "final";
         var request = JsonSerializer.SerializeToUtf8Bytes(new
@@ -109,7 +120,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 preset = final ? "medium" : "veryfast", crf = final ? 18 : 25,
                 audio_codec = "aac", audio_bitrate_kbps = final ? 320 : 192
             },
-            clips = placements, transition_windows = transitionWindows, music, clip_audio = clipAudio, sounds, assets = registry.Assets, timeout_seconds = 300
+            clips = placements, transition_windows = transitionWindows, music, clip_audio = clipAudio, sounds,
+            titles = titleRows, title_canvas = titleCanvas, assets = registry.Assets, timeout_seconds = 300
         }, Json);
         token.ThrowIfCancellationRequested();
         return new(request, frames, fps, size[0], size[1]);
@@ -129,12 +141,6 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         if (start < 0 || duration < 1 || (long)start + duration > limit)
             throw new InvalidDataException("Export timing is outside the supported extent.");
         return start + duration;
-    }
-
-    private static void RequireEmpty(IReadOnlyDictionary<string, JsonElement> properties, string key)
-    {
-        if (properties.TryGetValue(key, out var value) && (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 0))
-            throw new InvalidDataException($"CPU backend export does not yet support saved {key}.");
     }
 
     private static int[] Size(IReadOnlyDictionary<string, JsonElement> properties, string profile)
@@ -226,6 +232,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         private readonly Dictionary<string, string> _hashes = new(PathComparer);
         private readonly Dictionary<string, BackendVideoInfo> _video = new(PathComparer);
         private readonly Dictionary<(string Path, int Stream), double> _audio = new();
+        private readonly Dictionary<string, string> _fonts = new(StringComparer.Ordinal);
         private long _inputBytes;
 
         internal async Task<Asset> GetAsync(string id, bool video, CancellationToken token)
@@ -244,6 +251,37 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             var logical = Text(metadata, "path");
             var path = resolver.Resolve(logical);
             var format = BackendMediaDecoder.LocalInputFormat(path, audio: !video);
+            return Assets[id] = await ReadInputAsync(path, format, () => PathComparer.Equals(resolver.Resolve(logical), path), token)
+                .ConfigureAwait(false);
+        }
+
+        internal async Task<string> FontAsync(string font, CancellationToken token)
+        {
+            if (_fonts.TryGetValue(font, out var id)) return id;
+            id = "title-font-" + Guid.NewGuid().ToString("N");
+            if (Assets.Count == MaxAssets) throw new InvalidDataException("Export input count exceeds its limit.");
+            var filename = font switch
+            {
+                "arial" => "arial.ttf", "arial-bold" => "arialbd.ttf", "georgia" => "georgia.ttf",
+                "times" => "times.ttf", "consolas" => "consola.ttf", "segoe" => "segoeui.ttf",
+                "dejavu" when !OperatingSystem.IsWindows() => "DejaVuSans.ttf",
+                _ => throw new InvalidDataException("Title font is unavailable.")
+            };
+            var directory = OperatingSystem.IsWindows() ? Environment.GetFolderPath(Environment.SpecialFolder.Fonts) :
+                "/usr/share/fonts/truetype/dejavu";
+            var path = Path.Combine(directory, filename);
+            if (!Path.IsPathFullyQualified(path) || !File.Exists(path)) throw new InvalidDataException("Title font is unavailable.");
+            BackendMediaResolver.CheckNoLinks(path);
+            Assets.Add(id, await ReadInputAsync(path, "font", () =>
+            {
+                BackendMediaResolver.CheckNoLinks(path);
+                return true;
+            }, token).ConfigureAwait(false));
+            return _fonts[font] = id;
+        }
+
+        private async Task<Asset> ReadInputAsync(string path, string format, Func<bool> unchanged, CancellationToken token)
+        {
             if (!_hashes.TryGetValue(path, out var fingerprint))
             {
                 await using var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
@@ -252,14 +290,12 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                 if (length == 0 || length > MaxInputBytes - _inputBytes)
                     throw new InvalidDataException("Export media is empty or exceeds its aggregate byte limit.");
                 fingerprint = Convert.ToHexStringLower(await SHA256.HashDataAsync(source, token).ConfigureAwait(false));
-                if (source.Length != length || !PathComparer.Equals(resolver.Resolve(logical), path))
+                if (source.Length != length || !unchanged())
                     throw new InvalidDataException("Media changed while recording its SHA256.");
                 _hashes.Add(path, fingerprint);
                 _inputBytes += length;
             }
-            var asset = new Asset(path, format, fingerprint);
-            Assets.Add(id, asset);
-            return asset;
+            return new Asset(path, format, fingerprint);
         }
 
         internal async Task<BackendVideoInfo> VideoAsync(Asset asset, CancellationToken token)

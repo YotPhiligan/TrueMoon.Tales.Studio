@@ -92,8 +92,21 @@ def _wrap(text,font,draw,width,stroke):
         lines.append(line)
     return '\n'.join(lines)
 
-def render_layer(store,project,row):
+def _raster(size,row,font_path):
     from PIL import Image,ImageDraw,ImageFont
+    if not isinstance(size,list) or len(size)!=2 or any(type(n) is not int or not 2<=n<=4096 for n in size):raise tl.TimelineError('Некорректный размер кадра проекта.')
+    font=ImageFont.truetype(str(font_path),row['font_size']);draw=ImageDraw.Draw(Image.new('RGBA',(1,1)));stroke=max(1,round(row['font_size']/28)) if row['outline'] else 0
+    wrapped=_wrap(row['text'],font,draw,size[0]*.84,stroke);spacing=max(1,round(row['font_size']*.25))
+    box=draw.multiline_textbbox((0,0),wrapped,font=font,spacing=spacing,align=row['align'],stroke_width=stroke)
+    box=tuple(math.floor(v) if i<2 else math.ceil(v) for i,v in enumerate(box))
+    width=max(1,box[2]-box[0]);height=max(1,box[3]-box[1])
+    if width>size[0]*.9 or height>size[1]*.84:raise tl.TimelineError('Текст не помещается в кадр. Уменьшите шрифт или сократите текст.')
+    x=round(size[0]*.08) if row['align']=='left' else round(size[0]*.92-width) if row['align']=='right' else round((size[0]-width)/2)
+    y=round(size[1]*.08) if row['position']=='upper' else round(size[1]*.92-height) if row['position']=='lower' else round((size[1]-height)/2)
+    image=Image.new('RGBA',(width,height));ImageDraw.Draw(image).multiline_text((-box[0],-box[1]),wrapped,font=font,spacing=spacing,align=row['align'],fill=row['color'],stroke_width=stroke,stroke_fill='#000000')
+    return image,x,y,wrapped
+
+def render_layer(store,project,row):
     validate(project,{'titles':[row]})
     size=project['output_size']
     if not isinstance(size,list) or len(size)!=2 or any(type(n) is not int or not 2<=n<=4096 for n in size):raise tl.TimelineError('Некорректный размер кадра проекта.')
@@ -109,15 +122,7 @@ def render_layer(store,project,row):
                 if cached.get('key')==key and digest(png)==cached.get('sha256'):layer=cached
             except (OSError,ValueError):pass
         if layer is None:
-            font=ImageFont.truetype(str(font_path),row['font_size']);draw=ImageDraw.Draw(Image.new('RGBA',(1,1)));stroke=max(1,round(row['font_size']/28)) if row['outline'] else 0
-            wrapped=_wrap(row['text'],font,draw,size[0]*.84,stroke);spacing=max(1,round(row['font_size']*.25))
-            box=draw.multiline_textbbox((0,0),wrapped,font=font,spacing=spacing,align=row['align'],stroke_width=stroke)
-            box=tuple(math.floor(v) if i<2 else math.ceil(v) for i,v in enumerate(box))
-            width=max(1,box[2]-box[0]);height=max(1,box[3]-box[1])
-            if width>size[0]*.9 or height>size[1]*.84:raise tl.TimelineError('Текст не помещается в кадр. Уменьшите шрифт или сократите текст.')
-            x=round(size[0]*.08) if row['align']=='left' else round(size[0]*.92-width) if row['align']=='right' else round((size[0]-width)/2)
-            y=round(size[1]*.08) if row['position']=='upper' else round(size[1]*.92-height) if row['position']=='lower' else round((size[1]-height)/2)
-            image=Image.new('RGBA',(width,height));ImageDraw.Draw(image).multiline_text((-box[0],-box[1]),wrapped,font=font,spacing=spacing,align=row['align'],fill=row['color'],stroke_width=stroke,stroke_fill='#000000')
+            image,x,y,wrapped=_raster(size,row,font_path);width,height=image.size
             folder.mkdir(parents=True,exist_ok=True);temp=folder/(uid('title-')+'.pending');image.save(temp,format='PNG')
             if digest(font_path)!=fingerprint:raise tl.TimelineError('Шрифт изменился во время подготовки титра.')
             temp.replace(png);layer={'key':key,'sha256':digest(png),'canvas_size':size,'x':x,'y':y,'width':width,'height':height,'font_id':row['font_id'],'font_sha256':fingerprint,'wrapped_text':wrapped}
@@ -125,19 +130,34 @@ def render_layer(store,project,row):
     return {**layer,'id':row['id'],'background':row['background'],'path':str(png),'url':f"/api/projects/{project['id']}/title-images/{key}"}
 
 class TitleCompositor:
-    def __init__(self,request):self.request=request;self.layers={r['id']:r for r in request.get('title_layers',[])};self.cache=OrderedDict()
+    def __init__(self,request):
+        self.request=request;self.layers={r['id']:r for r in request.get('title_layers',[])};self.cache=OrderedDict()
+        self.rasters={}
+        pixels=0
+        for row in request.get('titles',[]):
+            if 'font_asset_id' not in row:continue
+            from .paths import check_export_path
+            font=check_export_path(request,request['assets'][row['font_asset_id']]['path'])
+            image,x,y,_=_raster(request['title_canvas'],row,font)
+            pixels+=image.width*image.height
+            if pixels>16_000_000:raise ValueError('Title rasters exceed the pixel budget.')
+            self.rasters[row['id']]=(image,x,y)
     def _image(self,row):
         import numpy as np
         from PIL import Image
-        layer=self.layers[row['id']];key=row['id']
+        key=row['id']
         if key not in self.cache:
-            path=Path(self.request['assets'][layer['asset_id']]['path']).resolve()
-            from .paths import check_export_path
-            check_export_path(self.request,path)
-            cw,ch=layer['canvas_size'];ow,oh=self.request['size'];scale=min(ow/cw,oh/ch)
-            with Image.open(path) as im:rgba=np.asarray(im.convert('RGBA').resize((max(1,round(layer['width']*scale)),max(1,round(layer['height']*scale))),Image.Resampling.BILINEAR)).astype(np.float32)
-            x=(ow-round(cw*scale))//2+round(layer['x']*scale);y=(oh-round(ch*scale))//2+round(layer['y']*scale)
-            self.cache[key]=(rgba,x,y)
+            if key in self.rasters:
+                image,x,y=self.rasters[key];canvas=self.request['title_canvas']
+            else:
+                layer=self.layers[key];canvas=layer['canvas_size'];x,y=layer['x'],layer['y']
+                from .paths import check_export_path
+                path=check_export_path(self.request,self.request['assets'][layer['asset_id']]['path'])
+                with Image.open(path) as im:image=im.convert('RGBA')
+            cw,ch=canvas;ow,oh=self.request['size'];scale=min(ow/cw,oh/ch)
+            dimensions=(max(1,round(image.width*scale)),max(1,round(image.height*scale)))
+            rgba=np.asarray(image.resize(dimensions,Image.Resampling.BILINEAR)).astype(np.float32)
+            self.cache[key]=(rgba,(ow-round(cw*scale))//2+round(x*scale),(oh-round(ch*scale))//2+round(y*scale))
             while len(self.cache)>4:self.cache.popitem(last=False)
         self.cache.move_to_end(key);return self.cache[key]
     def compose(self,pixels,frame):

@@ -4,7 +4,7 @@ using TrueMoon.Tales.Studio.Models;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
-internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
+internal sealed class SceneStrip(SceneViewModel model, Action updated, Action<TrackSpan?>? openTrack = null) : Element
 {
     private IInputContext? _context;
     private Rect _gestureBounds;
@@ -75,6 +75,9 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         if (input.Kind != InputKind.PointerDown || input.Button != 0 || (!model.CanSeek && !model.CanBeginMove) ||
             !float.IsFinite(input.X) || !float.IsFinite(input.Y) || Bounds.Width <= 0 || !Bounds.Contains(input.X, input.Y)) return false;
         SyncWindow();
+        if (openTrack is not null && model.CanReload && model.Scene?.Tracks is { } tracks &&
+            tracks.LastOrDefault(item => TrackBounds(item).Contains(input.X, input.Y)) is { } track)
+        { openTrack(track); return true; }
         var bar = ClipBounds;
         var frame = FrameAt(input.X);
         var grip = Math.Min(10, bar.Width / 3);
@@ -162,6 +165,19 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         _zoom = 1;
     }
 
+    private Rect TrackBounds(TrackSpan item)
+    {
+        var rows = Math.Max(0, Bounds.Height - 64) / 4;
+        var lane = Math.Min(3, item.LaneIndex);
+        return item.LaneIndex == 4
+            ? new(FrameX(item.StartFrame) - 3, Bounds.Y + 12, 7, 12)
+            : new(FrameX(item.StartFrame), Bounds.Y + 64 + rows * lane, Math.Max(2, item.DurationFrames * Scale), Math.Max(0, rows - 2));
+    }
+
+    internal static bool HasVisibleTracks(SceneSnapshot? scene) => scene?.Tracks?.Any(item => item.LaneIndex < 4 &&
+        item.StartFrame < (long)scene.Segment.StartFrame + scene.Segment.DurationFrames &&
+        (long)item.StartFrame + item.DurationFrames > scene.Segment.StartFrame) == true;
+
     private void Release()
     {
         var context = _context;
@@ -228,7 +244,36 @@ internal sealed class SceneStrip(SceneViewModel model, Action updated) : Element
         context.Restore();
         var waveY = bar.Y + bar.Height + 6;
         var waveHeight = Math.Max(0, Math.Min(22, area.Y + area.Height - waveY - 2));
-        if (waveHeight > 0)
+        if (HasVisibleTracks(scene))
+        {
+            var height = Math.Max(0, Bounds.Height - 64) / 4;
+            if (height >= 15)
+            {
+                string[] lanes = ["Музыка", "Звук сегмента", "Звук клипа", "Титры"];
+                for (var index = 0; index < lanes.Length; index++)
+                {
+                    var y = Bounds.Y + 64 + index * height;
+                    context.Fill(new(Bounds.X, y + height - 1, Bounds.Width, 1), Theme.Border with { A = 72 });
+                    context.Text(lanes[index], Bounds.X + 5, y + 1, Theme.Disabled, 10, Theme.FontFamily);
+                }
+            }
+            foreach (var item in scene.Tracks!.Where(item => item.LaneIndex < 4))
+            {
+                var bounds = TrackBounds(item);
+                if (bounds.Height < 2 || bounds.X >= area.X + area.Width || bounds.X + bounds.Width <= area.X) continue;
+                var color = item.LaneIndex == 3 ? Theme.Modified : Theme.Accent;
+                context.Fill(bounds, color with { A = (byte)(item.Muted ? 32 : 84) }, 3);
+                context.Save(); context.Clip(bounds);
+                if (bounds.Height >= 11)
+                {
+                    var left = Math.Max(bounds.X, Bounds.X);
+                    var text = item.Track == "music" ? item.Lane : item.Name;
+                    context.Text(text, left + 4, bounds.Y + 1, item.Muted ? Theme.Disabled : Theme.Foreground, 10, Theme.FontFamily);
+                }
+                context.Restore();
+            }
+        }
+        else if (waveHeight > 0)
         {
             var middle = waveY + waveHeight / 2;
             context.Fill(new(bar.X, middle, bar.Width, 1), Theme.Border);

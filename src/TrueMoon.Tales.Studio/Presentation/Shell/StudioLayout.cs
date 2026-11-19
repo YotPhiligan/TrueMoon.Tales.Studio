@@ -10,13 +10,14 @@ namespace TrueMoon.Tales.Studio.Presentation.Shell;
 internal sealed class StudioLayout : ElementList
 {
     // Defaults match the initial 1280x820 window: chrome 36, width 1256, content 710.
-    private const float DefaultNavigation = 224, DefaultInspector = 282, DefaultTimeline = 150, Divider = 8;
+    private const float DefaultNavigation = 224, DefaultInspector = 282, DefaultTimeline = 150, TrackSpace = 68, Divider = 8;
 
     private readonly StudioPanelState _panels;
     private readonly Element _notice, _heading, _navigation, _preview, _inspector, _timeline, _footer;
     private readonly ContentControl _center = new();
     private readonly SplitView _navigationSplit = new(), _inspectorSplit = new(), _workspaceSplit = new();
     private bool _synced;
+    private bool _trackLanes;
     private (bool Navigation, bool Inspector, bool Timeline, bool Wide) _shown;
 
     public StudioLayout(StudioPanelState panels, Element notice, Element heading, Element navigation, Element preview, Element inspector, Element timeline, Element footer)
@@ -47,7 +48,16 @@ internal sealed class StudioLayout : ElementList
     {
         _navigationSplit.FirstPaneSize = DefaultNavigation;
         _inspectorSplit.FirstPaneSize = Math.Max(0, 1256 - DefaultNavigation - Divider) - DefaultInspector - Divider;
-        _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider;
+        _workspaceSplit.FirstPaneSize = 710 - DefaultTimeline - Divider - (_trackLanes ? TrackSpace : 0);
+    }
+
+    internal void ShowTrackLanes(bool visible)
+    {
+        if (visible == _trackLanes) return;
+        var defaultSize = 710 - DefaultTimeline - Divider - (_trackLanes ? TrackSpace : 0);
+        _trackLanes = visible;
+        if (Math.Abs(_workspaceSplit.FirstPaneSize - defaultSize) < .1f)
+            _workspaceSplit.FirstPaneSize = defaultSize + (visible ? -TrackSpace : TrackSpace);
     }
 
     // Called from the shared refresh path; rebuilds the chain only when panel flags changed.

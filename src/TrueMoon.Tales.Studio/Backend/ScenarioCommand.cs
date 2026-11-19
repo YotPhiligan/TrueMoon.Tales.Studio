@@ -16,6 +16,12 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(UndoMontage), "undo_montage")]
 [JsonDerivedType(typeof(RedoMontage), "redo_montage")]
 [JsonDerivedType(typeof(SetBlackTransition), "set_black_transition")]
+[JsonDerivedType(typeof(SaveMontageMusic), "save_music")]
+[JsonDerivedType(typeof(SaveMontageSound), "save_sound")]
+[JsonDerivedType(typeof(SaveMontageTitle), "save_title")]
+[JsonDerivedType(typeof(SaveMontageMarker), "save_marker")]
+[JsonDerivedType(typeof(RemoveMontageTrackItem), "remove_track_item")]
+[JsonDerivedType(typeof(SetMontageClipAudio), "set_clip_audio")]
 internal abstract record ScenarioCommand
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -45,6 +51,15 @@ internal sealed record RemoveMontageClip(string ClipId) : ScenarioCommand;
 internal sealed record UndoMontage : ScenarioCommand;
 internal sealed record RedoMontage : ScenarioCommand;
 internal sealed record SetBlackTransition(string LeftId, string RightId, int FadeOut, int Pause, int FadeIn) : ScenarioCommand;
+
+internal abstract record MontageTrackCommand : ScenarioCommand;
+internal sealed record SaveMontageMusic(string Input, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted) : MontageTrackCommand;
+internal sealed record SaveMontageSound(string? Id, string SegmentId, string? ClipId, string Name, string Lane, string Input,
+    int Stream, int OffsetFrames, int DurationFrames, double SourceInFrame, double Gain, bool Muted) : MontageTrackCommand;
+internal sealed record SaveMontageTitle(string? Id, MontageTitle Title) : MontageTrackCommand;
+internal sealed record SaveMontageMarker(string? Id, string Name, int Frame) : MontageTrackCommand;
+internal sealed record RemoveMontageTrackItem(string Track, string Id) : MontageTrackCommand;
+internal sealed record SetMontageClipAudio([property: JsonRequired] bool Enabled) : MontageTrackCommand;
 
 internal sealed class ScenarioEditException(string code) : IOException(code)
 {

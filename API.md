@@ -13,7 +13,7 @@
 
 
 17.11.2026 [STUDIO-BACKEND4](src/Verification/BackendMedia.md): этап protocol3
-добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 расширяет их монтажом. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
+добавил MediaInfo/Frame. Protocol4 описан в STUDIO-BACKEND5, protocol5 — в STUDIO-BACKEND6, protocol6 — в STUDIO-BACKEND7. Protocol7 добавил проверку и поиск задания для окна Studio. Protocol8 добавил авторские команды сценария и библиотеки, protocol9 — операции над клипами, protocol10 — дорожки и рабочий просмотр. HTTP APIv1, storage schema2 и ProjectContractv1 действуют в текущей поставке.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.
@@ -157,8 +157,9 @@ Protocol9 расширяет JSON команды `EditScenarioAsync`. Требу
 
 Split сохраняет ID слева, создаёт ID справа и делит участок источника по
 скорости клипа. Действия, дубли и окна сохраняются. Удаление защищённого
-клипа возвращает `montage_protected_clip`. Правка, затрагивающая привязанный
-к клипу звук, возвращает `montage_clip_sound`. Переход требует соседние
+клипа возвращает `montage_protected_clip`. В protocol9 правка клипа с
+затронутым звуком отклонялась. Protocol10 распространяет split и удаление
+на привязанные события. Переход требует соседние
 клипы, чёрную паузу не короче разрыва и место для обоих затуханий. Ошибка
 геометрии возвращает `montage_transition_conflict`.
 
@@ -174,6 +175,27 @@ Split сохраняет ID слева, создаёт ID справа и дел
 ревизию, SHA проекта, статус, размер и SHA артефакта. Звук берётся из AAC
 того же MP4 и выдаётся в PCM. HTTPv1 и CLI сохраняют прежние команды.
 Просмотр использует готовый экспорт без записи проекта или нового задания.
+
+<a id="montage-tracks"></a>
+## Дорожки и рабочий предпросмотр через Enerit
+
+Protocol10 расширяет `EditScenarioAsync` командами `save_music`, `save_sound`,
+`save_title`, `save_marker`, `remove_track_item` и `set_clip_audio`.
+Они используют ту же ревизию, SHA, writer и историю. Данные размещаются в
+совместимых свойствах `music`, `sound_events`, `titles`, `markers` и `clip_audio`.
+`save_sound` принимает смещение от окна или клипа в кадрах проекта.
+Аудиовход задаётся зарегистрированным ID либо явным `@mount/путь`. Перед
+записью resolver проверяет путь, ffprobe проверяет поток и длину исходника.
+Split перемещает событие к правой части или делит его на границе разреза,
+сохраняя исходник, громкость и абсолютное монтажное время.
+
+`WorkingReviewAsync` поддерживает `start`, `status` и `cancel`.
+Start принимает уникальный ключ, ревизию и SHA проекта. Cancel принимает
+ID и ревизию задания. Временный рендер использует ту же CPU-проекцию с
+профилем `draft` и тот же лимит одного активного CPU worker. По завершении
+`FrameAsync` и playback читают его проверенный файл по ID просмотра.
+Временное задание принадлежит backend-сессии и очищается при её штатном
+закрытии. HTTP API экспорта и CLI сохраняют собственный список артефактов.
 
 ## Сессия и версия
 

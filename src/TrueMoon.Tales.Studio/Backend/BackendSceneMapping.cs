@@ -58,7 +58,7 @@ internal static class BackendSceneMapping
         return new(project.Name, checked((int)project.Revision), project.Fps, selected.Segment, selected.Clip,
             selected.Title, selected.Takes, choices, choices.Where(row => row.Clip.SegmentId == current.Id).Select(row => row.Clip).ToArray(),
             [], active ? Items(current) : null, active, consistent, MarkerFrames: MarkerFrames(project, current),
-            NextJoin: NextJoin(project.Montage, selected.Clip.Id));
+            NextJoin: NextJoin(project.Montage, selected.Clip.Id), Tracks: BackendTrackProjection.Spans(project));
     }
 
     private static MontageJoin? NextJoin(MontageContract montage, string clipId)

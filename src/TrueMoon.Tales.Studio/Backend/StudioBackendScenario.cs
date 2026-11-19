@@ -26,12 +26,14 @@ internal sealed partial class StudioBackendService
                 _montageHistory.Complete(restored.Fingerprint, undo);
                 return Reply(restored);
             }
-            var draft = await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
+            var draft = command is MontageTrackCommand track
+                ? await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false)
+                : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
             if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);
             if (draft.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the editor range.");
             if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
                 return Failure("project_too_large");
-            if (command is PlaceClip or AssignTake or SplitMontageClip or RemoveMontageClip or SetBlackTransition)
+            if (command is PlaceClip or AssignTake or SplitMontageClip or RemoveMontageClip or SetBlackTransition or MontageTrackCommand)
                 return await SaveMontageAsync(baseline, draft, expectedRevision, "studio:montage", cancellationToken).ConfigureAwait(false);
             return Reply(await store.SaveAsync(baseline, draft, expectedRevision, "studio:scenario", cancellationToken).ConfigureAwait(false));
         }
@@ -44,5 +46,14 @@ internal sealed partial class StudioBackendService
         if (media is null) throw new ScenarioEditException("decoder_unavailable");
         try { return await media.ProbeReferenceAsync(reference, token).ConfigureAwait(false); }
         catch (InvalidDataException) { throw new ScenarioEditException("invalid_media"); }
+    }
+
+    private async Task<double> ProbeTrackAsync(string reference, int stream, CancellationToken token)
+    {
+        if (media is null) throw new ScenarioEditException("decoder_unavailable");
+        try { return await media.ProbeAudioReferenceAsync(reference, stream, token).ConfigureAwait(false); }
+        catch (InvalidDataException) { throw new ScenarioEditException("montage_audio_source"); }
+        catch (Win32Exception) { throw new ScenarioEditException("decoder_unavailable"); }
+        catch (FileNotFoundException) { throw new ScenarioEditException("montage_audio_source"); }
     }
 }

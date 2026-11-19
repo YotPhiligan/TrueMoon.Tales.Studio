@@ -7,7 +7,9 @@ internal sealed record EmptyProject(string Name, long Revision, double Fps, stri
 internal sealed record SceneSnapshot(string ProjectName, int Revision, double Fps, Segment Segment, Clip Clip,
     string ClipTitle, Take[] Takes, ClipChoice[] Choices, Clip[]? SegmentClips = null, AudioSlice[]? Audio = null,
     ScenarioPlacement[]? ScenarioItems = null, bool ScenarioActive = false, bool ScenarioConsistent = true, string? Fingerprint = null,
-    bool CanUndoMontage = false, bool CanRedoMontage = false, int[]? MarkerFrames = null, MontageJoin? NextJoin = null);
+    bool CanUndoMontage = false, bool CanRedoMontage = false, int[]? MarkerFrames = null, MontageJoin? NextJoin = null,
+    TrackSpan[]? Tracks = null);
+internal sealed record TrackSpan(string Track, string Id, string Name, string Lane, int LaneIndex, int StartFrame, int DurationFrames, bool Muted);
 internal sealed record MontageJoin(string RightId, int Gap, int FadeOut, int Pause, int FadeIn);
 internal sealed record ClipChoice(Clip Clip, Segment Segment, string Title, Take[] Takes);
 internal sealed record Segment(string Id, string Name, int StartFrame, int DurationFrames);

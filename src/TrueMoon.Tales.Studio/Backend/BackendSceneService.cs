@@ -103,6 +103,6 @@ internal static class BackendScenePresentation
         .Singleton<IFactory<SceneView>>(resolver => new SceneViewFactory(resolver.Resolve<SceneViewModel>()!,
             resolver.Resolve<IViewStyle<SceneView>>()!, resolver.Resolve<IFactory<StudioTitleBar, StudioTitleBarArguments>>()!,
             () => new SceneExport(resolver.Resolve<BackendConnection>()!, resolver.Resolve<BackendOptions>()!), initialOpen,
-            () => new ScenarioWorkspace(resolver.Resolve<BackendConnection>()!))));
+            () => new ScenarioWorkspace(resolver.Resolve<BackendConnection>()!), resolver.Resolve<BackendConnection>())));
 
 }

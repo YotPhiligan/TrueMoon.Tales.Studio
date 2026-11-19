@@ -59,13 +59,21 @@ internal sealed class BackendExportStorage
         Check(_project);
     }
 
-    internal string JobDirectory(string id)
+    internal string JobDirectory(string id, bool working = false)
     {
         if (!ValidId(id)) throw new BackendExportException("invalid_export");
-        var directory = Path.Combine(_project, id);
+        var directory = Path.Combine(_project, working ? "working-" + id[7..] : id);
         if (OperatingSystem.IsWindows() && directory.Length + WorkerSuffixLength > MaxWindowsPath)
             throw new BackendExportException("export_unavailable");
         return Check(directory);
+    }
+
+    internal void DropWorking(string id)
+    {
+        var directory = JobDirectory(id, working: true);
+        if (!Directory.Exists(directory)) return;
+        foreach (var file in Directory.EnumerateFiles(directory)) File.Delete(Check(file));
+        Directory.Delete(Check(directory));
     }
 
     internal string ClientOutputDirectory => _root;

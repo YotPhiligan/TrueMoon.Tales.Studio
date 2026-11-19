@@ -14,6 +14,43 @@ public sealed class BackendExportJobsTests
     private const int Fps = 24;
 
     [Fact]
+    public async Task WorkingReview_CancelsAndCleansItsPrivateJobWithoutChangingProject()
+    {
+        using var files = new ExportFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var token = deadline.Token;
+        var baseline = await files.MigrateAsync(token);
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History;
+        var started = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using (var jobs = new BackendExportJobs(files.Options, Plan, async (directory, hash, stopping) =>
+        {
+            started.SetResult(directory);
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, stopping); }
+            catch (OperationCanceledException) { PutProof(directory, hash, [1, 2, 3]); }
+        }))
+        {
+            var running = Status(await jobs.StartAsync(Key, "draft", baseline.Project.Revision, baseline.Fingerprint,
+                _ => Task.FromResult(baseline), token, working: true));
+            var directory = await started.Task.WaitAsync(token);
+            Assert.StartsWith("working-", Path.GetFileName(directory));
+            await ExpectCode("export_not_found", () => jobs.StatusAsync(running.Id, token));
+            await ExpectCode("export_not_found", () => jobs.RecoverAsync(running.Id, token));
+            await ExpectCode("export_busy", () => StartAsync(jobs, baseline, token));
+            await ExpectCode("export_conflict", () => jobs.CancelAsync(running.Id, 2, token, working: true));
+            Assert.Equal("stopping", Status(await jobs.CancelAsync(running.Id, 1, token, working: true)).State);
+            var cancelled = await UntilAsync(jobs, running.Id, "cancelled", token, working: true);
+            Assert.Null(cancelled.ArtifactSha256);
+            var error = await Assert.ThrowsAsync<BackendExportException>(() =>
+                jobs.OpenReviewAsync(running.Id, baseline.Project.Revision, baseline.Fingerprint, token));
+            Assert.Equal("export_not_ready", error.Code);
+        }
+        Assert.Empty(Directory.GetDirectories(files.ExportRoot, "working-*", SearchOption.AllDirectories));
+        Assert.Equal(bytes, File.ReadAllBytes(files.ProjectPath));
+        Assert.Equal(history, files.History);
+    }
+
+    [Fact]
     public async Task Start_FreezesRequest_ReusesSubmission_AndServesOnlyCompletedRanges()
     {
         using var files = new ExportFixture();
@@ -219,11 +256,11 @@ public sealed class BackendExportJobsTests
     private static BackendExportStatus Status(BackendExportReply reply) =>
         JsonSerializer.Deserialize<BackendExportStatus>(reply.JobJson, BackendExportStorage.Json)!;
 
-    private static async Task<BackendExportStatus> UntilAsync(BackendExportJobs jobs, string id, string state, CancellationToken token)
+    private static async Task<BackendExportStatus> UntilAsync(BackendExportJobs jobs, string id, string state, CancellationToken token, bool working = false)
     {
         while (true)
         {
-            var status = Status(await jobs.StatusAsync(id, token));
+            var status = Status(await jobs.StatusAsync(id, token, working));
             if (status.State == state) return status;
             Assert.Contains(status.State, new[] { "running", "stopping" });
             await Task.Delay(10, token);

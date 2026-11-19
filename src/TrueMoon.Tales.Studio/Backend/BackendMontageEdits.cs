@@ -13,7 +13,6 @@ internal static class BackendMontageEdits
         if (edit.Frame <= original.StartFrame || edit.Frame >= (long)original.StartFrame + original.DurationFrames)
             throw new ScenarioEditException("montage_split_range");
         var leftLength = edit.Frame - original.StartFrame;
-        RequireSoundBoundary(montage, original.Id, leftLength);
         var boundary = original.SourceInFrame + leftLength * original.Speed;
         if (original.TakeId is not null && boundary >= (original.SourceOutFrame ??
             original.SourceInFrame + original.DurationFrames * original.Speed))
@@ -32,7 +31,7 @@ internal static class BackendMontageEdits
         return Place(project, original, montage with
         {
             Clips = clips,
-            Properties = UpdateJoins(montage, original.Id, right.Id)
+            Properties = UpdateSounds(montage, UpdateJoins(montage, original.Id, right.Id), original.Id, right.Id, leftLength)
         });
     }
 
@@ -42,11 +41,10 @@ internal static class BackendMontageEdits
         var clip = Find(montage, edit.ClipId);
         if (clip.AnchorFrame is not null || clip.GapProtected)
             throw new ScenarioEditException("montage_protected_clip");
-        RequireSoundBoundary(montage, clip.Id, null);
         return Place(project, clip, montage with
         {
             Clips = montage.Clips.Where(row => row.Id != clip.Id).ToArray(),
-            Properties = UpdateJoins(montage, clip.Id, null)
+            Properties = UpdateSounds(montage, UpdateJoins(montage, clip.Id, null), clip.Id, null, 0)
         });
     }
 
@@ -56,20 +54,48 @@ internal static class BackendMontageEdits
     private static ProjectContract Place(ProjectContract project, ClipContract original, MontageContract montage) =>
         BackendScenarioEdit.MarkExplicit(project with { Montage = montage }, [original.WindowId]);
 
-    private static void RequireSoundBoundary(MontageContract montage, string clip, int? retainedLength)
+    private static IReadOnlyDictionary<string, JsonElement> UpdateSounds(MontageContract montage,
+        IReadOnlyDictionary<string, JsonElement> properties, string clip, string? right, int cut)
     {
-        if (!montage.Properties.TryGetValue("sound_events", out var events) || events.ValueKind != JsonValueKind.Array) return;
-        foreach (var row in events.EnumerateArray())
+        if (!montage.Properties.TryGetValue("sound_events", out var events) || events.ValueKind == JsonValueKind.Null)
+            return properties;
+        var rows = BackendTrackEdits.Rows(montage, "sound_events");
+        var changed = false;
+        foreach (var row in rows.OfType<JsonObject>().ToArray())
         {
-            if (row.ValueKind != JsonValueKind.Object || !row.TryGetProperty("clip_id", out var owner) ||
-                owner.ValueKind != JsonValueKind.String || owner.GetString() != clip) continue;
-            if (retainedLength is { } length && row.TryGetProperty("offset_frames", out var offset) &&
-                row.TryGetProperty("duration_frames", out var duration) && offset.ValueKind == JsonValueKind.Number &&
-                duration.ValueKind == JsonValueKind.Number && offset.TryGetInt32(out var from) && duration.TryGetInt32(out var frames) &&
-                from >= 0 && frames > 0 && (long)from + frames <= length) continue;
-            throw new ScenarioEditException("montage_clip_sound");
+            if ((string?)row["clip_id"] != clip) continue;
+            if (right is null) { rows.Remove(row); changed = true; continue; }
+            var from = (int?)row["offset_frames"] ?? throw InvalidSound();
+            var frames = (int?)row["duration_frames"] ?? throw InvalidSound();
+            if (from < 0 || frames < 1) throw InvalidSound();
+            if (from >= cut)
+            {
+                row["clip_id"] = right;
+                row["offset_frames"] = from - cut;
+            }
+            else if ((long)from + frames > cut)
+            {
+                if (rows.Count == BackendTrackEdits.MaxSounds) throw InvalidSound();
+                var head = cut - from;
+                var source = (double?)row["source_in_frame"] ?? throw InvalidSound();
+                var tail = row.DeepClone().AsObject();
+                tail["id"] = "sound-" + Guid.NewGuid().ToString("N");
+                tail["clip_id"] = right;
+                tail["offset_frames"] = 0;
+                tail["duration_frames"] = frames - head;
+                tail["source_in_frame"] = source + head;
+                row["duration_frames"] = head;
+                rows.Add(tail);
+            }
+            else continue;
+            changed = true;
         }
+        return changed
+            ? new Dictionary<string, JsonElement>(properties) { ["sound_events"] = JsonSerializer.SerializeToElement(rows) }
+            : properties;
     }
+
+    private static ScenarioEditException InvalidSound() => new("montage_clip_sound");
 
     private static IReadOnlyDictionary<string, JsonElement> UpdateJoins(MontageContract montage, string oldId, string? rightHalf)
     {

@@ -1,6 +1,6 @@
 # True Moon Studio
 
-Текущая версия — **1.2611.18.6-alpha**. C#-редактор использует SDK 11.0.100 /
+Текущая версия — **1.2611.19.1-alpha**. C#-редактор использует SDK 11.0.100 /
 net11.0 / runtime-async=on и TrueMoon 1.2611.17.1-alpha. Python/Web и CLI
 сохраняют действующие операции; продуктовые метки берутся из общего
 `src/Directory.Build.props`. [Приёмка перехода](src/Verification/DotNet11.md).

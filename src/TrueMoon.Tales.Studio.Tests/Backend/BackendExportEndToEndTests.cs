@@ -19,6 +19,160 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 public sealed class BackendExportEndToEndTests
 {
     [BackendMediaFact]
+    public async Task Tracks_FromRaster_SaveCyrillicTitleAndMusic_AndReviewBeforeExport()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(withTransition: true);
+        string previewId;
+        byte[] savedBytes;
+        byte[][] savedHistory;
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            var connection = session.Connection;
+            using var host = Workspace(session);
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+            var initialBytes = File.ReadAllBytes(files.ProjectPath);
+            host.Click(ButtonIn(host.Window.Timeline, "Дорожки"));
+            var workspace = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<MontageTrackWorkspace>());
+            host.PumpUntil(() => !workspace.NeedsFrame);
+            host.Click(ButtonIn(workspace, "Музыка"));
+            SetField(workspace, "Медиа (ID ассета или @mount/путь)", "video-a");
+            SetField(workspace, "Кадр проекта", "0");
+            SetField(workspace, "Длительность, к.", "48");
+            SetField(workspace, "Громкость, 0–1", "0,35");
+            var save = ButtonIn(workspace, "Сохранить дорожку");
+            host.Click(save);
+            host.PumpUntil(() => !workspace.NeedsFrame);
+            var music = connection.OpenAsync().GetAwaiter().GetResult();
+            Assert.Equal(13, music.Project.Revision);
+            Assert.Equal(.35, music.Project.Montage.Properties["music"].GetProperty("gain").GetDouble());
+            Assert.Contains(files.History(), row => row.SequenceEqual(initialBytes));
+
+            host.Click(ButtonIn(workspace, "+ Титр"));
+            SetField(workspace, "Название", "Карточка");
+            SetField(workspace, "Кадр проекта", "36");
+            SetField(workspace, "Длительность, к.", "4");
+            SetField(workspace, "Фон (transparent / black)", "black");
+            SetField(workspace, "Размер, пиксели", "18");
+            var caption = Assert.Single(RasterWindow<SceneView>.Walk(workspace).OfType<RichTextEditor>());
+            host.Click(caption);
+            host.Input(new(InputKind.Text, Text: "Клэр"));
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
+            host.Input(new(InputKind.Text, Text: "Луна"));
+            Assert.Equal("Клэр\nЛуна", caption.Text);
+            var newHead = connection.EditScenarioAsync(new SaveMontageMarker(null, "Стык", 36), music).GetAwaiter().GetResult();
+            host.Click(save);
+            host.PumpUntil(() => !workspace.NeedsFrame);
+            Assert.False(save.IsEnabled);
+            Assert.Equal("Клэр\nЛуна", caption.Text);
+            host.Click(ButtonIn(workspace, "Перечитать дорожки"));
+            host.PumpUntil(() => save.IsEnabled);
+            host.Click(save);
+            host.PumpUntil(() => !workspace.NeedsFrame);
+            var baseline = connection.OpenAsync().GetAwaiter().GetResult();
+            Assert.Equal(15, baseline.Project.Revision);
+            Assert.Equal("Клэр\nЛуна", Assert.Single(baseline.Project.Montage.Properties["titles"].EnumerateArray()).GetProperty("text").GetString());
+            Assert.Contains(files.History(), row => Hash(row).Equals(newHead.Fingerprint, StringComparison.OrdinalIgnoreCase));
+            savedBytes = File.ReadAllBytes(files.ProjectPath);
+            savedHistory = files.History();
+            host.Click(ButtonIn(workspace, "К монтажу"));
+            Ready(host, model);
+            Assert.Equal(15, model.Scene!.Revision);
+            Assert.Contains(model.Scene.Tracks!, row => row.Track == "music" && row.DurationFrames == 48);
+            Assert.Contains(model.Scene.Tracks!, row => row.Track == "titles" && row.StartFrame == 36);
+            host.Capture("montage-tracks", new { baseline.Project.Revision });
+
+            host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+            var preparing = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            var play = ButtonIn(preparing, "Смотреть проект");
+            host.PumpUntil(() => play.IsEnabled, TimeSpan.FromSeconds(30));
+            Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
+            var temp = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            previewId = "export-" + Path.GetFileName(temp)[8..];
+            Assert.Equal("export_not_found", Assert.Throws<BackendCommandException>(() =>
+                connection.ExportStatusAsync(previewId).GetAwaiter().GetResult()).Code);
+            host.Click(play);
+            var player = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+            ReviewReady(host, player);
+            SetField(player, "Кадр предпросмотра", "37");
+            host.Click(ButtonIn(player, "Перейти"));
+            ReviewReady(host, player);
+            Assert.Contains(RasterWindow<SceneView>.Walk(player).OfType<Text>(), row => row.Value.Contains("0037 / 0071"));
+            host.Capture("working-review-title", new { baseline.Project.Revision, Frame = 37 });
+            host.Click(ButtonIn(player, "К монтажу"));
+            Ready(host, model);
+            host.PumpUntil(() => !model.NeedsFrame);
+
+            var review = BackendRenderedMontage.Identifier(previewId, null);
+            BackendMediaReply Read(string key, int frame) =>
+                connection.FrameAsync(key, frame, baseline.Project.Revision, baseline.Fingerprint).GetAwaiter().GetResult();
+            var titled = Read(review, 37);
+            var outside = Read(review, 40);
+            int GlyphPixels(byte[] pixels) => Enumerable.Range(0, pixels.Length / 4).Count(i =>
+                pixels[i * 4] >= 195 && pixels[i * 4 + 1] >= 195 && pixels[i * 4 + 2] >= 195);
+            Assert.True(GlyphPixels(titled.Pixels) > 100);
+            Assert.Equal(0, GlyphPixels(outside.Pixels));
+            Assert.InRange(Read(review, 35).Pixels[(135 * 480 + 240) * 4 + 2], 10, 55);
+            var export = connection.StartExportAsync("tracks-parity-export", "draft", baseline.Project.Revision, baseline.Fingerprint).GetAwaiter().GetResult();
+            var result = session.UntilAsync(export.Id, row => row["state"]!.GetValue<string>() != "running",
+                files.JobDirectory(export.Id)).GetAwaiter().GetResult();
+            Assert.Equal("completed", result["state"]!.GetValue<string>());
+            var finalKey = BackendRenderedMontage.Identifier(export.Id, null);
+            Assert.Equal(titled.PixelSha256, Read(finalKey, 37).PixelSha256);
+            Assert.Equal(Read(review, 35).PixelSha256, Read(finalKey, 35).PixelSha256);
+            Assert.Equal(outside.PixelSha256, Read(finalKey, 40).PixelSha256);
+            var previewPcm = FirstAudio(review);
+            Assert.Contains(MemoryMarshal.Cast<byte, float>(previewPcm).ToArray(), value => Math.Abs(value) > .012f);
+            Assert.Equal(previewPcm, FirstAudio(finalKey));
+            files.AssertProject(savedBytes, savedHistory);
+
+            byte[] FirstAudio(string key)
+            {
+                var scene = new BackendRenderedMontage(key, 0, export.Frames, export.Fps, (int)baseline.Project.Revision, baseline.Fingerprint).Scene();
+                var opened = connection.OpenPlaybackAsync(scene, "audio", 0, CancellationToken.None).GetAwaiter().GetResult();
+                try { return connection.ReadPlaybackAsync(opened, CancellationToken.None).GetAwaiter().GetResult().Data; }
+                finally { connection.ClosePlaybackAsync(opened.SessionId, CancellationToken.None).GetAwaiter().GetResult(); }
+            }
+        }
+        Assert.Single(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        files.AssertProject(savedBytes, savedHistory);
+    }
+
+    [BackendMediaFact]
+    public async Task TrackSplit_ThroughWriter_PreservesSoundAndUndoRestoresItsExactPlacement()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        await using var session = await files.OpenAsync();
+        var backend = session.Connection;
+        var initial = await backend.AcquireWriterAsync(await backend.OpenAsync());
+        var refused = await Assert.ThrowsAsync<BackendCommandException>(() =>
+            backend.EditScenarioAsync(new SaveMontageSound(null, "segment-main", "clip-main", "Звук", "voice",
+                "video-a", 0, 4, 13, 40, .4, false), initial));
+        Assert.Equal("montage_audio_source", refused.Code);
+        var before = await backend.EditScenarioAsync(new SaveMontageSound(null, "segment-main", "clip-main", "Звук", "voice",
+            "video-a", 0, 4, 13, 2, .4, false), initial);
+        var beforeBytes = File.ReadAllBytes(files.ProjectPath);
+        var split = await backend.EditScenarioAsync(new SplitMontageClip("clip-main", 24), before);
+        var sound = split.Project.Montage.Properties["sound_events"].EnumerateArray().ToArray();
+        var right = split.Project.Montage.Clips.Single(clip => clip.StartFrame == 24);
+        Assert.Equal(2, sound.Length);
+        Assert.Equal(8, sound[0].GetProperty("duration_frames").GetInt32());
+        Assert.Equal(5, sound[1].GetProperty("duration_frames").GetInt32());
+        Assert.Equal(10d, sound[1].GetProperty("source_in_frame").GetDouble());
+        Assert.Equal(right.Id, sound[1].GetProperty("clip_id").GetString());
+        Assert.All(sound, row => Assert.Equal(.4, row.GetProperty("gain").GetDouble()));
+        Assert.Contains(files.History(), row => row.SequenceEqual(beforeBytes));
+        var undone = await backend.EditScenarioAsync(new UndoMontage(), split);
+        Assert.Equal(split.Project.Revision + 1, undone.Project.Revision);
+        Assert.Equal(before.Project.Montage.Properties["sound_events"].GetRawText(), undone.Project.Montage.Properties["sound_events"].GetRawText());
+        var redone = await backend.EditScenarioAsync(new RedoMontage(), undone);
+        Assert.Equal(split.Project.Montage.Properties["sound_events"].GetRawText(), redone.Project.Montage.Properties["sound_events"].GetRawText());
+    }
+
+    [BackendMediaFact]
     public async Task Montage_FromRaster_EditsAndReviewsVerifiedProjectAndSegment()
     {
         using var files = new ExportFixture();
@@ -587,7 +741,7 @@ public sealed class BackendExportEndToEndTests
         internal string JobDirectory(string id) => Directory.GetDirectories(Exports, id, SearchOption.AllDirectories).Single();
         internal byte[][] History() => Files.Files.HistoryFiles.Order().Select(File.ReadAllBytes).ToArray();
 
-        internal async Task PrepareAsync()
+        internal async Task PrepareAsync(bool withTransition = false)
         {
             Directory.CreateDirectory(Media);
             Directory.CreateDirectory(Exports);
@@ -613,6 +767,16 @@ public sealed class BackendExportEndToEndTests
             windows[1]!["duration_frames"] = longRender ? 3600 : 36;
             var clips = timeline["clips"]!.AsArray();
             clips[1]!["start_frame"] = 40;
+            if (withTransition)
+            {
+                clips[0]!["speed"] = 1.25;
+                clips[0]!["source_out_frame"] = 30;
+                timeline["transitions"] = new JsonArray(new JsonObject
+                {
+                    ["left_clip_id"] = "clip-main", ["right_clip_id"] = "clip-extra",
+                    ["fade_out_frames"] = 4, ["pause_frames"] = 4, ["fade_in_frames"] = 4
+                });
+            }
             File.WriteAllText(ProjectPath, project.ToJsonString());
             var store = Files.Files.Store();
             await store.MigrateAsync(await store.OpenAsync(), 11, "export-fixture");

@@ -75,6 +75,7 @@ internal sealed class MontageTools : ContentControl
         _remove.IsEnabled = _model.CanRemoveMontage;
         if (!_remove.IsEnabled) _confirmRemove = false;
         _remove.Value = _confirmRemove ? "Подтвердить удаление" : "Удалить клип…";
+        _remove.AccessibleName = _confirmRemove ? "Подтвердить удаление клипа и связанного звука" : "Удалить клип";
         _undo.IsEnabled = _model.CanUndoMontage;
         _redo.IsEnabled = _model.CanRedoMontage;
         _saveJoin.IsEnabled = _removeJoin.IsEnabled = _model.CanEditMontage && join is not null;
