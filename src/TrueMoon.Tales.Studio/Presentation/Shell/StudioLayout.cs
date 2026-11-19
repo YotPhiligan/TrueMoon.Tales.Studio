@@ -134,16 +134,19 @@ internal sealed class StudioLayout : ElementList
 internal sealed class StudioHeading : ElementList
 {
     private readonly Element _left, _right;
-    public StudioHeading(Element left, Element right) { _left = left; _right = right; Add(left); Add(right); }
+    private readonly bool _fitActions;
+    public StudioHeading(Element left, Element right, bool fitActions = false)
+    { _left = left; _right = right; _fitActions = fitActions; Add(left); Add(right); }
     protected override Size MeasureCore(Size available, ITextLayoutService text)
     {
-        _right.Measure(new(Math.Min(260, available.Width * .38f), available.Height), text);
+        var rightWidth = _fitActions ? available.Width : Math.Min(260, available.Width * .38f);
+        _right.Measure(new(rightWidth, available.Height), text);
         _left.Measure(new(Math.Max(0, available.Width - _right.DesiredSize.Width - 16), available.Height), text);
         return new(available.Width, Math.Max(_left.DesiredSize.Height, _right.DesiredSize.Height));
     }
     protected override void ArrangeCore(Rect area)
     {
-        var right = Math.Min(area.Width * .4f, _right.DesiredSize.Width);
+        var right = Math.Min(_fitActions ? area.Width : area.Width * .4f, _right.DesiredSize.Width);
         _left.Arrange(new(area.X, area.Y + Math.Max(0, (area.Height - _left.DesiredSize.Height) / 2),
             Math.Max(0, area.Width - right - 16), Math.Min(area.Height, _left.DesiredSize.Height)));
         _right.Arrange(new(area.X + area.Width - right, area.Y + Math.Max(0, (area.Height - _right.DesiredSize.Height) / 2),

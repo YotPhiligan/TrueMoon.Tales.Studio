@@ -15,11 +15,19 @@ internal sealed partial class StoryboardWorkspace
     private readonly List<(Join Choice, Button Button)> _joinChoices = [];
     private Button _editJoin = null!, _saveJoin = null!, _cancelJoin = null!;
     private Join? _selectedJoin;
-    private bool _joinMode, _joinDraft, _joinStale;
+    private bool _joinMode, _comparePlans, _joinDraft, _joinStale;
     private float _planListWidth, _joinListWidth = 270;
     private VStack _bridgeFields = null!;
 
-    private sealed record Join(SceneJoinWindowPair Pair, StoryboardShot? ExitShot, StoryboardShot? EntryShot, SceneJoinNotes Notes);
+    private sealed record JoinTarget(string WindowId, string? ClipId = null, string? ActionId = null)
+    {
+        internal static JoinTarget ForPlan(StoryboardShot shot) => shot.Position!.ClipId is { } clip
+            ? new(shot.Position.Window.Id, ClipId: clip)
+            : new(shot.Position.Window.Id, ActionId: shot.ActionId);
+    }
+
+    private sealed record JoinEndpoint(string Title, int Frame, StoryboardShot? Shot);
+    private sealed record Join((JoinTarget Exit, JoinTarget Entry) Key, JoinEndpoint Exit, JoinEndpoint Entry, SceneJoinNotes? Notes = null);
 
     private VStack CreateJoinDetails()
     {
@@ -36,16 +44,24 @@ internal sealed partial class StoryboardWorkspace
             .Configure(stack => stack.IsVisible = false);
     }
 
-    private void ToggleJoins()
+    private void ToggleJoins(bool plans)
     {
         if (NeedsFrame || _joinDraft || _noteDraft) return;
         if (_noteMode) LeaveFrameNotes();
+        SetJoinMode(enabled: !_joinMode || _comparePlans != plans, plans);
+        Reload();
+    }
+
+    private void SetJoinMode(bool enabled, bool plans)
+    {
         if (_joinMode) _joinListWidth = _split.FirstPaneSize;
         else _planListWidth = _split.FirstPaneSize;
-        _joinMode = !_joinMode;
+        _joinMode = enabled;
+        _comparePlans = enabled && plans;
         _split.FirstPaneSize = _joinMode ? _joinListWidth : _planListWidth;
         _split.Divider.AccessibleName = _joinMode ? "Ширина списка стыков" : "Ширина списка планов";
-        _joinToggle.Value = _joinMode ? "Планы" : "Стыки сцен";
+        _joinToggle.Value = _joinMode && !_comparePlans ? "Планы" : "Стыки сцен";
+        _planJoinToggle.Value = _comparePlans ? "Планы" : "Стыки планов";
         _joinRows.IsVisible = _joinMode;
         _rows.IsVisible = _planDetails.IsVisible = !_joinMode;
         _joinDetails.IsVisible = false;
@@ -55,31 +71,25 @@ internal sealed partial class StoryboardWorkspace
         _selectedJoin = null;
         _selected = null;
         ClearPreview();
-        Reload();
     }
 
     private void RefreshJoins(OpenedBackendProject snapshot, StoryboardShot[] shots)
     {
-        var notes = BackendSceneJoins.Read(snapshot.Project);
-        var scenes = snapshot.Project.Segments.ToDictionary(scene => scene.Id);
-        var windowShots = shots.Where(shot => shot.Position is not null).ToLookup(shot => shot.Position!.Window.Id);
-        var previous = _selectedJoin?.Notes;
+        var previous = _selectedJoin?.Key;
         _snapshot = snapshot;
         _joinStale = false;
         foreach (var row in _joinRows.Items.ToArray()) { _joinRows.Items.Remove(row); row.Dispose(); }
         _joinChoices.Clear();
         Join? retained = null;
-        foreach (var pair in BackendSceneJoins.Pairs(snapshot.Project))
+        var joins = _comparePlans ? PlanJoins(shots) : SceneJoins(snapshot.Project, shots);
+        foreach (var join in joins)
         {
-            var key = (pair.Left.Id, pair.Right.Id);
-            var join = new Join(pair, At(pair.Left, pair.ExitFrame), At(pair.Right, pair.EntryFrame),
-                notes.GetValueOrDefault(key) ?? new(key.Item1, key.Item2, "", "", ""));
-            var label = $"{pair.ExitFrame:0000} / {pair.EntryFrame:0000} · {scenes[pair.Right.SegmentId!].Name}";
-            var button = Command(label, () => SelectJoin(_joinChoices.Single(choice => choice.Choice.Pair == pair).Choice));
+            var label = $"{join.Exit.Frame:0000} / {join.Entry.Frame:0000} · {join.Entry.Title}";
+            var button = Command(label, () => SelectJoin(_joinChoices.Single(choice => choice.Choice.Key == join.Key).Choice));
             button.AccessibleName = label;
             _joinRows.Add(button);
             _joinChoices.Add((join, button));
-            if (previous?.LeftWindowId == key.Item1 && previous.RightWindowId == key.Item2) retained = join;
+            if (previous == join.Key) retained = join;
         }
         JoinCount();
         if (retained is not null)
@@ -97,7 +107,28 @@ internal sealed partial class StoryboardWorkspace
         }
         _selectedJoin = null;
         _joinDetails.IsVisible = false;
-        Show(_joinChoices.Count == 0 ? "На шкале нет соседних сцен." : "Выберите стык.");
+        Show(_joinChoices.Count == 0
+            ? _comparePlans ? "На шкале нет соседних планов внутри сцены." : "На шкале нет соседних сцен."
+            : "Выберите стык.");
+    }
+
+    private static IEnumerable<Join> PlanJoins(StoryboardShot[] shots) => StoryboardPlanJoin.Read(shots).Select(pair => new Join(
+        (JoinTarget.ForPlan(pair.Exit), JoinTarget.ForPlan(pair.Entry)), new(pair.Exit.Title, pair.ExitFrame, pair.Exit),
+        new(pair.Entry.Title, pair.EntryFrame, pair.Entry)));
+
+    private static IEnumerable<Join> SceneJoins(ProjectContract project, StoryboardShot[] shots)
+    {
+        var notes = BackendSceneJoins.Read(project);
+        var scenes = project.Segments.ToDictionary(scene => scene.Id);
+        var windowShots = shots.Where(shot => shot.Position is not null).ToLookup(shot => shot.Position!.Window.Id);
+        foreach (var pair in BackendSceneJoins.Pairs(project))
+        {
+            var key = (pair.Left.Id, pair.Right.Id);
+            yield return new((new(pair.Left.Id), new(pair.Right.Id)),
+                new(scenes[pair.Left.SegmentId!].Name, pair.ExitFrame, At(pair.Left, pair.ExitFrame)),
+                new(scenes[pair.Right.SegmentId!].Name, pair.EntryFrame, At(pair.Right, pair.EntryFrame)),
+                notes.GetValueOrDefault(key) ?? new(key.Item1, key.Item2, "", "", ""));
+        }
 
         StoryboardShot? At(SegmentWindowContract window, int frame) => windowShots[window.Id]
             .FirstOrDefault(shot => shot.Position is { } at && at.Frame <= frame && frame < (long)at.Frame + at.Duration);
@@ -108,19 +139,19 @@ internal sealed partial class StoryboardWorkspace
         if (NeedsFrame || _snapshot is not { } snapshot) return;
         _selectedJoin = join;
         _joinDetails.IsVisible = true;
-        var scenes = snapshot.Project.Segments;
-        var pair = join.Pair;
+        var (left, right) = (join.Exit, join.Entry);
+        var showStates = join.Notes is not null;
         _exitAnchor = _entryAnchor = null;
-        var gap = pair.EntryFrame - pair.ExitFrame - 1;
-        _joinTiming.Value = $"Кадры {pair.ExitFrame} / {pair.EntryFrame} · " + (gap == 0 ? "Без паузы" : $"Пауза {gap} к.");
-        _exitSide.Set(scenes.Single(scene => scene.Id == pair.Left.SegmentId).Name, pair.ExitFrame, join.ExitShot);
-        _entrySide.Set(scenes.Single(scene => scene.Id == pair.Right.SegmentId).Name, pair.EntryFrame, join.EntryShot);
-        if (!preserveDraft) SetJoinNotes(join.Notes);
-        else _joinSummary.Value = join.Notes.Summary;
+        var gap = right.Frame - left.Frame - 1;
+        _joinTiming.Value = $"Кадры {left.Frame} / {right.Frame} · " + (gap == 0 ? "Без паузы" : $"Пауза {gap} к.");
+        _exitSide.Set(left.Title, left.Frame, left.Shot, showStates);
+        _entrySide.Set(right.Title, right.Frame, right.Shot, showStates);
+        _joinSummary.Value = join.Notes?.Summary ?? right.Shot!.SegmentName;
+        if (join.Notes is { } notes && !preserveDraft) SetJoinNotes(notes);
         Start("Читаю кадры стыка…", async token =>
         {
-            var exit = await ReadSideAsync(join.ExitShot, pair.ExitFrame, snapshot, token).ConfigureAwait(false);
-            var entry = await ReadSideAsync(join.EntryShot, pair.EntryFrame, snapshot, token).ConfigureAwait(false);
+            var exit = await ReadSideAsync(left.Shot, left.Frame, snapshot, token).ConfigureAwait(false);
+            var entry = await ReadSideAsync(right.Shot, right.Frame, snapshot, token).ConfigureAwait(false);
             var actual = await _backend.OpenAsync(token).ConfigureAwait(false);
             if (actual.Project.Revision != snapshot.Project.Revision || !string.Equals(actual.Fingerprint, snapshot.Fingerprint, StringComparison.OrdinalIgnoreCase))
                 throw new BackendCommandException("revision_conflict");
@@ -128,8 +159,8 @@ internal sealed partial class StoryboardWorkspace
             {
                 _exitSide.ShowFrame(exit.Frame, exit.Unavailable);
                 _entrySide.ShowFrame(entry.Frame, entry.Unavailable);
-                _exitAnchor = CaptureAnchor(join.ExitShot, pair.ExitFrame, exit.Frame, snapshot);
-                _entryAnchor = CaptureAnchor(join.EntryShot, pair.EntryFrame, entry.Frame, snapshot);
+                _exitAnchor = CaptureAnchor(left.Shot, left.Frame, exit.Frame, snapshot);
+                _entryAnchor = CaptureAnchor(right.Shot, right.Frame, entry.Frame, snapshot);
                 Show(preserveDraft ? "Проект перечитан. Сверьте кадры и черновик перед сохранением." : "");
             };
         });
@@ -152,20 +183,21 @@ internal sealed partial class StoryboardWorkspace
 
     private void SaveJoin()
     {
-        if (NeedsFrame || _joinStale || !_joinDraft || _snapshot is not { } snapshot || _selectedJoin is not { } join) return;
-        var pair = join.Pair;
-        var command = new SaveSceneJoin(pair.Left.Id, pair.Right.Id, _exitSide.State.Text, _entrySide.State.Text, _bridge.Text);
+        if (NeedsFrame || _joinStale || !_joinDraft || _snapshot is not { } snapshot ||
+            _selectedJoin is not { Notes: { } previous } join) return;
+        var key = (previous.LeftWindowId, previous.RightWindowId);
+        var command = new SaveSceneJoin(key.LeftWindowId, key.RightWindowId, _exitSide.State.Text, _entrySide.State.Text, _bridge.Text);
         Start("Сохраняю стык…", async token =>
         {
             var saved = await _backend.EditScenarioAsync(command, snapshot, token).ConfigureAwait(false);
-            var notes = BackendSceneJoins.Read(saved.Project).GetValueOrDefault((pair.Left.Id, pair.Right.Id)) ??
-                new(pair.Left.Id, pair.Right.Id, "", "", "");
+            var notes = BackendSceneJoins.Read(saved.Project).GetValueOrDefault(key) ??
+                new(key.LeftWindowId, key.RightWindowId, "", "", "");
             return () =>
             {
                 _snapshot = saved;
                 var updated = join with { Notes = notes };
                 // Selection callbacks read the current list entry so reopening a join uses its latest notes.
-                var index = _joinChoices.FindIndex(choice => choice.Choice.Pair == pair);
+                var index = _joinChoices.FindIndex(choice => choice.Choice.Key == join.Key);
                 _joinChoices[index] = (updated, _joinChoices[index].Button);
                 _selectedJoin = updated;
                 _joinDraft = false;
@@ -187,7 +219,7 @@ internal sealed partial class StoryboardWorkspace
         }
         else
         {
-            if (_selectedJoin is { } join) SetJoinNotes(join.Notes);
+            if (_selectedJoin?.Notes is { } notes) SetJoinNotes(notes);
             Show("");
             SyncJoinCommands();
         }
@@ -201,7 +233,7 @@ internal sealed partial class StoryboardWorkspace
         _bridge.Text = notes.Bridge;
     }
 
-    private void JoinCount() => _count.Value = $"Стыки: {_joinChoices.Count} · ревизия {_snapshot!.Project.Revision}";
+    private void JoinCount() => _count.Value = $"{(_comparePlans ? "Стыки планов" : "Стыки")}: {_joinChoices.Count} · ревизия {_snapshot!.Project.Revision}";
 
     private void SyncJoinCommands()
     {
@@ -209,9 +241,10 @@ internal sealed partial class StoryboardWorkspace
         _exitSide.State.Options = _exitSide.State.Options with { IsReadOnly = !editable };
         _entrySide.State.Options = _entrySide.State.Options with { IsReadOnly = !editable };
         _bridge.Options = _bridge.Options with { IsReadOnly = !editable };
-        _bridgeFields.IsVisible = _joinDraft || _bridge.Text.Length > 0;
-        _editJoin.IsVisible = !_joinDraft;
-        _editJoin.IsEnabled = _selectedJoin is not null && !_joinStale && !NeedsFrame && _snapshot?.SchemaVersion == 2;
+        var sceneJoin = _selectedJoin?.Notes is not null;
+        _bridgeFields.IsVisible = sceneJoin && (_joinDraft || _bridge.Text.Length > 0);
+        _editJoin.IsVisible = sceneJoin && !_joinDraft;
+        _editJoin.IsEnabled = sceneJoin && !_joinStale && !NeedsFrame && _snapshot?.SchemaVersion == 2;
         _saveJoin.IsVisible = _cancelJoin.IsVisible = _joinDraft;
         _saveJoin.IsEnabled = editable && !_joinStale;
         _cancelJoin.IsEnabled = editable;
@@ -221,7 +254,7 @@ internal sealed partial class StoryboardWorkspace
         foreach (var (join, button) in _joinChoices)
         {
             button.IsEnabled = !NeedsFrame && !_joinDraft;
-            button.Tone = join.Pair == _selectedJoin?.Pair ? ControlTone.Accent : ControlTone.Neutral;
+            button.Tone = join.Key == _selectedJoin?.Key ? ControlTone.Accent : ControlTone.Neutral;
         }
     }
 
@@ -246,10 +279,11 @@ internal sealed partial class StoryboardWorkspace
     private sealed class JoinSide
     {
         private readonly string _side;
-        private readonly Text _heading = new(), _caption = new();
+        private readonly Text _heading = new(), _planTitle = new(), _caption = new(), _sample = new();
         private readonly Image _image = new();
         private readonly PreviewSurface _surface;
         private readonly RichTextEditor _placeholder;
+        private readonly VStack _stateFields;
         private SkiaImageSource? _pixels;
 
         internal JoinSide(string side)
@@ -260,17 +294,22 @@ internal sealed partial class StoryboardWorkspace
             _placeholder = Note($"Кадр · {side}");
             _placeholder.Height = 122;
             AddNote = Button.Simple(side == "Выход" ? "Замечание к выходу" : "Замечание ко входу").WithRole(SceneView.CommandRole);
-            Content = Stack(_heading, _surface, _placeholder, _caption, Text.Plain(State.AccessibleName), State, AddNote);
+            _stateFields = Stack(Text.Plain(State.AccessibleName), State);
+            Content = Stack(_heading, _planTitle, _surface, _placeholder, _caption, _sample, _stateFields, AddNote);
         }
 
         internal VStack Content { get; }
         internal RichTextEditor State { get; }
         internal Button AddNote { get; }
 
-        internal void Set(string scene, int frame, StoryboardShot? shot)
+        internal void Set(string title, int frame, StoryboardShot? shot, bool showState)
         {
             ClearPreview();
-            _heading.Value = $"{_side} · {scene}";
+            _stateFields.IsVisible = showState;
+            _surface.Height = _placeholder.Height = showState ? 122 : 224;
+            _heading.Value = showState ? $"{_side} · {title}" : _side;
+            _planTitle.Value = title;
+            _planTitle.IsVisible = !showState;
             _caption.Value = $"Кадр {frame} · {shot?.Medium ?? "Пауза"}";
             _image.AccessibleName = $"{_side} · кадр {frame}";
             _placeholder.Text = shot is null ? "На границе нет плана." : shot.Video is null && !shot.Still
@@ -288,6 +327,13 @@ internal sealed partial class StoryboardWorkspace
             _image.Source = _pixels;
             _surface.IsVisible = true;
             _placeholder.IsVisible = false;
+            if (_planTitle.IsVisible)
+            {
+                _sample.Value = frame.SourceSha256 is { Length: >= 8 } sha
+                    ? $"SHA {sha[..8]}"
+                    : $"Исходный кадр {frame.FrameIndex}";
+                _sample.IsVisible = true;
+            }
         }
 
         internal void ClearPreview()
@@ -298,6 +344,7 @@ internal sealed partial class StoryboardWorkspace
             _surface.IsVisible = false;
             _placeholder.IsVisible = true;
             _placeholder.Text = "Кадр не загружен.";
+            _sample.IsVisible = false;
         }
     }
 }

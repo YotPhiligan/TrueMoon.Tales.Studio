@@ -14,7 +14,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     private readonly CancellationTokenSource _closing = new();
     private readonly VStack _rows = VStack.Create().Configure(stack => stack.Spacing = 6);
     private readonly Text _count = new(), _title = new(), _timing = new(), _text = new(), _status = new();
-    private readonly Button _reload, _action, _frame, _back, _joinToggle;
+    private readonly Button _reload, _action, _frame, _back, _joinToggle, _planJoinToggle;
     private readonly VStack _planDetails, _joinDetails;
     private readonly SplitView _split;
     private readonly Image _preview = new();
@@ -36,7 +36,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _title.FontSize = 19;
         _reload = Command("Обновить", () => Reload());
         _back = Command("К монтажу", close);
-        _joinToggle = Command("Стыки сцен", ToggleJoins);
+        _joinToggle = Command("Стыки сцен", () => ToggleJoins(plans: false));
+        _planJoinToggle = Command("Стыки планов", () => ToggleJoins(plans: true));
         _noteToggle = Command("Замечания", ToggleFrameNotes);
         _addNote = Command("Замечание к кадру", () => BeginFrameNote(_planAnchor));
         _framePicker = Row(_frameNumber, Command("Показать кадр", ShowRequestedFrame));
@@ -53,7 +54,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
         _split.FirstPane.SetContent(ScrollViewer.Create().Content(Stack(_count, _rows, _joinRows, _noteRows)));
         _split.SecondPane.SetContent(ScrollViewer.Create().Content(Border.Create().Configure(border => border.Padding = new Thickness(16))
             .Content(Stack(_status, _planDetails, _joinDetails, _noteDetails))));
-        SetContent(new PreviewLayout(new StudioHeading(heading, Row(_joinToggle, _noteToggle, _reload, _back)), _split, new Text()));
+        var commands = Row(_joinToggle, _planJoinToggle, _noteToggle, _reload, _back);
+        SetContent(new PreviewLayout(new StudioHeading(heading, commands, fitActions: true), _split, new Text()));
         Reload();
     }
 
@@ -223,7 +225,7 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     private void SyncCommands()
     {
         _reload.IsEnabled = !NeedsFrame;
-        _joinToggle.IsEnabled = _noteToggle.IsEnabled = _back.IsEnabled = !NeedsFrame && !_joinDraft && !_noteDraft;
+        _joinToggle.IsEnabled = _planJoinToggle.IsEnabled = _noteToggle.IsEnabled = _back.IsEnabled = !NeedsFrame && !_joinDraft && !_noteDraft;
         _action.IsVisible = _frame.IsVisible = _selected is not null;
         _action.IsEnabled = !NeedsFrame && _selected?.ActionId is not null;
         _frame.IsEnabled = !NeedsFrame && _selected?.Position is not null;

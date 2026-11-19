@@ -927,6 +927,106 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Storyboard_PlanJoins_CompareLastTakeFrameWithStillInsideScene()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        const string stillFile = "Опора часов.png";
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120", "-frames:v", "1",
+             "-threads", "1", "-n", files.MediaPath(stillFile)], 2048);
+        var stillSha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(files.MediaPath(stillFile))));
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var snapshot = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = snapshot.Project.Sources.First();
+        var take = source.Takes.First(row => row.VideoAssetId is not null);
+        snapshot = await api.EditScenarioAsync(new SaveSegment(null, "Тихий привал", "", 800, 160), snapshot);
+        var segment = snapshot.Project.Segments.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Духи у ладони", "", 12), snapshot);
+        var action = snapshot.Project.Segments.Last().Actions.Single();
+        snapshot = await api.EditScenarioAsync(new LinkSource(segment.Id, action.Id, source.Id, "Дубль привала"), snapshot);
+        snapshot = await api.EditScenarioAsync(new PlaceClip(segment.Id, action.Id, source.Id, take.Id, 876, 12, 4), snapshot);
+        var clip = snapshot.Project.Montage.Clips.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAction(segment.Id, null, "Ход часов", "", 48), snapshot);
+        var still = snapshot.Project.Segments.Last().Actions.Last();
+        snapshot = await api.EditScenarioAsync(new SaveAnimaticStill(segment.Id, still.Id, "@videos/" + stillFile), snapshot);
+        var originalBytes = File.ReadAllBytes(files.ProjectPath);
+        var originalHistory = files.History();
+
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        host.Click(ButtonIn(host.Window.Navigation, "Раскадровка"));
+        var board = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+        host.PumpUntil(() => !board.NeedsFrame);
+        Click("Стыки планов");
+        Click("0887 / 0888 · Ход часов");
+        Label("Кадры 887 / 888 · Без паузы");
+        Label("Кадр 887 · Видео");
+        Label("Исходный кадр 15");
+        Label("Кадр 888 · Стоп-кадр");
+        Label($"SHA {stillSha[..8]}");
+        var left = Picture("Выход · кадр 887");
+        var right = Picture("Вход · кадр 888");
+        Assert.NotNull(left.Source);
+        Assert.NotNull(right.Source);
+        Assert.True(left.Bounds.X < right.Bounds.X);
+        Assert.False(ButtonIn(board, "Уточнить стык").IsVisible);
+        Assert.True(ButtonIn(board, "Замечание к выходу").IsEffectivelyEnabled);
+        Assert.True(ButtonIn(board, "Замечание ко входу").IsEffectivelyEnabled);
+        using (var raster = SkiaSharp.SKBitmap.Decode(host.Capture("plan-join-887-888", new { exit = 887, entry = 888 })))
+        {
+            var videoPixel = Center(raster, left);
+            var stillPixel = Center(raster, right);
+            Assert.True(videoPixel.Red > 200 && videoPixel.Green < 30, videoPixel.ToString());
+            Assert.True(stillPixel.Green > 200 && stillPixel.Red < 30, stillPixel.ToString());
+        }
+        host.Resize(840, 660, 1.5f);
+        Assert.True(right.Bounds.Width > 0 && right.Bounds.X + right.Bounds.Width <= board.Bounds.X + board.Bounds.Width);
+        var back = ButtonIn(board, "К монтажу");
+        Assert.True(back.Bounds.X + back.Bounds.Width <= back.Parent!.Bounds.X + back.Parent.Bounds.Width);
+        host.Capture("plan-join-compact", new { exit = 887, entry = 888 });
+        host.Resize(1280, 820, 1);
+        files.AssertProject(originalBytes, originalHistory);
+
+        var changed = api.MoveAsync(clip.Id, 880, snapshot.Project.Revision, snapshot.Fingerprint).GetAwaiter().GetResult();
+        var movedBytes = File.ReadAllBytes(files.ProjectPath);
+        var movedHistory = files.History();
+        Click("0887 / 0888 · Ход часов");
+        Label("Проект изменился. Обновите стыки.");
+        Assert.Null(left.Source);
+        Assert.Null(right.Source);
+        Assert.False(ButtonIn(board, "Замечание к выходу").IsVisible);
+        Click("Обновить");
+        Label("Кадр 891 · Видео");
+        Label("Исходный кадр 15");
+        Label("Кадр 892 · Стоп-кадр");
+        Label($"SHA {stillSha[..8]}");
+        Assert.NotNull(Picture("Выход · кадр 891").Source);
+        Assert.NotNull(Picture("Вход · кадр 892").Source);
+        Assert.Equal(changed.Fingerprint, board.ProjectFingerprint);
+        Assert.Equal(originalHistory.Length + 1, movedHistory.Length);
+        files.AssertProject(movedBytes, movedHistory);
+        Assert.Empty(files.Requests());
+
+        void Click(string label)
+        {
+            var button = ButtonIn(board, label);
+            Assert.True(button.IsVisible && button.IsEffectivelyEnabled);
+            for (var node = button.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); break; }
+            host.Click(button);
+            host.PumpUntil(() => !board.NeedsFrame);
+        }
+        void Label(string value) => Assert.Contains(RasterWindow<SceneView>.Walk(board).OfType<Text>(),
+            row => row.IsVisible && row.Value == value);
+        Image Picture(string name) => Assert.Single(RasterWindow<SceneView>.Walk(board).OfType<Image>(), row => row.AccessibleName == name);
+        static SkiaSharp.SKColor Center(SkiaSharp.SKBitmap raster, Image image) =>
+            raster.GetPixel((int)(image.Bounds.X + image.Bounds.Width / 2), (int)(image.Bounds.Y + image.Bounds.Height / 2));
+    }
+
+    [BackendMediaFact]
     public async Task Storyboard_FrameNotes_FollowMovedFrames_AndKeepChangedTargetsForReview()
     {
         using var files = new ExportFixture();

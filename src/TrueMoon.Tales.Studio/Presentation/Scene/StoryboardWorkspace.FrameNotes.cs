@@ -44,18 +44,7 @@ internal sealed partial class StoryboardWorkspace
 
     private void EnterFrameNotes()
     {
-        if (_joinMode)
-        {
-            _joinListWidth = _split.FirstPaneSize;
-            _joinMode = false;
-            _joinToggle.Value = "Стыки сцен";
-            _joinRows.IsVisible = _joinDetails.IsVisible = false;
-            _exitSide.ClearPreview();
-            _entrySide.ClearPreview();
-            _selectedJoin = null;
-            _exitAnchor = _entryAnchor = null;
-            _split.FirstPaneSize = _planListWidth;
-        }
+        if (_joinMode) SetJoinMode(enabled: false, plans: false);
         _noteMode = true;
         _noteToggle.Value = "Планы";
         _split.Divider.AccessibleName = "Ширина списка замечаний";
