@@ -7,16 +7,23 @@ Arts/Lore/Texts подключены извне. Чтение Book отключ�
 
 ## Настройка и запуск
 
-Скопировать `Studio.config.example.json` в `Studio.config.local.json`, проверить
-пути и запустить `Start-Studio.cmd`. PowerShell 7 читает `python_executable` из
-конфига; сам сервер запускается portable Python. Установка пакетов не выполняется.
-Другой конфиг задаётся `Start-Studio.ps1 -Config <файл>` или переменной
-`TRUE_MOON_STUDIO_CONFIG`; `STUDIO_PYTHON` меняет Python запуска приложения.
-Для подготовки/генерации профиль использует `python_executable` из конфига.
+EXE и `Start-Studio.cmd` по умолчанию используют профиль
+`%LOCALAPPDATA%\TrueMoon\Tales Studio\Studio.config.local.json`. EXE создаёт
+его при первом запуске. Для запуска только Web можно скопировать в AppData
+[шаблон](Studio.config.example.json) и заполнить пути. `Start-Studio.ps1 -Config <файл>`
+и `--projects --config <файл>` имеют приоритет над `TRUE_MOON_STUDIO_CONFIG`.
+PowerShell 7 запускает Python из `python_executable` или `STUDIO_PYTHON`.
+Для подготовки и генерации используется `python_executable` из профиля.
+
+При переносе старого профиля пересчитайте относительные корни и пути к
+инструментам от его прежней папки. Относительные `path_aliases` считаются
+от `legacy_root`. Сохраните `state_root` с реестром. Файл недавних
+`Projects.recent.<SHA256>.json` в `state_root` использует SHA-256 полного
+пути к конфигурации в UTF-8, на Windows путь приводится к верхнему регистру.
 
 ```powershell
-# Из корня репозитория Studio. Только проверка, GPU не запускается.
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ./app.py --check
+# Из корня репозитория Studio при заданном STUDIO_PYTHON. Только проверка.
+& $env:STUDIO_PYTHON -s -B ./app.py --check
 # Другой порт, без открытия браузера:
 ./Start-Studio.ps1 -Port 8788 -NoBrowser
 ```
@@ -46,6 +53,13 @@ API `GET /api/workspace` показывает фактически загруж�
 | python_executable / comfy_root | Установленная среда и ComfyUI; ничего не скачивается |
 | protected_roots | Каталоги, запрещённые для чтения и записи Studio |
 | path_aliases | Совместимость старого префикса с новым каталогом после согласованного переноса |
+
+Для открытия проекта прямо из Videos укажите абсолютный путь к репозиторию
+в `amv_root`. Для материалов сохраните нужные mounts и aliases в персональном
+профиле. На экране «Проекты» нажмите «Открыть существующий проект» и укажите
+папку проекта внутри `amv_root` или `projects_root`. Открытие использует
+права профиля. Для редактирования schema2 разрешите запись каталога проекта
+в `project_write_roots`.
 
 `@studio`, `@profiles`, `@state`, `@projects`, опциональные `@cache` и `@exports`
 зарезервированы. Настройка `mounts` не даёт права записи. Выход через `..`,

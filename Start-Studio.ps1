@@ -1,6 +1,14 @@
 param([string]$Config=$env:TRUE_MOON_STUDIO_CONFIG,[int]$Port=8787,[switch]$NoBrowser)
 $ErrorActionPreference='Stop'
-if (-not $Config) { $Config=Join-Path $PSScriptRoot 'Studio.config.local.json' }
+if ([string]::IsNullOrWhiteSpace($Config)) {
+    $personalData=[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    if (-not $personalData) { throw 'Local application data directory is unavailable.' }
+    $Config=Join-Path $personalData 'TrueMoon/Tales Studio/Studio.config.local.json'
+    if (-not (Test-Path -LiteralPath $Config -PathType Leaf)) {
+        throw "Studio configuration not found: $Config. Launch the desktop Studio once or copy Studio.config.example.json to that location."
+    }
+}
+$Config=[Environment]::ExpandEnvironmentVariables($Config)
 $Config=(Resolve-Path -LiteralPath $Config).Path
 $settings=Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
 $python=$env:STUDIO_PYTHON

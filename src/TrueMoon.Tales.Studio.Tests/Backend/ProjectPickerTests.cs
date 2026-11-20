@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TrueMoon.Alloy.Hosting;
 using TrueMoon.Argentis;
 using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Backend;
@@ -10,6 +11,7 @@ using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Models;
 using TrueMoon.Tales.Studio.Persistence;
+using TrueMoon.Tales.Studio.Presentation.Project;
 using TrueMoon.Tales.Studio.Presentation.Projects;
 using TrueMoon.Tales.Studio.Presentation.Scene;
 using TrueMoon.Tales.Studio.Tests.Persistence;
@@ -51,7 +53,7 @@ public sealed class ProjectPickerTests
 
             var listing = await files.Catalog.ReadAsync(CancellationToken.None);
             Assert.Empty(listing.Notices);
-            Assert.Equal(3, listing.Items.Count(row => row.CanOpen));
+            Assert.Equal(5, listing.Items.Count(row => row.CanOpen));
             Assert.Equal(2, Row("outside").Schema);
             Assert.Equal(aliased, Row("outside").Directory);
             Assert.Equal(ProjectAvailability.MigrationRequired, Row("schema1").Availability);
@@ -78,6 +80,19 @@ public sealed class ProjectPickerTests
     }
 
     [Fact]
+    public async Task PickerStartup_BuildsHostedWindowWithProductionChrome()
+    {
+        using var files = new PickerFixture();
+        await using var app = ProjectPickerApplication.BuildPicker(files.Catalog, _ => false);
+        var options = new SilkUiWindowOptions();
+        ProjectPickerApplication.ConfigurePickerWindow(options);
+
+        Assert.NotNull(app.Services.Resolve<HostedUiWindow>());
+        Assert.False(options.Appearance.Decorated);
+        Assert.True(options.Chrome?.NativeDrag == true);
+    }
+
+    [Fact]
     public void EmptyPicker_RendersAndAllowsRefresh()
     {
         using var files = new PickerFixture();
@@ -92,6 +107,199 @@ public sealed class ProjectPickerTests
         Assert.Empty(host.Window.Rows);
         host.Capture("empty", new { host.Window.Status });
         Assert.False(Directory.Exists(files.State));
+    }
+
+    [Fact]
+    public async Task FirstLaunch_OpensEmptyEditorAndShowsItInRecentsOnNextLaunch()
+    {
+        using var files = new PersistenceFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        var token = deadline.Token;
+        var personal = Path.Combine(files.Root, "Personal");
+        var config = StudioStartup.ProjectPickerConfig([], new(),
+            () => StudioStartup.DefaultConfig(null, files.Root, personal))!;
+        var catalog = new ProjectCatalog(config);
+        var (first, notice) = await ProjectPickerApplication.PrepareEmptyWorkspaceAsync(catalog, token);
+        Assert.Null(notice);
+        var project = Assert.IsType<ProjectEntry>(first);
+        Assert.Equal(ProjectAvailability.NoClip, project.Availability);
+        Assert.StartsWith(personal + Path.DirectorySeparatorChar, project.Directory);
+        var path = PickerFixture.FileAt(project.Directory!);
+        var before = File.ReadAllBytes(path);
+        var entered = false;
+        var error = await ProjectPickerApplication.OpenSelectedAsync(catalog, project, token,
+            app => RasterEditor(app, (services, host) =>
+            {
+                var model = services.Resolve<SceneViewModel>()!;
+                Assert.Null(model.Scene);
+                var empty = Assert.IsType<EmptyProject>(model.EmptyProject);
+                Assert.Equal(("Без названия", 1L, 24d, "1280 × 736"), (empty.Name, empty.Revision, empty.Fps, empty.Dimensions));
+                Assert.False(ButtonAt(host.Window.Heading, "Экспорт MP4").IsEnabled);
+                Assert.Contains(RasterWindow<SceneView>.Walk(host.Window.Timeline), item => item.AccessibleName == "Монтажных клипов пока нет");
+                host.Capture("first-launch", new { empty.Name, empty.Revision });
+                entered = true;
+            }), BackendWriteFixture.Executable());
+
+        Assert.Null(error);
+        Assert.True(entered);
+        Assert.Equal(config, StudioStartup.DefaultConfig(null, files.Root, personal));
+        Assert.Equal((null, null), await ProjectPickerApplication.PrepareEmptyWorkspaceAsync(catalog, token));
+        using var picker = new RasterWindow<ProjectPickerWindow>(new(catalog, _ => throw new InvalidOperationException()), "startup-recents", 740, 480);
+        picker.PumpUntil(() => picker.Window.RefreshButton.IsEnabled);
+        var recent = Assert.Single(picker.Window.Rows).Entry;
+        Assert.True(recent.Recent);
+        Assert.Equal(project.Id, recent.Id);
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(Directory.Exists(Path.Combine(project.Directory!, "Production", "History")));
+        picker.Capture("recent", new { recent.Name, recent.Revision });
+    }
+
+    [Fact]
+    public async Task DefaultLaunch_LeavesUnavailableProjectsVisibleAndExplainsDeniedCreation()
+    {
+        using var files = new PickerFixture();
+        var token = CancellationToken.None;
+        var (empty, notice) = await ProjectPickerApplication.PrepareEmptyWorkspaceAsync(files.Catalog, token);
+        Assert.Null(empty);
+        Assert.Contains("Не удалось начать новый проект", notice);
+        Assert.Empty(Directory.GetDirectories(files.Projects));
+
+        await files.ProjectAsync("schema1", migrate: false);
+        var item = Assert.Single((await files.Catalog.ReadAsync(token)).Items);
+        Assert.Equal(ProjectAvailability.MigrationRequired, item.Availability);
+        Assert.Equal((null, null), await ProjectPickerApplication.PrepareEmptyWorkspaceAsync(files.Catalog, token));
+        Assert.Single(Directory.GetDirectories(files.Projects));
+    }
+
+    [Theory]
+    [InlineData("schema1", false, true)]
+    [InlineData("denied", false, false)]
+    [InlineData("denied", true, false)]
+    public async Task Picker_OpensReadableProjectWithoutWriter(string id, bool migrated, bool canMigrate)
+    {
+        using var files = new PickerFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var path = await files.ProjectAsync(id, migrate: migrated);
+        var before = files.Snapshot([path]);
+        ProjectEntry? selection = null;
+        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, entry => selection = entry), "picker-read-only", 1000, 720))
+        {
+            host.PumpUntil(() => host.Window.RefreshButton.IsEnabled);
+            var row = Assert.Single(host.Window.Rows);
+            host.Click(row.Button);
+            Assert.True(host.Window.OpenButton.IsVisible && host.Window.OpenButton.IsEnabled);
+            Assert.Equal(canMigrate, host.Window.MaintenanceButton.IsVisible && host.Window.MaintenanceButton.IsEnabled);
+            Assert.Contains("Только чтение", row.Button.AccessibleName);
+            host.Capture("available-for-reading", new { row.Entry.Schema, canMigrate });
+            host.Click(host.Window.OpenButton);
+        }
+
+        var selected = Assert.IsType<ProjectEntry>(selection);
+        var opened = false;
+        var error = await ProjectPickerApplication.OpenSelectedAsync(files.Catalog, selected, deadline.Token, app =>
+        {
+            var services = app.Services;
+            Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
+            var window = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
+            using var view = new RasterWindow<ProjectWindow>(window, "read-only-project", 1000, 720);
+            view.PumpUntil(() => window.ReloadButton.IsEnabled);
+            Assert.Equal(selected.Name, window.ProjectTitle.Value);
+            Assert.Contains($"схема {(migrated ? 2 : 1)}", window.RevisionText.Value);
+            Assert.Contains("только чтение", window.StatusText.Value);
+            Assert.False(File.Exists(Path.Combine(path, ".Studio.project.writer.lock")));
+            view.Capture("read-only", new { selected.Id, selected.Revision });
+            opened = true;
+            services.Resolve<IAppLifetime>()!.Cancel();
+        }, BackendWriteFixture.Executable());
+
+        Assert.Null(error);
+        Assert.True(opened);
+        Assert.Equal(before, files.Snapshot([path]));
+        Assert.True(Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items).Recent);
+    }
+
+    [Fact]
+    public async Task Picker_OpenExistingFolder_OpensUnlistedLegacyProjectAndRemembersItWithoutWrites()
+    {
+        using var files = new PickerFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var path = await files.ProjectAsync("unlisted", migrate: false, location: files.VideoRoot, legacyLayout: true);
+        var before = files.Snapshot([path]);
+        ProjectEntry? selection = null;
+        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, entry => selection = entry), "picker-open-folder", 740, 480, 1.5f))
+        {
+            host.PumpUntil(() => host.Window.OpenExistingButton.IsEnabled);
+            Assert.Empty(host.Window.Rows);
+            host.Click(host.Window.NewButton);
+            host.Click(host.Window.OpenExistingButton);
+            host.PumpUntil(() => host.Window.FolderInput.IsFocused);
+            Fill(host, host.Window.FolderInput, $"\"{path}\"");
+            host.Capture("open-folder", new { Schema = 1 });
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
+            host.PumpUntil(() => selection is not null);
+        }
+
+        var selected = Assert.IsType<ProjectEntry>(selection);
+        Assert.Equal(path, selected.Directory);
+        Assert.Equal(1, selected.Schema);
+        Assert.True(selected.OpensReadOnly);
+        Assert.False(Directory.Exists(files.State));
+        var opened = false;
+        var error = await ProjectPickerApplication.OpenSelectedAsync(files.Catalog, selected, deadline.Token, app =>
+        {
+            var services = app.Services;
+            Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
+            var window = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
+            using var host = new RasterWindow<ProjectWindow>(window, "picker-open-folder-read-only", 1000, 720);
+            host.PumpUntil(() => window.ReloadButton.IsEnabled);
+            Assert.Equal(selected.Name, window.ProjectTitle.Value);
+            Assert.Contains("только чтение", window.StatusText.Value);
+            Assert.False(File.Exists(Path.Combine(path, ".Studio.project.writer.lock")));
+            opened = true;
+            services.Resolve<IAppLifetime>()!.Cancel();
+        }, BackendWriteFixture.Executable());
+
+        Assert.Null(error);
+        Assert.True(opened);
+        var recent = Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items);
+        Assert.True(recent.Recent);
+        Assert.Equal(path, recent.Directory);
+        Assert.Equal(before, files.Snapshot([path]));
+    }
+
+    [Fact]
+    public async Task Picker_OpenExistingFolder_ReportsInvalidPathsAndCanCancel()
+    {
+        using var files = new PickerFixture();
+        var outside = await files.ProjectAsync("blocked", migrate: false, location: files.Root);
+        var missing = Path.Combine(files.VideoRoot, "missing");
+        Directory.CreateDirectory(missing);
+        var duplicate = await files.ProjectAsync("duplicate", migrate: false);
+        var secondLocation = PickerFixture.FileAt(duplicate, legacy: true);
+        Directory.CreateDirectory(Path.GetDirectoryName(secondLocation)!);
+        File.Copy(PickerFixture.FileAt(duplicate), secondLocation);
+        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+            "picker-open-folder-errors", 740, 480);
+        host.PumpUntil(() => host.Window.OpenExistingButton.IsEnabled);
+        host.Click(host.Window.OpenExistingButton);
+        host.PumpUntil(() => host.Window.FolderInput.IsFocused);
+        Check("relative/path", "полный путь");
+        Check(outside, "вне разрешённых корней");
+        Check(missing, "Файл проекта не найден");
+        Check(duplicate, "Найдены два Studio.project.json");
+        host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+        Assert.True(host.Window.OpenExistingButton.IsEnabled);
+        Assert.True(host.Window.NewButton.IsEnabled);
+        Assert.Empty(host.Window.Status);
+        Assert.False(Directory.Exists(files.State));
+
+        void Check(string path, string error)
+        {
+            Fill(host, host.Window.FolderInput, path);
+            host.Click(host.Window.ConfirmButton);
+            host.PumpUntil(() => host.Window.Status.Contains(error, StringComparison.Ordinal));
+            Assert.Equal(path, host.Window.FolderInput.Value);
+        }
     }
 
     [Fact]

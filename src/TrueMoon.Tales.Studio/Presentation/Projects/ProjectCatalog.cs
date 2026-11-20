@@ -14,18 +14,22 @@ internal sealed record ProjectEntry(string Name, string Location, ProjectAvailab
     string? Directory = null, string? Id = null, int? Schema = null, long? Revision = null,
     string? Fingerprint = null, bool Recent = false)
 {
-    internal bool CanOpen => Availability is ProjectAvailability.Ready or ProjectAvailability.NoClip;
+    internal bool OpensReadOnly => Availability == ProjectAvailability.MigrationRequired ||
+        Availability == ProjectAvailability.WriteDenied && Schema is 1 or 2;
+    internal bool CanOpen => OpensReadOnly || Availability is ProjectAvailability.Ready or ProjectAvailability.NoClip;
     internal bool CanMaintain => Availability is ProjectAvailability.MigrationRequired or ProjectAvailability.RecoveryRequired;
     internal string Details => Availability switch
     {
         ProjectAvailability.Ready => "Готов к открытию",
         ProjectAvailability.Missing => "Файл проекта не найден",
-        ProjectAvailability.MigrationRequired => "Проект schema1. Перед открытием выполните миграцию.",
+        ProjectAvailability.MigrationRequired => "Только чтение. Для редактирования выполните миграцию.",
         ProjectAvailability.Unsupported => "Неподдерживаемая схема проекта",
         ProjectAvailability.RecoveryRequired => "Обнаружена незавершённая запись. Требуется восстановление.",
         ProjectAvailability.DuplicateLocation => "Найдены два Studio.project.json: в корне и в Production",
         ProjectAvailability.AccessDenied => "Путь запрещён или содержит ссылку",
-        ProjectAvailability.WriteDenied => "Настройте project_write_roots для файла и каталогов записи",
+        ProjectAvailability.WriteDenied when Schema == 1 => "Только чтение. Для миграции настройте project_write_roots.",
+        ProjectAvailability.WriteDenied when OpensReadOnly => "Только чтение. Для редактирования настройте project_write_roots.",
+        ProjectAvailability.WriteDenied => "Операция требует разрешения в project_write_roots.",
         ProjectAvailability.NoClip => "Доступен пустой таймлайн",
         ProjectAvailability.IdentityMismatch => "ID проекта не совпадает с сохранённой записью",
         _ => "Некорректный файл или запись проекта"
@@ -87,22 +91,41 @@ internal sealed partial class ProjectCatalog(string configPath)
         var access = new BackendProjectAccess(ConfigPath);
         var current = await InspectAsync(access, Resolver(access), selected.Directory, selected.Name, selected.Id, token)
             .ConfigureAwait(false);
-        if (maintenance ? current.Availability != selected.Availability : !current.CanOpen)
+        if (maintenance ? current.Availability != selected.Availability
+            : !current.CanOpen || current.OpensReadOnly != selected.OpensReadOnly)
             throw new InvalidDataException("Состояние проекта изменилось. Перечитайте список.");
         if (!PathComparer.Equals(selected.Directory, current.Directory))
             throw new InvalidDataException("Расположение проекта изменилось. Обновите список.");
         selected.VerifySelection(current.Id, current.Fingerprint!);
+        var readOnly = !maintenance && current.OpensReadOnly;
         return BackendOptions.Create(current.Directory!, ConfigPath) with
         {
             Action = current.Availability switch
             {
+                _ when readOnly => "read",
                 ProjectAvailability.MigrationRequired => "migrate",
                 ProjectAvailability.RecoveryRequired => "recover",
                 _ => "edit"
             },
-            WriteEnabled = true, InitialFingerprint = current.Fingerprint,
+            WriteEnabled = !readOnly, InitialFingerprint = current.Fingerprint,
             RecoveryFingerprint = current.Availability == ProjectAvailability.RecoveryRequired ? current.Fingerprint : null
         };
+    }
+
+    internal async Task<ProjectEntry> InspectFolderAsync(string folder, CancellationToken token)
+    {
+        var path = folder.Trim();
+        if (path is ['"', .., '"']) path = path[1..^1];
+        if (!Path.IsPathFullyQualified(path))
+            throw new ArgumentException("Укажите полный путь к папке проекта.");
+
+        var access = new BackendProjectAccess(ConfigPath);
+        var project = await InspectAsync(access, Resolver(access), path, path, null, token).ConfigureAwait(false);
+        if (!project.CanOpen)
+            throw new InvalidDataException(project.Availability == ProjectAvailability.AccessDenied
+                ? "Папка вне разрешённых корней проектов (projects_root, amv_root), защищена или содержит ссылку."
+                : project.Details);
+        return project;
     }
 
     internal void Remember(ProjectEntry entry) => ProjectRecents.Remember(new BackendProjectAccess(ConfigPath), ConfigPath, entry);

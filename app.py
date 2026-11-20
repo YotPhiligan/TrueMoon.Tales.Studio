@@ -13,7 +13,16 @@ from studio.version import VERSION
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8787)
-    p.add_argument('--config',type=Path,default=Path(os.environ.get('TRUE_MOON_STUDIO_CONFIG',ROOT/'Studio.config.local.json')))
+    configured = os.environ.get('TRUE_MOON_STUDIO_CONFIG', '')
+    if configured.strip():
+        default_config = Path(os.path.expandvars(configured))
+    else:
+        if os.name == 'nt':
+            local_data = os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local'
+        else:
+            local_data = os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share'
+        default_config = Path(local_data) / 'TrueMoon' / 'Tales Studio' / 'Studio.config.local.json'
+    p.add_argument('--config', type=Path, default=default_config)
     p.add_argument('--adopt-registry',type=Path,help='Validate registry without rewriting projects')
     p.add_argument('--sync-imports',action='store_true');p.add_argument('--no-import',action='store_true',help=argparse.SUPPRESS)
     p.add_argument('--check',action='store_true');p.add_argument('--open-browser',action='store_true');a=p.parse_args()

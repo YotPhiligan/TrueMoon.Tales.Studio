@@ -35,10 +35,9 @@ internal static class StudioApplicationExtensions
             if (args.FirstOrDefault() is "--archive-episode" or "--restore-episode" && launch.UnitId is null &&
                 launch.ParentProcessId is null && launch.ControlPipe is null)
                 return await EpisodeArchiveCommand.RunAsync(args, token).ConfigureAwait(false);
-            if (args is ["--projects", "--config", var config] && launch.UnitId is null &&
-                launch.ParentProcessId is null && launch.ControlPipe is null && !launch.UnitsDisabled)
+            if (StudioStartup.ProjectPickerConfig(args, launch, () => StudioStartup.DefaultConfig(token)) is { } config)
             {
-                await ProjectPickerApplication.RunAsync(config, token).ConfigureAwait(false);
+                await ProjectPickerApplication.RunAsync(config, openEmptyWorkspace: args.Length == 0, token).ConfigureAwait(false);
                 return 0;
             }
             if (BackendOptions.TryParse(args, launch, out var backendOptions, out var child, out var inspect))
@@ -79,7 +78,7 @@ internal static class StudioApplicationExtensions
                 return 0;
             }
             Console.Error.WriteLine(StudioOptions.Usage + Environment.NewLine +
-                "Список проектов: TrueMoon.Tales.Studio --projects --config <Studio.config.json>" + Environment.NewLine +
+                "Запуск Studio: TrueMoon.Tales.Studio (или --projects --config <Studio.config.json>)" + Environment.NewLine +
                 "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +

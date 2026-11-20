@@ -1,6 +1,7 @@
 using TrueMoon.Alloy.Hosting;
 using TrueMoon.Alloy.Runtime;
 using TrueMoon.Argentis;
+using TrueMoon.Tales.Studio.Backend;
 
 namespace TrueMoon.Tales.Studio.Presentation.Project;
 
@@ -64,15 +65,21 @@ internal sealed class ProjectWindowFactory(ProjectViewModel model, IViewStyle<Pr
 
 internal static class ProjectPresentation
 {
-    internal static IAppConfigurationContext UseProjectWindow(this IAppConfigurationContext context) => context
-        .Services(r => r.Singleton<ProjectViewModel>().Singleton<IViewStyle<ProjectWindow>, ProjectWindowStyle>()
-            .Singleton<IFactory<ProjectWindow>, ProjectWindowFactory>())
-        .UsePresentationFactory<ProjectWindow>(options => options.UseSkiaOpenGL().UseSilkWindow(window =>
+    internal static IAppConfigurationContext UseProjectWindow(this IAppConfigurationContext context,
+        Action<string?>? initialOpen = null, bool nativeWindow = true)
+    {
+        context.Services(r => r.Singleton<ProjectViewModel>(resolver => new(resolver.Resolve<IBackendProjectReader>()!,
+                resolver.Resolve<BackendOptions>()!.InitialFingerprint, initialOpen))
+            .Singleton<IViewStyle<ProjectWindow>, ProjectWindowStyle>()
+            .Singleton<IFactory<ProjectWindow>, ProjectWindowFactory>());
+        if (!nativeWindow) return context;
+        return context.UsePresentationFactory<ProjectWindow>(options => options.UseSkiaOpenGL().UseSilkWindow(window =>
         {
             window.Title = "TrueMoon · Tales Studio";
             window.Width = 1000;
             window.Height = 720;
         }));
+    }
 }
 
 internal sealed class ProjectWindowStyle : IViewStyle<ProjectWindow>

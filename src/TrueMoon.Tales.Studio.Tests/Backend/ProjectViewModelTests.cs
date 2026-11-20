@@ -45,6 +45,30 @@ public sealed class ProjectViewModelTests
     }
 
     [Fact]
+    public async Task PickerRead_RejectsChangedInitialSnapshotAndReportsFailureOnce()
+    {
+        using var fixture = new BackendFixture();
+        var reply = await fixture.Service().OpenProjectAsync(fixture.Options.SessionKey);
+        var snapshot = BackendConnection.Decode(BackendConnectionTests.Identity(), reply);
+        var reader = new ControlledReader();
+        var reports = new List<string?>();
+        using var model = new ProjectViewModel(reader, snapshot.Fingerprint, reports.Add);
+
+        model.Reload();
+        reader.Pending.SetResult(snapshot with { Fingerprint = new string('F', 64) });
+        Assert.True(model.Poll());
+        Assert.Null(model.Opened);
+        Assert.Contains("изменился после выбора", Assert.Single(reports));
+
+        reader.Reset();
+        model.Reload();
+        reader.Pending.SetResult(snapshot);
+        Assert.True(model.Poll());
+        Assert.Same(snapshot, model.Opened);
+        Assert.Single(reports);
+    }
+
+    [Fact]
     public void Dispose_CancelsOnlyPendingReadAndPreventsFurtherReads()
     {
         var reader = new ControlledReader();

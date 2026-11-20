@@ -62,7 +62,15 @@ public sealed class StudioOptionsTests
         var configured = false;
         var builder = App.Builder(_ => { }).Setup(_ => configured = true);
 
-        Assert.Equal(2, await builder.RunStudioAsync([]));
+        Assert.Equal(2, await builder.RunStudioAsync(["--projects"]));
         Assert.False(configured);
+    }
+
+    [Fact]
+    public async Task RunStudio_NoArgumentsHonorsCancellationBeforeOpeningTheWorkspace()
+    {
+        var builder = App.Builder(_ => { }).Setup(_ => throw new InvalidOperationException("The app must not start."));
+
+        Assert.Equal(0, await builder.RunStudioAsync([], new CancellationToken(canceled: true)));
     }
 }

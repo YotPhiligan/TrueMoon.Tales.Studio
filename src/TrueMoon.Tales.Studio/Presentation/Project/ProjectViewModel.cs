@@ -2,7 +2,7 @@ using TrueMoon.Tales.Studio.Backend;
 
 namespace TrueMoon.Tales.Studio.Presentation.Project;
 
-internal sealed class ProjectViewModel(IBackendProjectReader connection) : IDisposable
+internal sealed class ProjectViewModel(IBackendProjectReader connection, string? initialFingerprint = null, Action<string?>? initialOpen = null) : IDisposable
 {
     private readonly CancellationTokenSource _closing = new();
     private Task<OpenedBackendProject>? _pending;
@@ -25,7 +25,11 @@ internal sealed class ProjectViewModel(IBackendProjectReader connection) : IDisp
         _pending = null;
         try
         {
-            Opened = pending.GetAwaiter().GetResult();
+            var snapshot = pending.GetAwaiter().GetResult();
+            if (Opened is null && initialFingerprint is not null &&
+                !string.Equals(snapshot.Fingerprint, initialFingerprint, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Проект изменился после выбора. Обновите список проектов.");
+            Opened = snapshot;
             Status = "Проект открыт · только чтение";
         }
         catch (Exception error)
@@ -34,6 +38,9 @@ internal sealed class ProjectViewModel(IBackendProjectReader connection) : IDisp
             Status = error is OperationCanceledException ? "Истекло время ожидания backend. Повторите чтение проекта."
                 : $"Не удалось прочитать проект: {error.Message}";
         }
+        var notify = initialOpen;
+        initialOpen = null;
+        notify?.Invoke(Failed ? Status : null);
         return true;
     }
 

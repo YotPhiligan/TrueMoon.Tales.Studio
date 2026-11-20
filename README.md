@@ -25,13 +25,15 @@ API и CLI, а также интеграция с ComfyUI.
 
 ## Запуск
 
-1. Для первого запуска скопируйте `Studio.config.example.json` в `Studio.config.local.json` и настройте пути к проектам, библиотекам и рабочим каталогам. Относительные пути считаются от JSON. [Пример конфигурации](Studio.config.example.json) · [Поля и разрешения](Workspace.md#поля-конфигурации-v1)
-2. Для настольного EXE нужны .NET 11 и ASP.NET Core Runtime 11. Если собираете Studio из исходников, используйте SDK и локальный набор пакетов TrueMoon по инструкции. [Подготовка пакетов](src/README.md#пакеты-truemoon) · [Сборка](src/README.md#сборка)
-3. Из каталога сборки запустите EXE с полным путём к вашему конфигу, затем создайте проект или откройте существующий. [Экран «Проекты»](src/README.md#projects)
+Для настольного EXE нужны .NET 11 и ASP.NET Core Runtime 11. Для сборки из исходников используйте SDK и локальный набор пакетов TrueMoon. [Подготовка пакетов](src/README.md#пакеты-truemoon) · [Сборка](src/README.md#сборка)
 
 ```powershell
-.\TrueMoon.Tales.Studio.exe --projects --config "C:\path\Studio.config.local.json"
+.\TrueMoon.Tales.Studio.exe
 ```
+
+Без аргументов Studio показывает недавние и доступные проекты. В пустом рабочем пространстве она создаёт «Без названия» и открывает редактор с пустым таймлайном. Если проект некуда сохранить, экран «Проекты» покажет причину. [Экран «Проекты»](src/README.md#projects)
+
+EXE и `Start-Studio.cmd` используют `%LOCALAPPDATA%\TrueMoon\Tales Studio\Studio.config.local.json`. EXE создаёт профиль при первом запуске. Другой профиль можно выбрать через `TRUE_MOON_STUDIO_CONFIG` или `--projects --config <файл>`. На экране «Проекты» команда «Открыть существующий проект» принимает полный путь к папке в одном из разрешённых корней. [Пример конфигурации](Studio.config.example.json) · [Поля и разрешения](Workspace.md#поля-конфигурации-v1)
 
 Для кадров и воспроизведения укажите `ffmpeg_executable` и `ffprobe_executable` или добавьте инструменты в `PATH`. Для CPU-экспорта и рабочего просмотра настройте Python с PyAV, Pillow, NumPy и imageio-ffmpeg и отдельный `exports_root`. [Настройка медиа](Workspace.md#backend-media-tools--17112026) · [Настройка экспорта](src/Verification/BackendExport.md#настройка)
 
