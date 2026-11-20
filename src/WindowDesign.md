@@ -129,6 +129,22 @@ Studio **1.2611.18.2-alpha**, Enerit protocol7. В C#-окне с writer тай�
 UiSession и CPU raster. Физический ввод, DPI Windows и звуковое устройство
 входят в отдельную native-приёмку.
 
+<a id="workspace-interchange"></a>
+## Передача монтажа в OpenShot
+
+1. Сохраните монтаж. Откройте «Экспорт MP4» и нажмите «Монтаж XML».
+2. Скопируйте путь из поля «Каталог монтажного XML». `Timeline.xml` содержит
+   ссылки на локальные оригиналы. Оставьте исходники на доступных путях.
+3. Создайте пустой проект в OpenShot с теми же FPS и размером кадра.
+   Их можно посмотреть в `Report.json`. Импорт OpenShot использует профиль
+   открытого проекта для пересчёта монтажных кадров.
+4. В OpenShot выберите `File → Import Project → Import XML (Final Cut Pro)`
+   и откройте `Timeline.xml`. Сверьте отметки и замечания по `Report.json`.
+   OpenShot пропускает маркеры XML, титры и субтитры доступны в отчёте.
+
+[Контракт](../API.md#timeline-interchange) · [Приёмка](../Status.md#studio-ui10-interchange) ·
+[Руководство OpenShot](https://www.openshot.org/static/files/user-guide/import_export.html).
+
 <a id="project-picker-design"></a>
 ## Стартовый экран «Проекты» · этап 2А
 

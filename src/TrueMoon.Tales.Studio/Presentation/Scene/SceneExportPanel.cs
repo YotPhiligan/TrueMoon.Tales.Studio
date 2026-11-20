@@ -10,10 +10,12 @@ internal sealed class SceneExportPanel : Border
     private readonly Text _summary = new(), _status = new();
     private readonly ProgressBar _progress = new() { AccessibleName = "Ход экспорта", Height = 6 };
     private readonly TextBox _destination = new() { IsReadOnly = true, AccessibleName = "Каталог экспорта" };
+    private readonly TextBox _interchangeDestination = new() { IsReadOnly = true, AccessibleName = "Каталог монтажного XML" };
     private readonly TextBox _name = new() { Value = "montage.mp4", AccessibleName = "Имя нового файла MP4" };
     private readonly Button[] _profiles;
     private readonly Button _check, _start, _statusButton, _cancel, _recover, _save, _close;
     private readonly Button _reviewSegment, _reviewProject;
+    private readonly Button _interchange;
     private readonly Button _issueClip, _issueAsset;
     private readonly HStack _issueActions;
     private readonly HStack _review;
@@ -35,6 +37,10 @@ internal sealed class SceneExportPanel : Border
         _cancel = ActionButton("Отменить экспорт", export.Cancel);
         _recover = ActionButton("Восстановить", export.Recover);
         _save = ActionButton("Сохранить MP4", () => export.SaveFile(_name.Value));
+        _interchange = ActionButton("Монтаж XML", () =>
+        {
+            if (CanCheckScene && scene.SavedFingerprint is { } sha) export.ExportInterchange(scene.SavedRevision, sha);
+        });
         _close = ActionButton("Закрыть", close);
         _reviewSegment = ActionButton("Смотреть сегмент", () => review?.Invoke(true));
         _reviewProject = ActionButton("Смотреть проект", () => review?.Invoke(false));
@@ -44,7 +50,7 @@ internal sealed class SceneExportPanel : Border
         _issueAsset = ActionButton("К ассету", () => OpenIssue(asset: true));
         _issueActions = Row(_issueClip, _issueAsset);
         _tabOrder = [.. _profiles, _check, _start, _issueClip, _issueAsset, _statusButton, _cancel, _recover,
-            _reviewSegment, _reviewProject, _destination, _name, _save, _close];
+            _reviewSegment, _reviewProject, _destination, _name, _save, _interchange, _close, _interchangeDestination];
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(
             Text.Plain("Экспорт MP4").WithRole(SceneView.CaptionRole),
             Row(_profiles), _summary, _progress, _status, _issueActions,
@@ -53,7 +59,7 @@ internal sealed class SceneExportPanel : Border
             _review,
             Text.Plain("Каталог экспорта").WithRole(SceneView.MutedRole), _destination,
             Text.Plain("Имя нового файла").WithRole(SceneView.MutedRole), _name,
-            Row(_save, _close)));
+            Row(_save, _interchange, _close), _interchangeDestination));
         Refresh();
 
         void OpenIssue(bool asset)
@@ -82,6 +88,7 @@ internal sealed class SceneExportPanel : Border
         }
         _check.IsEnabled = CanCheckScene && _export.CanCheck;
         _start.IsEnabled = CanCheckScene && _export.CanStart(_scene.Scene);
+        _interchange.IsEnabled = CanCheckScene && _export.CanCheck;
         _start.Tone = ControlTone.Accent;
         var job = _export.Job;
         _reviewSegment.IsEnabled = _reviewProject.IsEnabled = _review.IsVisible && CanCheckScene && _export.CanReview(_scene.Scene);
@@ -91,6 +98,8 @@ internal sealed class SceneExportPanel : Border
         _name.IsEnabled = _save.IsEnabled = !_export.Busy && job?.State == "completed";
         _destination.Value = _export.OutputDirectory ?? "";
         _destination.IsEnabled = _destination.Value.Length > 0;
+        _interchangeDestination.Value = _export.InterchangeDirectory ?? "";
+        _interchangeDestination.IsVisible = _export.InterchangeDirectory is not null;
         _progress.IsVisible = _export.Running;
         _progress.Value = (job?.ProgressPercent ?? 0) / 100f;
         _summary.Value = _export.Check is { } check && _export.CanStart(_scene.Scene) && CanCheckScene

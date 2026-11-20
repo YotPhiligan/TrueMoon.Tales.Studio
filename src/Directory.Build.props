@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version Condition="'$(Version)' == ''">1.2611.20.7-alpha</Version>
+    <Version Condition="'$(Version)' == ''">1.2611.20.8-alpha</Version>
     <Authors>yotphiligan</Authors>
     <Company>TrueMoon</Company>
     <Product>TrueMoon.Tales.Studio</Product>

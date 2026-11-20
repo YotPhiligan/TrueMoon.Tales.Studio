@@ -52,6 +52,13 @@ public interface IStudioBackend
     Task<BackendExportReply> CheckExportAsync(string sessionKey, string profile, long expectedRevision, string fingerprint,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Exports editable timeline data from the observed saved project to the configured export root.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="expectedRevision">Observed project revision.</param>
+    /// <param name="fingerprint">Observed exact project SHA256.</param><param name="cancellationToken">Call deadline.</param>
+    /// <returns>The interchange package receipt or a classified refusal.</returns>
+    Task<BackendExportReply> ExportInterchangeAsync(string sessionKey, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Reads export status by its submission key without accepting a new request.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="clientKey">Durable submission key.</param>
     /// <param name="cancellationToken">Call deadline.</param><returns>Job status or a refusal.</returns>

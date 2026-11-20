@@ -52,6 +52,29 @@ internal sealed partial class StudioBackendService
             token => _exports.StartAsync(clientKey, profile, expectedRevision, fingerprint,
                 ct => ExportBaselineAsync(expectedRevision, fingerprint, ct), token), cancellationToken);
 
+    /// <inheritdoc />
+    public Task<BackendExportReply> ExportInterchangeAsync(string sessionKey, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default) =>
+        ExecuteExportAsync(sessionKey, write: false, async token =>
+        {
+            var baseline = await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
+            var storage = new BackendExportStorage(options);
+            BackendInterchange package;
+            try
+            {
+                package = await BackendInterchange.CreateAsync(baseline.Project, baseline.Fingerprint,
+                    new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token).ConfigureAwait(false);
+            }
+            catch (ScenarioEditException error) { throw new BackendExportException(error.Code); }
+            await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
+            var directory = storage.PublishInterchange(package, token);
+            return new()
+            {
+                JobJson = JsonSerializer.Serialize(new BackendInterchangeReceipt(directory, expectedRevision, baseline.Fingerprint,
+                    BackendExportStorage.Hash(package.Xml), package.IssueCount), BackendExportStorage.Json)
+            };
+        }, cancellationToken);
+
     public Task<BackendExportReply> ExportStatusAsync(string sessionKey, string id, CancellationToken cancellationToken = default) =>
         ExecuteExportAsync(sessionKey, write: false, token => _exports.StatusAsync(id, token), cancellationToken);
 

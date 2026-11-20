@@ -44,6 +44,29 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
     internal bool CanInspect => !Busy && (_key is not null || !_loaded);
     internal bool HasError { get; private set; }
     internal string? SavedFile { get; private set; }
+    internal string? InterchangeDirectory { get; private set; }
+
+    internal void ExportInterchange(long revision, string sha)
+    {
+        if (!CanCheck) return;
+        Begin("Подготавливаю монтаж для внешнего редактора…", async token =>
+        {
+            var receipt = await backend.ExportInterchangeAsync(revision, sha, token).ConfigureAwait(false);
+            var storage = _storage.Value;
+            var directory = storage.Check(Path.Combine(storage.ClientOutputDirectory, receipt.Directory));
+            var xml = storage.Check(Path.Combine(directory, BackendInterchange.XmlName));
+            await using var stream = new FileStream(xml, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous);
+            var digest = Convert.ToHexString(await SHA256.HashDataAsync(stream, token).ConfigureAwait(false));
+            if (!BackendExportStorage.EqualHash(digest, receipt.XmlSha256))
+                throw new InvalidDataException("SHA-256 файла Timeline.xml не совпадает с квитанцией.");
+            return () =>
+            {
+                Message = receipt.IssueCount == 0 ? "Монтаж сохранён в Timeline.xml." :
+                    $"Монтаж сохранён · замечаний по переносу: {receipt.IssueCount} · Report.json";
+                InterchangeDirectory = directory;
+            };
+        });
+    }
 
     internal void Inspect()
     {
@@ -229,6 +252,7 @@ internal sealed class SceneExport(BackendConnection backend, BackendOptions opti
         "media_not_found" => "Материал монтажа недоступен.",
         "access_denied" => "Конфигурация рабочего пространства запрещает доступ к материалу или каталогу.",
         "invalid_export" => "Проверьте материал, диапазоны, FPS, титры и переходы сохранённого монтажа.",
+        "interchange_timeline_invalid" => "Проверьте окна монтажа, маркеры и целую частоту кадров.",
         "export_busy" => "Экспорт уже выполняется. Проверьте его статус.",
         "export_not_found" => "Принятое задание не найдено.",
         "export_timeout" => "Истекло время ожидания. Проверьте статус задания.",

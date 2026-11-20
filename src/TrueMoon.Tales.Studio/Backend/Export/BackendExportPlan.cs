@@ -315,7 +315,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         return start + duration;
     }
 
-    private static int[] Size(IReadOnlyDictionary<string, JsonElement> properties, string profile)
+    internal static int[] Size(IReadOnlyDictionary<string, JsonElement> properties, string profile)
     {
         int[] size = [1280, 736];
         if (properties.TryGetValue("output_size", out var value))
@@ -328,7 +328,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         return size.Select(n => Math.Max(2, (int)Math.Round(n * scale / 2) * 2)).ToArray();
     }
 
-    private static MusicPlacement? ReadMusic(IReadOnlyDictionary<string, JsonElement> properties)
+    internal static MusicPlacement? ReadMusic(IReadOnlyDictionary<string, JsonElement> properties)
     {
         if (!properties.TryGetValue("music", out var row) || row.ValueKind == JsonValueKind.Null) return null;
         var music = new MusicPlacement(Text(row, "asset_id"), row.GetProperty("start_frame").GetInt32(),
@@ -338,7 +338,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         return music;
     }
 
-    private static List<SoundPlacement> PlaceSounds(MontageContract montage)
+    internal static List<SoundPlacement> PlaceSounds(MontageContract montage)
     {
         if (!montage.Properties.TryGetValue("sound_events", out var rows) || rows.ValueKind == JsonValueKind.Null) return [];
         if (rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() > 64)
@@ -406,8 +406,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
 
     private sealed record VideoPlacement(string Id, string AssetId, int StartFrame, int DurationFrames,
         double SourceInFrame, double SourceOutFrame, double Speed, bool MuteNativeAudio);
-    private sealed record MusicPlacement(string AssetId, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted);
-    private sealed record SoundPlacement(string AssetId, int StartFrame, int DurationFrames,
+    internal sealed record MusicPlacement(string AssetId, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted);
+    internal sealed record SoundPlacement(string AssetId, int StartFrame, int DurationFrames,
         double SourceInFrame, int Stream, double Gain, bool Muted,
         [property: JsonIgnore] string? TrackId, [property: JsonIgnore] string? OwnerClipId,
         [property: JsonIgnore] string? ExpectedSpeechSha, [property: JsonIgnore] MontageTitle? Subtitle,

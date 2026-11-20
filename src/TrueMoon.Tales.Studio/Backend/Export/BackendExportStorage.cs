@@ -82,6 +82,32 @@ internal sealed class BackendExportStorage
 
     internal string ClientOutputDirectory => _root;
 
+    internal string PublishInterchange(BackendInterchange package, CancellationToken token)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var name = "Montage-" + id;
+        var stage = Check(Path.Combine(_root, ".montage-" + id + ".pending"));
+        var output = Check(Path.Combine(_root, name));
+        Directory.CreateDirectory(stage);
+        try
+        {
+            WriteNew(Path.Combine(stage, BackendInterchange.XmlName), package.Xml);
+            WriteNew(Path.Combine(stage, BackendInterchange.ReportName), package.Report);
+            token.ThrowIfCancellationRequested();
+            Directory.Move(Check(stage), Check(output));
+            return name;
+        }
+        finally
+        {
+            if (Directory.Exists(Check(stage)))
+            {
+                File.Delete(Check(Path.Combine(stage, BackendInterchange.XmlName)));
+                File.Delete(Check(Path.Combine(stage, BackendInterchange.ReportName)));
+                Directory.Delete(Check(stage));
+            }
+        }
+    }
+
     internal IEnumerable<string> ExportIds() => Directory.Exists(Check(_project))
         ? Directory.EnumerateDirectories(_project, "export-*").Select(Path.GetFileName).OfType<string>() : [];
 

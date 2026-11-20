@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml.Linq;
 using TrueMoon;
 using TrueMoon.Argentis;
 using TrueMoon.Dependencies;
@@ -19,6 +20,108 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 
 public sealed class BackendExportEndToEndTests
 {
+    [BackendMediaFact]
+    public async Task TimelineInterchange_FromRaster_PreservesCutsTracksEffectsAndReportsLosses()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(withTransition: true);
+        const string audioName = "Музыка & голос.wav";
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=3",
+                "-c:a", "pcm_s16le", "-n", files.MediaPath(audioName)], 4096);
+        var store = files.Files.Files.Store();
+        var before = await store.OpenAsync();
+        var first = before.Project.Montage.Clips.Single(clip => clip.Id == "clip-main") with { Speed = 1, SourceInFrame = 4, SourceOutFrame = 28 };
+        var second = before.Project.Montage.Clips.Single(clip => clip.Id == "clip-extra") with { MuteNativeAudio = true };
+        var retime = second with { Id = "retime", StartFrame = 64, DurationFrames = 8, SourceInFrame = 25, SourceOutFrame = 35, Speed = 1.25 };
+        await store.SaveAsync(before, before.Project with
+        {
+            Montage = before.Project.Montage with { Clips = [retime, second, first] }
+        }, before.Project.Revision, "interchange-fixture");
+
+        await using var session = await files.OpenAsync(workspace: true);
+        var connection = session.Connection;
+        var head = await connection.AcquireWriterAsync(await connection.OpenAsync());
+        head = await connection.EditScenarioAsync(new SaveMontageMusic($"@videos/{audioName}", 6, 24, 3, .35, false), head);
+        head = await connection.EditScenarioAsync(new SaveMontageSound(null, second.WindowId, null, "Голос", "voice",
+            $"@videos/{audioName}", 0, 4, 10, 30, .6, false), head);
+        head = await connection.EditScenarioAsync(new SaveMontageTitle(null, new("Карточка", "Клэр", 36, 4, 1, 1,
+            OperatingSystem.IsWindows() ? "arial" : "dejavu", 18, "#FFFFFF", "center", "center", "black", false)), head);
+        var saved = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var inputHashes = new[] { "Красный.mp4", "Синий.mp4", audioName }.ToDictionary(name => name,
+            name => Hash(File.ReadAllBytes(files.MediaPath(name))));
+        var conflict = await Assert.ThrowsAsync<BackendCommandException>(() =>
+            connection.ExportInterchangeAsync(head.Project.Revision, new('0', 64), CancellationToken.None));
+        Assert.Equal("revision_conflict", conflict.Code);
+        Assert.Empty(Directory.EnumerateDirectories(files.OutputDirectory));
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Heading, "Экспорт MP4"));
+        var panel = WaitForExport(host);
+        var export = ButtonIn(panel, "Монтаж XML");
+        host.PumpUntil(() => export.IsEnabled);
+        host.Click(export);
+        var destination = Assert.Single(RasterWindow<SceneView>.Walk(panel).OfType<TextBox>(), row => row.AccessibleName == "Каталог монтажного XML");
+        host.PumpUntil(() => destination.Value.Length > 0 || export.IsEnabled, TimeSpan.FromSeconds(20));
+        var directory = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "Montage-*"));
+        Assert.Equal(directory, destination.Value);
+        Assert.Contains(RasterWindow<SceneView>.Walk(panel).OfType<Text>(), row => row.Value.Contains("замечаний по переносу: 3"));
+        var xmlPath = Path.Combine(directory, "Timeline.xml");
+        using var report = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(directory, "Report.json")));
+        var manifest = report.RootElement;
+        Assert.Equal(head.Project.Revision, manifest.GetProperty("project_revision").GetInt64());
+        Assert.Equal(head.Fingerprint, manifest.GetProperty("project_fingerprint").GetString(), ignoreCase: true);
+        Assert.Equal(Hash(File.ReadAllBytes(xmlPath)), manifest.GetProperty("xml_sha256").GetString(), ignoreCase: true);
+        var sequence = XDocument.Load(xmlPath).Root!.Element("sequence")!;
+        Assert.Equal(72, (int?)sequence.Element("duration"));
+        Assert.Equal(24, (int?)sequence.Element("rate")!.Element("timebase"));
+        var media = sequence.Element("media")!;
+        var videos = media.Element("video")!.Elements("track").SelectMany(track => track.Elements("clipitem")).ToArray();
+        Assert.Equal(2, videos.Length);
+        Assert.Equal((12, 36, 4, 28), Coordinates(videos[0]));
+        Assert.Equal((40, 64, 0, 24), Coordinates(videos[1]));
+        Assert.Equal(files.MediaPath("Красный.mp4"), Input(videos[0]));
+        Assert.Equal(files.MediaPath("Синий.mp4"), Input(videos[1]));
+        Assert.Equal([100d, 100d, 87.5, 12.5], EffectValues(videos[0]));
+        Assert.Equal([12.5, 87.5, 100d, 100d], EffectValues(videos[1]));
+        var lanes = media.Element("audio")!.Elements("track").Select(track => track.Elements("clipitem").ToArray()).ToArray();
+        Assert.Equal(3, lanes.Length);
+        Assert.Equal([1d], EffectValues(lanes[0][0]));
+        Assert.Equal([0d], EffectValues(lanes[0][1]));
+        Assert.Equal((6, 30, 3, 27), Coordinates(Assert.Single(lanes[1])));
+        Assert.Equal((40, 50, 30, 40), Coordinates(Assert.Single(lanes[2])));
+        Assert.Equal([.35], EffectValues(lanes[1][0]));
+        Assert.Equal([.6], EffectValues(lanes[2][0]));
+        Assert.Equal(files.MediaPath(audioName), Input(lanes[2][0]));
+        var marker = Assert.Single(sequence.Elements("marker"));
+        Assert.Equal(("Музыкальная опора", 24), ((string?)marker.Element("name"), (int)marker.Element("in")!));
+        Assert.Equal(["marker_open_shot_report_only", "title_report_only", "video_retime_or_subframe"],
+            manifest.GetProperty("issues").EnumerateArray().Select(row => row.GetProperty("code").GetString()!).Order().ToArray());
+        var excluded = manifest.GetProperty("clips").EnumerateArray().Single(row => row.GetProperty("clip").GetProperty("id").GetString() == "retime");
+        Assert.Equal(35, excluded.GetProperty("source_out_frame").GetInt32());
+        Assert.Equal(files.MediaPath("Синий.mp4"), new Uri(excluded.GetProperty("original_uri").GetString()!).LocalPath);
+        Assert.Equal(1.25, excluded.GetProperty("clip").GetProperty("speed").GetDouble());
+        Assert.Equal("Клэр", Assert.Single(manifest.GetProperty("titles").EnumerateArray()).GetProperty("title").GetProperty("text").GetString());
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "*.pending"));
+        Assert.Empty(files.Requests());
+        files.AssertProject(saved, history);
+        foreach (var (name, sha) in inputHashes) Assert.Equal(sha, Hash(File.ReadAllBytes(files.MediaPath(name))));
+        host.Capture("timeline-interchange", new { head.Project.Revision, xmeml = 4, clips = videos.Length, audioTracks = lanes.Length });
+
+        if (Environment.GetEnvironmentVariable("STUDIO_OPENSHOT_QA") is { Length: > 0 } verifier)
+        {
+            BackendTrimFixture.RunAsync("powershell.exe",
+                ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", verifier, xmlPath], 64 * 1024).GetAwaiter().GetResult();
+        }
+
+        static (int, int, int, int) Coordinates(XElement clip) =>
+            ((int)clip.Element("start")!, (int)clip.Element("end")!, (int)clip.Element("in")!, (int)clip.Element("out")!);
+        static string Input(XElement row) => new Uri((string)row.Element("file")!.Element("pathurl")!).LocalPath;
+        static double[] EffectValues(XElement row) => row.Descendants("keyframe").Select(point => (double)point.Element("value")!).ToArray();
+    }
+
     [BackendMediaFact]
     public async Task Tracks_FromRaster_SaveCyrillicTitleAndMusic_AndReviewBeforeExport()
     {

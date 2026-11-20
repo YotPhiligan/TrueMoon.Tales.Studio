@@ -7,6 +7,18 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class BackendConnection
 {
+    internal async Task<BackendInterchangeReceipt> ExportInterchangeAsync(long revision, string fingerprint, CancellationToken token)
+    {
+        var reply = await SendExportAsync(ct => service.ExportInterchangeAsync(options.SessionKey, revision, fingerprint, ct), token)
+            .ConfigureAwait(false);
+        if (reply.Data.Length != 0 ||
+            JsonSerializer.Deserialize<BackendInterchangeReceipt>(reply.JobJson, BackendExportStorage.Json) is not { } receipt ||
+            receipt.Directory is not { Length: 40 } name || !name.StartsWith("Montage-", StringComparison.Ordinal) ||
+            !Guid.TryParseExact(name[8..], "N", out _) || receipt.ProjectRevision != revision ||
+            !BackendExportStorage.EqualHash(receipt.ProjectFingerprint, fingerprint) || !IsHash(receipt.XmlSha256) || receipt.IssueCount < 0)
+            throw new InvalidDataException("Invalid timeline interchange receipt.");
+        return receipt;
+    }
     private static readonly JsonSerializerOptions ExportJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
