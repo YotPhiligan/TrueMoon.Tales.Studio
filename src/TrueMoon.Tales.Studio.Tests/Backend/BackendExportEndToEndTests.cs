@@ -143,6 +143,90 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Speech_FromRaster_KeepsVersionsAndRendersVerifiedSubtitle()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        await using var session = await files.OpenAsync(workspace: true);
+        var connection = session.Connection;
+        var initial = await connection.AcquireWriterAsync(await connection.OpenAsync());
+        var window = initial.Project.Montage.Windows.First();
+        using var host = Workspace(session);
+        var model = session.App.Services.Resolve<SceneViewModel>()!;
+        Ready(host, model);
+        host.Click(ButtonIn(host.Window.Timeline, "Дорожки"));
+        var editor = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<MontageTrackWorkspace>());
+        host.PumpUntil(() => !editor.NeedsFrame);
+        host.Click(ButtonIn(editor, "+ Реплика или рассказчик"));
+        SetField(editor, "Название", "Пробная запись");
+        SetField(editor, "Окно сегмента (ID)", window.Id);
+        SetField(editor, "Говорящий", "Рассказчик");
+        SetField(editor, "Медиа (ID ассета или @mount/путь)", "video-a");
+        SetField(editor, "Происхождение новой записи", "Первая запись");
+        SetField(editor, "Смещение от клипа или окна, к.", "4");
+        SetField(editor, "Начало субтитра от записи, к.", "6");
+        SetField(editor, "Длительность субтитра, к.", "12");
+        Assert.Single(RasterWindow<SceneView>.Walk(editor).OfType<RichTextEditor>()).Text = "Слышу речь";
+        host.Click(ButtonIn(editor, "Сохранить дорожку"));
+        host.PumpUntil(() => !editor.NeedsFrame);
+        var first = connection.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(initial.Project.Revision + 1, first.Project.Revision);
+        var row = Assert.Single(first.Project.Montage.Properties["sound_events"].EnumerateArray());
+        var id = row.GetProperty("id").GetString()!;
+        var version1 = Assert.Single(BackendSpeech.Read(row)!.Versions);
+        Assert.Equal(Hash(File.ReadAllBytes(files.MediaPath("Красный.mp4"))), version1.Sha256);
+
+        var replacement = new SaveMontageSound(id, window.Id, null, "Пробная запись", "voice", "video-b", 0, 4, 24, 0, 1, false,
+            new("narrator", "Рассказчик", null, 0, "Вторая запись", "Слышу речь", 6, 12, false));
+        Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() => Save(replacement, initial)).Code);
+        Assert.Equal("invalid_speech", Assert.Throws<BackendCommandException>(() =>
+            Save(replacement with { Speech = replacement.Speech! with { SubtitleDurationFrames = 19 } }, first)).Code);
+        var second = Save(replacement, first);
+        var speech = BackendSpeech.Read(Assert.Single(second.Project.Montage.Properties["sound_events"].EnumerateArray()))!;
+        Assert.Equal(version1, speech.Versions[0]);
+        Assert.Equal(2, speech.SelectedVersion);
+        Assert.Equal(Hash(File.ReadAllBytes(files.MediaPath("Синий.mp4"))), speech.Selected.Sha256);
+        Assert.Contains(connection.CheckReadinessAsync(second.Project.Revision, second.Fingerprint, CancellationToken.None).GetAwaiter().GetResult().Issues,
+            issue => issue.Reason == "subtitle_review" && issue.TrackId == id);
+        var confirmed = Save(replacement with { Speech = replacement.Speech! with { Version = 2, ConfirmSubtitle = true } }, second);
+        var confirmedBytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var substituted = files.MediaPath("Синий.mp4");
+        var original = File.ReadAllBytes(substituted);
+        try
+        {
+            File.WriteAllBytes(substituted, [..original, 0]);
+            Assert.Contains(connection.CheckReadinessAsync(confirmed.Project.Revision, confirmed.Fingerprint, CancellationToken.None).GetAwaiter().GetResult().Issues,
+                issue => issue.Reason == "speech_source_changed" && issue.TrackId == id);
+        }
+        finally { File.WriteAllBytes(substituted, original); }
+        files.AssertProject(confirmedBytes, history);
+
+        var review = connection.StartWorkingReviewAsync("speech-proof-preview", confirmed.Project.Revision, confirmed.Fingerprint,
+            CancellationToken.None).GetAwaiter().GetResult();
+        host.PumpUntil(() => (review = connection.WorkingReviewStatusAsync(review.Id, CancellationToken.None).GetAwaiter().GetResult()).State
+            is "completed" or "failed", TimeSpan.FromSeconds(30));
+        Assert.Equal("completed", review.State);
+        var export = connection.StartExportAsync("speech-proof-export", "draft", confirmed.Project.Revision, confirmed.Fingerprint).GetAwaiter().GetResult();
+        var result = session.UntilAsync(export.Id, status => (string?)status["state"] == "completed", files.JobDirectory(export.Id)).GetAwaiter().GetResult();
+        Assert.Equal("completed", (string?)result["state"]);
+        foreach (var frame in new[] { 9, 10, 21, 22 })
+        {
+            var preview = Read(review.Id, frame);
+            Assert.Equal(preview.PixelSha256, Read(export.Id, frame).PixelSha256);
+            var bright = Enumerable.Range(0, preview.Pixels.Length / 4).Count(i =>
+                preview.Pixels[i * 4] > 178 && preview.Pixels[i * 4 + 1] > 178 && preview.Pixels[i * 4 + 2] > 178);
+            Assert.Equal(frame is 10 or 21, bright > 10);
+        }
+        files.AssertProject(confirmedBytes, history);
+
+        OpenedBackendProject Save(SaveMontageSound command, OpenedBackendProject head) =>
+            connection.EditScenarioAsync(command, head).GetAwaiter().GetResult();
+        BackendMediaReply Read(string job, int frame) => connection.FrameAsync(BackendRenderedMontage.Identifier(job, null),
+            frame, confirmed.Project.Revision, confirmed.Fingerprint).GetAwaiter().GetResult();
+    }
+
+    [BackendMediaFact]
     public async Task RangeReview_FromRaster_PreservesProjectCoordinatesAndMatchesFullExport()
     {
         using var files = new ExportFixture();

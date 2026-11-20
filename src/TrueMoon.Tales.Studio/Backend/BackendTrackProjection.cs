@@ -21,7 +21,8 @@ internal static class BackendTrackProjection
             var start = (int?)item["offset_frames"] ?? -1;
             var duration = (int?)item["duration_frames"] ?? 0;
             if (clip is not null) duration = Math.Min(duration, clip.DurationFrames - start);
-            var lane = clip is null ? "Звук сегмента" : "Звук клипа";
+            var speech = BackendSpeech.Read(item["speech"]);
+            var lane = speech is not null ? "Речь" : clip is null ? "Звук сегмента" : "Звук клипа";
             return start >= 0 && duration > 0 && (long)owner + start + duration <= int.MaxValue
                 ? Span(item, "sound_events", (string?)item["id"], lane, clip is null ? 1 : 2, owner + start, duration)
                 : null;

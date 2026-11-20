@@ -81,7 +81,8 @@ internal sealed record SetBlackTransition(string LeftId, string RightId, int Fad
 internal abstract record MontageTrackCommand : ScenarioCommand;
 internal sealed record SaveMontageMusic(string Input, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted) : MontageTrackCommand;
 internal sealed record SaveMontageSound(string? Id, string SegmentId, string? ClipId, string Name, string Lane, string Input,
-    int Stream, int OffsetFrames, int DurationFrames, double SourceInFrame, double Gain, bool Muted) : MontageTrackCommand;
+    int Stream, int OffsetFrames, int DurationFrames, double SourceInFrame, double Gain, bool Muted,
+    MontageSpeechInput? Speech = null) : MontageTrackCommand;
 internal sealed record SaveMontageTitle(string? Id, MontageTitle Title) : MontageTrackCommand;
 internal sealed record SaveMontageMarker(string? Id, string Name, int Frame) : MontageTrackCommand;
 internal sealed record RemoveMontageTrackItem(string Track, string Id) : MontageTrackCommand;

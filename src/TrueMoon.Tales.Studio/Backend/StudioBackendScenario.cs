@@ -58,7 +58,8 @@ internal sealed partial class StudioBackendService
                 LinkDraftFinalTake edit => await BackendTakePairs.LinkAsync(baseline.Project, edit,
                     media ?? throw new ScenarioEditException("decoder_unavailable"), cancellationToken).ConfigureAwait(false),
                 MoveScenarioAction edit => BackendScenarioEdit.MoveAction(baseline.Project, edit, ScenarioActive(baseline)),
-                MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync, cancellationToken).ConfigureAwait(false),
+                MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync,
+                    options, cancellationToken).ConfigureAwait(false),
                 _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)
             };
             if (ReferenceEquals(draft, baseline.Project)) return Reply(baseline);

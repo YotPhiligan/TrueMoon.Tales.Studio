@@ -17,7 +17,7 @@ internal static class BackendTrackEdits
     private const int MaxMarkers = 1024;
 
     internal static async Task<ProjectContract> ApplyAsync(ProjectContract project, MontageTrackCommand edit,
-        Func<string, int, CancellationToken, Task<double>> probe, CancellationToken token)
+        Func<string, int, CancellationToken, Task<double>> probe, BackendOptions options, CancellationToken token)
     {
         var montage = project.Montage;
         switch (edit)
@@ -32,7 +32,6 @@ internal static class BackendTrackEdits
             }
             case SaveMontageSound sound:
             {
-                Timing(sound.OffsetFrames, sound.DurationFrames, sound.SourceInFrame, sound.Gain, sound.Stream);
                 var name = Name(sound.Name);
                 if (sound.Lane is not ("voice" or "sfx" or "ambience")) throw Invalid();
                 var clip = sound.ClipId is null ? null : montage.Clips.SingleOrDefault(row => row.Id == sound.ClipId) ?? throw Invalid();
@@ -41,10 +40,19 @@ internal static class BackendTrackEdits
                 if ((long)sound.OffsetFrames + sound.DurationFrames > (clip?.DurationFrames ?? window.DurationFrames)) throw Invalid();
                 var rows = Rows(montage, "sound_events");
                 var row = Item(rows, sound.Id, "sound-", MaxSounds);
-                var audio = await AudioAsync(project, sound.Input, sound.Stream, sound.SourceInFrame, sound.DurationFrames, probe, token);
+                var previousSpeech = BackendSpeech.Read(row["speech"]);
+                var (input, stream) = BackendSpeech.Source(sound, previousSpeech);
+                Timing(sound.OffsetFrames, sound.DurationFrames, sound.SourceInFrame, sound.Gain, stream);
+                var audio = await AudioAsync(project, input, stream, sound.SourceInFrame, sound.DurationFrames, probe, token);
                 Merge(row, new AudioEvent(audio.Id, window.Id, clip?.Id, sound.OffsetFrames,
-                    sound.DurationFrames, sound.SourceInFrame, sound.Stream, sound.Gain, sound.Muted), audio.Seconds);
+                    sound.DurationFrames, sound.SourceInFrame, stream, sound.Gain, sound.Muted), audio.Seconds);
                 row["name"] = name; row["lane"] = sound.Lane;
+                if (sound.Speech is not null)
+                {
+                    var speech = await BackendSpeech.ApplyAsync(audio.Project, window, sound, previousSpeech, audio.Id,
+                        stream, new BackendMediaResolver(options), token).ConfigureAwait(false);
+                    row["speech"] = JsonSerializer.SerializeToNode(speech, Json);
+                }
                 return Property(audio.Project, "sound_events", rows);
             }
             case SaveMontageTitle title:

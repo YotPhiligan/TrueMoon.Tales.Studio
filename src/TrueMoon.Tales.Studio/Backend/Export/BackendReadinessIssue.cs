@@ -33,7 +33,8 @@ internal sealed record BackendReadinessIssue(string Reason, long Revision, strin
             "legacy_root_overlap" => NoTarget && (Fingerprint is null || BackendConnection.IsHash(Fingerprint)),
             "montage_invalid" or "montage_empty" or "title_font" => NoTarget && BackendConnection.IsHash(Fingerprint),
             "clip_take_missing" or "clip_timing" or "clip_source_range" => ClipId is not null && BackendConnection.IsHash(Fingerprint),
-            "asset_missing" or "asset_access" or "asset_invalid" or "asset_tools" => AssetId is not null && BackendConnection.IsHash(Fingerprint),
+            "asset_missing" or "asset_access" or "asset_invalid" or "asset_tools" or "speech_source_changed" or "subtitle_review"
+                => AssetId is not null && BackendConnection.IsHash(Fingerprint),
             _ => false
         });
 

@@ -113,6 +113,8 @@ internal sealed class TimelineReadiness : Border
             {
                 "clip_take_missing" => "Клип без видеодубля.",
                 "asset_invalid" => "Некорректный формат или длительность.",
+                "speech_source_changed" => "Запись речи изменилась.",
+                "subtitle_review" => "Субтитр требует сверки.",
                 "legacy_root_overlap" => "Корень чтения пересекает legacy_root.",
                 "montage_invalid" => "Проверьте окна и тайминг монтажа.",
                 _ => ReadinessMessage.Explain(issue)

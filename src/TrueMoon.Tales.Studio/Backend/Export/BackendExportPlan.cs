@@ -166,8 +166,13 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             await CheckAudio(music.AssetId, 0, music.StartFrame, music.SourceInFrame, music.DurationFrames, music.Gain, music.Muted, "music", "music")
                 .ConfigureAwait(false);
         foreach (var sound in sounds)
+        {
+            if (sound.SubtitleNeedsReview)
+                Record(new("invalid_export", new("subtitle_review", project.Revision, fingerprint, AssetId: sound.AssetId,
+                    Track: "sound_events", TrackId: sound.TrackId, Frame: sound.StartFrame)));
             await CheckAudio(sound.AssetId, sound.Stream, sound.StartFrame, sound.SourceInFrame, sound.DurationFrames, sound.Gain, sound.Muted,
-                "sound_events", sound.TrackId, sound.OwnerClipId).ConfigureAwait(false);
+                "sound_events", sound.TrackId, sound.OwnerClipId, sound.ExpectedSpeechSha).ConfigureAwait(false);
+        }
         if (animatic)
         {
             foreach (var card in BackendAnimatic.Cards(project))
@@ -186,7 +191,8 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                         "#FFFFFF", "center", "center", "transparent", false), fontId);
             }
         }
-        foreach (var (id, title) in titles)
+        foreach (var (id, title) in titles.Concat(sounds.Where(sound => sound.Subtitle is not null)
+                     .Select(sound => ("subtitle-" + sound.TrackId, sound.Subtitle!))))
         {
             if (!Intersects(title.StartFrame, title.DurationFrames)) continue;
             string fontInput;
@@ -263,11 +269,22 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         }
 
         async Task CheckAudio(string id, int stream, int frame, double start, int duration, double gain, bool muted,
-            string track, string? trackId, string? clip = null)
+            string track, string? trackId, string? clip = null, string? expectedSpeechSha = null)
         {
+            Asset asset;
             try
             {
-                var asset = await registry.GetAsync(id, video: false, token).ConfigureAwait(false);
+                asset = await registry.GetAsync(id, video: false, token).ConfigureAwait(false);
+            }
+            catch (Exception error) when (IsMediaFailure(error))
+            { Record(DescribeMedia(error, id, frame, clip, track, trackId)); return; }
+            if (expectedSpeechSha is not null && !string.Equals(expectedSpeechSha, asset.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                Record(new("invalid_export", new("speech_source_changed", project.Revision, fingerprint, clip, id, track, trackId, frame)));
+                return;
+            }
+            try
+            {
                 if (muted || gain == 0) return;
                 var seconds = await registry.AudioAsync(asset, stream, token).ConfigureAwait(false);
                 if (start + duration > Math.Floor(seconds * fps + 1e-6))
@@ -331,6 +348,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             if (offset < 0 || duration < 1) throw new InvalidDataException("Invalid export sound placement.");
             int ownerStart;
             string? ownerClip = null;
+            string? ownerWindow = null;
             if (row.TryGetProperty("clip_id", out var clipId) && clipId.ValueKind != JsonValueKind.Null)
             {
                 var clip = montage.Clips.FirstOrDefault(clip => clip.Id == clipId.GetString())
@@ -350,10 +368,19 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
                     window = matching.Length == 1 ? matching[0] : throw new InvalidDataException("Export sound has no unique saved window.");
                 }
                 ownerStart = window.StartFrame;
+                ownerWindow = window.Id;
             }
-            if ((long)ownerStart + offset > int.MaxValue) throw new InvalidDataException("Export sound placement overflows.");
+            if ((long)ownerStart + offset + duration > int.MaxValue) throw new InvalidDataException("Export sound placement overflows.");
             var trackId = row.TryGetProperty("id", out var track) && track.ValueKind == JsonValueKind.String ? track.GetString() : null;
-            result.Add(new(id, ownerStart + offset, duration, source, stream, gain, muted, trackId, ownerClip));
+            var speech = BackendSpeech.Read(row);
+            if (speech is not null && (ownerWindow is null || trackId is null || speech.Selected.AssetId != id || speech.Selected.Stream != stream))
+                throw new InvalidDataException("Speech and sound placement disagree.");
+            var review = speech is not null && BackendSpeech.NeedsReview(speech, ownerWindow!, offset, duration, source);
+            var subtitle = speech?.Subtitle is { } caption && !review
+                ? new MontageTitle(speech.Speaker, caption.Text, ownerStart + offset + caption.OffsetFrames, caption.DurationFrames, 0, 0,
+                    OperatingSystem.IsWindows() ? "arial" : "dejavu", 36, "#FFFFFF", "center", "lower", "transparent", true)
+                : null;
+            result.Add(new(id, ownerStart + offset, duration, source, stream, gain, muted, trackId, ownerClip, speech?.Selected.Sha256, subtitle, review));
         }
         return result;
     }
@@ -373,7 +400,9 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     private sealed record MusicPlacement(string AssetId, int StartFrame, int DurationFrames, double SourceInFrame, double Gain, bool Muted);
     private sealed record SoundPlacement(string AssetId, int StartFrame, int DurationFrames,
         double SourceInFrame, int Stream, double Gain, bool Muted,
-        [property: JsonIgnore] string? TrackId, [property: JsonIgnore] string? OwnerClipId);
+        [property: JsonIgnore] string? TrackId, [property: JsonIgnore] string? OwnerClipId,
+        [property: JsonIgnore] string? ExpectedSpeechSha, [property: JsonIgnore] MontageTitle? Subtitle,
+        [property: JsonIgnore] bool SubtitleNeedsReview);
     private sealed record Asset(string Path, string Format, string ExpectedSha256);
     private sealed record AnimaticImage(string AssetId, int StartFrame, int DurationFrames);
 
