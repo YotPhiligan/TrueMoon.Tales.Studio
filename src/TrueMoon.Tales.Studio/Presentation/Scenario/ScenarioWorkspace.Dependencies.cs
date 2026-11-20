@@ -18,7 +18,7 @@ internal sealed partial class ScenarioWorkspace
         _dependenciesTab = ButtonFor("Зависимости", () => PickPane(Pane.Dependencies));
         _dependencyRevision = Input("Ревизия для сравнения");
         _compareDependencies = ButtonFor("Сравнить ревизии", CompareDependencies);
-        _dependencies = Stack(Field(_dependencyRevision), _compareDependencies, _dependencySummary, _dependencyRows);
+        _dependencies = Stack(Field(_dependencyRevision), _compareDependencies, _dependencySummary, _dependencyRows, CreateJobComparison());
         return _dependencies;
     }
 
@@ -28,6 +28,7 @@ internal sealed partial class ScenarioWorkspace
         _dependenciesTab.Tone = visible ? ControlTone.Accent : ControlTone.Neutral;
         if (_dependencyFingerprint == _baseline?.Fingerprint) return;
         _dependencyFingerprint = _baseline?.Fingerprint;
+        ClearJobComparison();
         _dependencyRevision.Value = _baseline?.Project.Revision is > 1 and var revision
             ? (revision - 1).ToString(CultureInfo.InvariantCulture) : "";
         ClearDependencyRows();

@@ -172,6 +172,10 @@ public interface IStudioBackend
     Task<BackendExportReply> CheckDependenciesAsync(string sessionKey, long comparedRevision, long expectedRevision,
         string fingerprint, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads the verified inputs of two saved generation jobs from the selected project.</summary>
+    Task<BackendExportReply> CompareJobSnapshotsAsync(string sessionKey, string beforeId, string afterId, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Reads the startup-selected project without migration, recovery or writes.</summary>
     /// <param name="sessionKey">The per-launch capability.</param><param name="cancellationToken">The local call deadline.</param>
     /// <returns>A normalized snapshot or a classified failure.</returns>

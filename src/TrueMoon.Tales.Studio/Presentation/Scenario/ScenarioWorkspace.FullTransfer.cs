@@ -1,6 +1,7 @@
 using System.Globalization;
 using TrueMoon.Argentis;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Contracts.Projects;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scenario;
 
@@ -65,16 +66,21 @@ internal sealed partial class ScenarioWorkspace
         _transferPath.AccessibleName = $"{_transferPath.Value} · SHA сборки {ready.BuildSha256}";
     }
 
-    private void OpenTransferForm()
+    private void OpenTransferForm() => OpenTransferForm(Source!, Take!);
+
+    private static bool IsTransferDraft(TakeContract take) => take.VideoAssetId is not null && BackendTakePairs.Read(take) is null;
+
+    private void OpenTransferForm(SourceContract source, TakeContract? take, FullTransferForm? template = null,
+        FullTransferPredecessor? predecessor = null)
     {
-        var source = Source!;
-        var take = Take!;
         var key = Guid.NewGuid().ToString("N");
-        var seed = Input("Seed", "0");
-        var guide = Input("Picture для Guide 0", "1");
-        var role = Input("Роль Video 1");
-        var notes = EditText("Фазы движения Video 1", null);
-        var prompt = EditText("Промпт Ref2VA", "subject_definitions:\n\nsummary:\n\nretention_analysis:\n\ndetailed_description:\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A");
+        var draftId = predecessor is null ? null : Input("Дубль Video 1 · ID", take?.Id);
+        var seed = Input("Seed", (template?.Seed ?? 0).ToString(CultureInfo.InvariantCulture));
+        var guide = Input("Picture для Guide 0", (template?.GuidePicture ?? 1).ToString(CultureInfo.InvariantCulture));
+        var role = Input("Роль Video 1", template?.MotionRole);
+        var notes = EditText("Фазы движения Video 1", template?.MotionNotes);
+        var prompt = EditText("Промпт Ref2VA", template?.Prompt ??
+            "subject_definitions:\n\nsummary:\n\nretention_analysis:\n\ndetailed_description:\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A");
         prompt.Height = 200;
         var rows = Stack();
         var images = new List<(Element Row, TextBox Reference, TextBox Role)>();
@@ -89,18 +95,37 @@ internal sealed partial class ScenarioWorkspace
             images.RemoveAt(images.Count - 1);
             SyncRows();
         });
-        foreach (var input in BackendReferenceLibrary.Inputs(take).Take(8))
-            AddImage(input.Version.ImageReference, input.Name);
+        if (template is not null)
+        {
+            foreach (var image in template.Images) AddImage(image.Reference, image.Role);
+        }
+        else
+        {
+            foreach (var input in BackendReferenceLibrary.Inputs(take!).Take(8))
+                AddImage(input.Version.ImageReference, input.Name);
+        }
         if (images.Count == 0) AddImage("", "");
-        _transferDraft = () => new FullTransferForm(key, source.Id, take.Id,
+        _transferDraft = () => new FullTransferForm(key, source.Id, DraftId(),
             ulong.TryParse(seed.Value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
                 ? number : throw new ArgumentException("Укажите целый Seed от 0 до 18446744073709551615."),
             prompt.Text, images.Select(row => new FullTransferImage(row.Reference.Value, row.Role.Value)).ToArray(),
-            Number(guide, "номер Picture для Guide 0"), role.Value, notes.Text);
+            Number(guide, "номер Picture для Guide 0"), role.Value, notes.Text, predecessor);
         _commit.Value = "Подготовить";
-        ShowForm("Подготовка Full Transfer", [Text.Plain($"Video 1 · {BackendScenarioEdit.TakeName(take)}"),
-            Text.Plain("1280×736 · 24 кадр/с · длина черновика · без очереди"), Field(seed), Field(guide),
-            Field(role), Field(notes), Field(prompt), rows, Row(add, remove)]);
+        Element motion = draftId is null
+            ? Text.Plain($"Video 1 · {BackendScenarioEdit.TakeName(take!)}")
+            : Stack(Text.Plain($"На основе {predecessor!.Id}"), Field(draftId), Stack(source.Takes.Where(IsTransferDraft)
+                .Select(candidate => ButtonFor($"Video 1 · {BackendScenarioEdit.TakeName(candidate)}", () => draftId.Value = candidate.Id))
+                .Cast<Element>().ToArray()));
+        ShowForm("Подготовка Full Transfer", [motion, Text.Plain("1280×736 · 24 кадр/с · длина черновика · без очереди"),
+            Field(seed), Field(guide), Field(role), Field(notes), Field(prompt), rows, Row(add, remove)]);
+
+        string DraftId()
+        {
+            var id = draftId?.Value.Trim() ?? take!.Id;
+            if (!source.Takes.Any(candidate => candidate.Id == id && IsTransferDraft(candidate)))
+                throw new ArgumentException("Выберите видео черновика из этого источника.");
+            return id;
+        }
 
         void AddImage(string reference, string imageRole)
         {
@@ -129,6 +154,15 @@ internal sealed partial class ScenarioWorkspace
                 _preparedTransfer = receipt;
                 _transferRun = null;
                 _transferId.Value = receipt.Id;
+                if (form.Predecessor is { } previous)
+                {
+                    _beforeJob.Value = previous.Id;
+                    _afterJob.Value = receipt.Id;
+                    _sourceId = form.SourceId;
+                    _takeId = form.DraftTakeId;
+                    _query = _search.Value = "";
+                    ClearJobComparison();
+                }
                 Cancel();
                 Show("Full Transfer подготовлен без постановки в очередь.");
             };

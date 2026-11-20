@@ -51,6 +51,27 @@ internal sealed partial class BackendConnection
         return report;
     }
 
+    internal async Task<JobSnapshotComparison> CompareJobSnapshotsAsync(string beforeId, string afterId,
+        OpenedBackendProject baseline, CancellationToken token)
+    {
+        var reply = await SendExportAsync(ct => service.CompareJobSnapshotsAsync(options.SessionKey, beforeId, afterId,
+            baseline.Project.Revision, baseline.Fingerprint, ct), token).ConfigureAwait(false);
+        if (reply.Data.Length != 0 || reply.JobJson.Length > StudioBackendService.MaxProjectBytes / 2 ||
+            JsonSerializer.Deserialize<JobSnapshotComparison>(reply.JobJson, BackendAdaptation.Json) is not { } comparison ||
+            !Valid(comparison.Before, beforeId) || !Valid(comparison.After, afterId))
+            throw new InvalidDataException("Invalid job snapshot comparison.");
+        return comparison;
+
+        bool Valid(SavedJobSnapshot? snapshot, string id) =>
+            snapshot is { Prompt.Length: > 0 and <= 12_000 } && snapshot.Id == id &&
+            snapshot.Revision >= 0 && snapshot.Revision <= baseline.Project.Revision && IsHash(snapshot.PromptSha256) &&
+            (snapshot.TransferRequestSha256 is { } requestSha
+                ? snapshot.TransferForm is { Images.Length: >= 1 and <= 8 } form && form.Prompt == snapshot.Prompt &&
+                  snapshot.Motion is { Kind: "video_1" } motion && motion.TakeId == form.DraftTakeId && IsHash(motion.Sha256) &&
+                  IsHash(requestSha)
+                : snapshot.TransferForm is null && snapshot.Motion is null or { Kind: "motion_context", TakeId.Length: > 0 });
+    }
+
     internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint,
         CancellationToken token, BackendReviewRange? range = null, bool animatic = false)
     {

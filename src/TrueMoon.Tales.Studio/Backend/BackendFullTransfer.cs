@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using SkiaSharp;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Persistence;
@@ -7,8 +8,10 @@ using TrueMoon.Tales.Studio.Persistence;
 namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed record FullTransferImage(string Reference, string Role);
+internal sealed record FullTransferPredecessor(string Id, string RequestSha256);
 internal sealed record FullTransferForm(string ClientKey, string SourceId, string DraftTakeId, ulong Seed, string Prompt,
-    FullTransferImage[] Images, int GuidePicture, string MotionRole, string MotionNotes);
+    FullTransferImage[] Images, int GuidePicture, string MotionRole, string MotionNotes,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FullTransferPredecessor? Predecessor = null);
 internal sealed record FullTransferInput(string Reference, string Role, string Sha256);
 internal sealed record FullTransferRequest(int Version, string ProjectId, long Revision, string Fingerprint, string SourceId,
     TakeVideoSnapshot Draft, FullTransferForm Form, FullTransferInput[] Images);
@@ -29,13 +32,18 @@ internal static partial class BackendFullTransfer
         if (json is not { Length: > 0 and <= 64 * 1024 } ||
             JsonSerializer.Deserialize<FullTransferForm>(json, FormJson) is not { Images: { Length: >= 1 and <= 8 } } form ||
             !ValidClientKey(form.ClientKey) || form.GuidePicture < 1 || form.GuidePicture > form.Images.Length ||
+            form.Predecessor is { } previous && (!ValidJobId(previous.Id) || !BackendConnection.IsHash(previous.RequestSha256) ||
+                previous.Id == JobId(form.ClientKey)) ||
             form.Images.Any(image => image is null)) throw Invalid();
         return form with
         {
             SourceId = Required(form.SourceId, 160), DraftTakeId = Required(form.DraftTakeId, 160),
             Prompt = Required(form.Prompt, 12_000, multiline: true), MotionRole = Required(form.MotionRole, 200),
             MotionNotes = Required(form.MotionNotes, 1600, multiline: true),
-            Images = form.Images.Select(image => new FullTransferImage(Required(image.Reference, 512), Required(image.Role, 200))).ToArray()
+            Images = form.Images.Select(image => new FullTransferImage(Required(image.Reference, 512), Required(image.Role, 200))).ToArray(),
+            Predecessor = form.Predecessor is { } predecessor
+                ? predecessor with { RequestSha256 = predecessor.RequestSha256.ToUpperInvariant() }
+                : null
         };
     }
 
@@ -52,6 +60,13 @@ internal static partial class BackendFullTransfer
         if (take?.VideoAssetId is null || BackendTakePairs.Read(take) is not null) throw Invalid();
         var id = JobId(form.ClientKey);
         var project = BackendProjectAccess.Read(options);
+        if (form.Predecessor is { } previous)
+        {
+            var previousJob = Path.Combine(project.ProjectDirectory, "Production", Store, previous.Id);
+            var (previousRequest, _, _) = ReadJob(previousJob, previous.Id, baseline.Project.Id, previous.RequestSha256);
+            if (previousRequest.SourceId != form.SourceId || previousRequest.Revision > baseline.Project.Revision)
+                throw Invalid();
+        }
         var job = Path.Combine(project.ProjectDirectory, "Production", Store, id);
         BackendProjectAccess.CheckProductionWrite(project, job);
         var draft = await media.SnapshotTakeAsync(baseline.Project, take, token).ConfigureAwait(false);

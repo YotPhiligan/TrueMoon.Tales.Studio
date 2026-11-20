@@ -254,6 +254,184 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task JobSnapshots_FromRaster_CompareArchivedContinuationsAndPrepareOnlySelectedFullTransfer()
+    {
+        TrueMoon.Alloy.Rendering.Skia.SkiaNativeLibrary.Initialize();
+        using var files = new ExportFixture();
+        await files.PrepareAsync(fullTransfer: true);
+        var ffmpeg = Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
+        foreach (var color in new[] { "blue", "red" })
+            await BackendTrimFixture.RunAsync(ffmpeg,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", $"color=c={color}:s=160x120:r=24", "-frames:v", "56",
+                 "-threads", "1", "-n", files.MediaPath(color + ".mp4")], 2048);
+        await BackendTrimFixture.RunAsync(ffmpeg, ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120",
+            "-frames:v", "1", "-threads", "1", "-n", files.MediaPath("Ref.png")], 2048);
+        var exe = await files.PrepareTransferWorkerFixtureAsync();
+        await using var session = await files.OpenAsync(workspace: true, executable: exe);
+        var api = session.Connection;
+        var baseProject = await api.AcquireWriterAsync(await api.OpenAsync());
+        var sourceId = baseProject.Project.Sources[0].Id;
+        var old = await api.EditScenarioAsync(new ImportVideo(sourceId, "", "Синий черновик", "@videos/blue.mp4"), baseProject);
+        var oldTake = old.Project.Sources[0].Takes.Last();
+        const string prompt = "subject_definitions: <Picture 1> is the room. <Video 1> supplies motion.\n" +
+            "summary: Follow the motion.\nretention_analysis: Keep Picture roles.\ndetailed_description: One continuous shot.\n" +
+            "overall_soundscape: N/A\n\nnon_diegetic_music: N/A";
+        var parent = await api.PrepareFullTransferAsync(new(new('a', 32), sourceId, oldTake.Id, ulong.MaxValue, prompt,
+            [new("@videos/Ref.png", "Комната")], 1, "Ритм", "Прежнее движение"), old, CancellationToken.None);
+        var head = await api.EditScenarioAsync(new ImportVideo(sourceId, "", "Красный черновик", "@videos/red.mp4"), old);
+        var newTake = head.Project.Sources[0].Takes.Last();
+
+        var production = Path.Combine(Path.GetDirectoryName(files.ProjectPath)!, "Production");
+        const string archiveA = "job-0000000000000001", archiveB = "job-0000000000000002";
+        const string archivedPrompt = "Сохранённый промпт продолжения.\r\nВторая строка.";
+        var legacyA = WriteArchive(archiveA, "take-archive-1", archivedPrompt, new('a', 64));
+        var legacyB = WriteArchive(archiveB, "take-archive-2", archivedPrompt, null);
+        var jobs = Path.Combine(production, "FullTransfer.v1");
+        var receipts = CaptureFiles(Path.Combine(jobs, parent.Id));
+        var archiveFiles = CaptureFiles(Path.Combine(production, "Jobs"));
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var input = Path.Combine(files.ComfyRoot, "input");
+        var comfy = CaptureFiles(input);
+
+        var archives = await Compare(archiveA, archiveB);
+        Assert.Equal(archivedPrompt, archives.Before.Prompt);
+        Assert.Equal(archives.Before.PromptSha256, archives.After.PromptSha256);
+        Assert.Equal(new SavedJobMotion("motion_context", "take-archive-1", null, new('A', 64)), archives.Before.Motion);
+        Assert.Equal(new SavedJobMotion("motion_context", "take-archive-2", null, null), archives.After.Motion);
+        Assert.Null(archives.Before.TransferForm);
+        Assert.Equal("job_snapshot_ids", await Reject(archiveA, archiveA));
+        Assert.Equal("job_snapshot_ids", await Reject("../" + archiveA, archiveB));
+        Assert.Equal("job_snapshot_missing", await Reject(archiveA, "job-0000000000000003"));
+        Assert.Equal("revision_conflict", (await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.CompareJobSnapshotsAsync(archiveA, archiveB, old, CancellationToken.None))).Code);
+        var legacyRecord = File.ReadAllText(legacyB);
+        var otherProject = JsonNode.Parse(legacyRecord)!;
+        otherProject["project_id"] = "wrong-project";
+        File.WriteAllText(legacyB, otherProject.ToJsonString());
+        Assert.Equal("job_snapshot_invalid", await Reject(archiveA, archiveB));
+        File.WriteAllText(legacyB, legacyRecord);
+        var oldPrompt = Path.Combine(Path.GetDirectoryName(legacyA)!, "Input", "Prompt.txt");
+        File.AppendAllText(oldPrompt, "Подмена");
+        Assert.Equal("job_snapshot_invalid", await Reject(archiveA, archiveB));
+        File.WriteAllText(oldPrompt, archivedPrompt);
+        var parentSnapshot = (await Compare(parent.Id, archiveA)).Before;
+        var form = parentSnapshot.TransferForm!;
+        var revision = new FullTransferPredecessor(parent.Id, parent.RequestSha256);
+        await Refuse(form with { Predecessor = revision }, head, "invalid_transfer");
+        await Refuse(form with { ClientKey = new('f', 32), Predecessor = revision with { RequestSha256 = new('0', 64) } },
+            head, "transfer_key_conflict");
+        await Refuse(form with { ClientKey = new('f', 32), Predecessor = revision }, old, "revision_conflict");
+        Assert.Single(Directory.GetDirectories(jobs));
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var editor = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !editor.Busy);
+        Click("Зависимости");
+        SetField(editor, "ID задания для сравнения · А", parent.Id);
+        SetField(editor, "ID задания для сравнения · Б", archiveA);
+        Click("Сравнить задания");
+        Assert.Equal(prompt, Prompt("Сохранённый промпт · А").Text);
+        Assert.Equal(archivedPrompt.Replace("\r\n", "\n"), Prompt("Сохранённый промпт · Б").Text.Replace("\r\n", "\n"));
+        var leftPrompt = Prompt("Сохранённый промпт · А").Bounds;
+        Assert.True(leftPrompt.Width > 0 && leftPrompt.X + leftPrompt.Width <= Prompt("Сохранённый промпт · Б").Bounds.X);
+        Assert.Contains(Elements().OfType<Text>(), row => row.Value == "Motion Context · продолжение дубля take-archive-1");
+        Assert.DoesNotContain(Elements().OfType<Button>(), row => row.Value == "Подготовить новую версию · Б");
+        Reveal(Prompt("Сохранённый промпт · Б"));
+        host.Capture("job-snapshot-archived-motion", new { parent.Id, Archive = archiveA });
+        Click("Подготовить новую версию · А");
+        Assert.True(editor.HasDraft);
+        Assert.Equal(prompt, Prompt("Промпт Ref2VA").Text);
+        Click("Отменить");
+        Assert.False(editor.HasDraft);
+        Assert.Single(Directory.GetDirectories(jobs));
+        Click("Подготовить новую версию · А");
+        Click("Video 1 · Красный черновик");
+        var edited = prompt.Replace("Follow the motion.", "Continue with a pause.", StringComparison.Ordinal);
+        Prompt("Промпт Ref2VA").Text = edited;
+        Click("Подготовить");
+        Assert.False(editor.HasDraft, editor.Status);
+        Assert.Contains("без постановки в очередь", editor.Status);
+        var childPath = Assert.Single(Directory.GetDirectories(jobs), path => Path.GetFileName(path) != parent.Id);
+        var childId = Path.GetFileName(childPath);
+        Click("Сравнить задания");
+        var comparison = Compare(parent.Id, childId).GetAwaiter().GetResult();
+        Assert.Equal(edited, Prompt("Сохранённый промпт · Б").Text);
+        Assert.Contains(Elements().OfType<Text>(), row => row.Value == "Опоры движения различаются");
+        Assert.Contains(Elements().OfType<Text>(), row => row.Value == $"Подготовлено по заданию {parent.Id}");
+        Assert.Equal(revision, comparison.After.TransferForm!.Predecessor);
+        Assert.Equal(head.Project.Revision, comparison.After.Revision);
+        Assert.Equal(newTake.Id, comparison.After.Motion!.TakeId);
+        Assert.NotEqual(comparison.Before.Motion!.Sha256, comparison.After.Motion.Sha256);
+        var childReceipt = api.PrepareFullTransferAsync(comparison.After.TransferForm!, head, CancellationToken.None).GetAwaiter().GetResult();
+        Assert.Equal(childId, childReceipt.Id);
+        Assert.False(childReceipt.Staged);
+        Assert.False(childReceipt.Enqueued);
+        Assert.False(Directory.Exists(Path.Combine(childPath, "Run")));
+        Assert.False(File.Exists(Path.Combine(childPath, "Staged.json")));
+        Assert.Empty(Directory.GetFiles(childPath, "*Submission*", SearchOption.AllDirectories));
+        Assert.Equal(2, Directory.GetDirectories(jobs).Length);
+        Assert.Equal(receipts, CaptureFiles(Path.Combine(jobs, parent.Id)));
+        Assert.Equal(archiveFiles, CaptureFiles(Path.Combine(production, "Jobs")));
+        Assert.Equal(comfy, CaptureFiles(input));
+        files.AssertProject(bytes, history);
+        Reveal(Prompt("Сохранённый промпт · Б"));
+        host.Capture("job-snapshots-selected-revision", new { Parent = parent.Id, Revision = childId, Take = newTake.Id });
+
+        Task<JobSnapshotComparison> Compare(string before, string after) =>
+            api.CompareJobSnapshotsAsync(before, after, head, CancellationToken.None);
+        async Task<string> Reject(string before, string after) =>
+            (await Assert.ThrowsAsync<BackendCommandException>(() => Compare(before, after))).Code;
+        async Task Refuse(FullTransferForm attempt, OpenedBackendProject baseline, string code) =>
+            Assert.Equal(code, (await Assert.ThrowsAsync<BackendCommandException>(() =>
+                api.PrepareFullTransferAsync(attempt, baseline, CancellationToken.None))).Code);
+
+        string WriteArchive(string id, string context, string text, string? sha)
+        {
+            var folder = Path.Combine(production, "Jobs", id);
+            var inputs = Directory.CreateDirectory(Path.Combine(folder, "Input")).FullName;
+            const string latent = "X:\\Historical\\Motion\\Previous.Av.safetensors";
+            const string block = "block-archive";
+            File.WriteAllText(Path.Combine(inputs, "Prompt.txt"), text);
+            File.WriteAllText(Path.Combine(inputs, "Config.json"), JsonSerializer.Serialize(new { profile = "omni-context", previous_latent = latent }));
+            File.WriteAllText(Path.Combine(inputs, "Block.snapshot.json"), JsonSerializer.Serialize(new
+            {
+                project_revision = old.Project.Revision, block = new { id = block, context_take_id = context }
+            }));
+            var file = Path.Combine(folder, "Studio.job.json");
+            File.WriteAllText(file, JsonSerializer.Serialize(new
+            {
+                id, project_id = head.Project.Id, block_id = block, source_revision = old.Project.Revision,
+                input_files = Directory.GetFiles(inputs).ToDictionary(path => $"X:\\Historical\\Production\\Jobs\\{id}\\Input\\{Path.GetFileName(path)}",
+                    path => Hash(File.ReadAllBytes(path)).ToLowerInvariant()),
+                source_files = sha is null ? [] : new[] { new { path = latent, sha256 = sha } }
+            }));
+            return file;
+        }
+
+        static string[] CaptureFiles(string directory) => Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+            .Order(StringComparer.Ordinal).Select(path => $"{Path.GetRelativePath(directory, path)} {Hash(File.ReadAllBytes(path))}").ToArray();
+        IEnumerable<Element> Elements() => RasterWindow<SceneView>.Walk(editor);
+        RichTextEditor Prompt(string label) =>
+            Assert.Single(Elements().OfType<RichTextEditor>(), row => row.AccessibleName == label);
+        void Click(string label)
+        {
+            var button = ButtonIn(editor, label);
+            Reveal(button);
+            host.Click(button);
+            host.PumpUntil(() => !editor.NeedsFrame);
+        }
+
+        void Reveal(Element element)
+        {
+            for (var parentElement = element.Parent; parentElement is not null; parentElement = parentElement.Parent)
+                if (parentElement is ScrollViewer scroll) { scroll.BringIntoView(element.Bounds); host.Update(); }
+        }
+    }
+
+    [BackendMediaFact]
     public async Task Speech_FromRaster_KeepsVersionsAndRendersVerifiedSubtitle()
     {
         using var files = new ExportFixture();

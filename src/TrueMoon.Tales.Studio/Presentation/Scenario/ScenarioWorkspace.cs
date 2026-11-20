@@ -242,6 +242,9 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "dependency_history_missing" => "Этой ревизии нет в истории проекта.",
                 "dependency_schema" => "Для сравнения нужна сохранённая ревизия schema2.",
                 "dependency_invalid" => "Не удалось сверить сохранённый снимок проекта.",
+                "job_snapshot_ids" => "Укажите два разных ID задания вида ft-… или job-…",
+                "job_snapshot_missing" => "В проекте отсутствуют файлы одного из заданий.",
+                "job_snapshot_invalid" => "Не удалось проверить один из снимков задания.",
                 "invalid_scenario_edit" => "Проверьте поля и выбранные связи.",
                 _ => error.Message
             }, error: true);
