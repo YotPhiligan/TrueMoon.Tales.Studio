@@ -16,5 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Update="Assets/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="../../tools/qa/fixtures/BackendTrimCpu.py" Link="Assets/BackendTrimCpu.py"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

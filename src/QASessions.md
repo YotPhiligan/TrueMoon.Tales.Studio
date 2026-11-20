@@ -53,7 +53,7 @@ tool sessions. `--stop-all` останавливает все зарегистр
 
 [Контроллер](Verification/QASession.py) регистрирует PID, точное время создания,
 exe, запускающую оболочку, argv, команды, endpoint и состояние сессии.
-[Windows Job Object](Verification/QAProcesses.py) объединяет сервер, окно и их
+[Windows Job Object](../tools/qa/QAProcesses.py) объединяет сервер, окно и их
 потомков, включая FFmpeg. Handle не наследуется. Флаг
 [`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information)
 завершает группу даже при аварийном выходе контроллера. До включения в группу

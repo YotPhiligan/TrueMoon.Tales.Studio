@@ -45,6 +45,20 @@ class WorkspacePaths:
                 else:self._allowed(path,False)
             if source==target:raise PathPolicyError('Псевдоним пути ссылается на себя.',422)
             self.aliases.append((source,target))
+        self.workflow_root = self.profiles_root
+        if not legacy_mode and self.code_root == Path(__file__).resolve().parents[3]:
+            previous = self.code_root / 'Workflows'
+            current = self.code_root / 'workers/full-transfer'
+            self.aliases.append((previous / 'TemplateData', current / 'TemplateData'))
+            for name in ('Omni.v1', 'Omni.v1.1', 'Omni.v2'):
+                old_profile, profile = previous / name, current / name
+                if self.profiles_root == old_profile:
+                    self.workflow_root = physical(profile)
+                # Old snapshots store absolute implementation filenames. Resolve only
+                # shipped files here so that existing aliases and hash checks still apply.
+                self.aliases.extend((old_profile / script.name, script) for script in profile.iterdir()
+                                    if script.is_file() and script.suffix in ('.py', '.ps1'))
+            self.aliases.append((previous / 'Omni.v2/Templates', current / 'Omni.v2/Templates'))
         self.aliases.sort(key=lambda pair:len(pair[0].parts),reverse=True)
 
     @classmethod

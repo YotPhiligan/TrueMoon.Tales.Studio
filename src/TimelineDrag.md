@@ -75,7 +75,7 @@ POST ровно три. Второй клип, сегменты, исходни�
 исходных MP4 совпали, Jobs отсутствуют. Повторяемая сверка:
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckTimelineDragQA.py .local/qa-sessions/61f289bbbb5f4e5d967497b361e9a261
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckTimelineDragQA.py .local/qa-sessions/61f289bbbb5f4e5d967497b361e9a261
 ```
 
 Результат — `drag-trim-checks.json` в каталоге сессии. Штатный CPU-экспорт этой

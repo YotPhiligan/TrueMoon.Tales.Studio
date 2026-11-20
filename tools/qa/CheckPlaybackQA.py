@@ -10,8 +10,9 @@ import subprocess
 import sys
 import time
 
-SOURCE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SOURCE / "Verification"))
+TOOLS = Path(__file__).resolve().parent
+SOURCE = TOOLS.parents[1] / 'src'
+sys.path.insert(0, str(TOOLS))
 
 
 def session(identifier):
@@ -56,7 +57,7 @@ def integration(run):
 def cpu(run):
     import av
     import numpy as np
-    sys.path.insert(0, str(SOURCE.parent))
+    sys.path.insert(0, str(SOURCE.parent / 'legacy/web'))
     from studio.paths import WorkspacePaths
     from studio.model import Store
     from studio.exports import Exports

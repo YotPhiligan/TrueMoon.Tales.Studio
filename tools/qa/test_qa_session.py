@@ -239,7 +239,7 @@ class QASessionTests(unittest.TestCase):
     def test_stop_request_stops_registered_session(self):
         output_path = self.base / "session-output.log"
         with output_path.open("wb") as output:
-            command = PYTHON + [str(QASession.SOURCE / "Verification/WindowMenusQA.py"), "--seconds", "30"]
+            command = PYTHON + [str(QASession.TOOLS / "WindowMenusQA.py"), "--seconds", "30"]
             owner = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
                                      creationflags=subprocess.CREATE_NO_WINDOW)
         def cleanup_owner():

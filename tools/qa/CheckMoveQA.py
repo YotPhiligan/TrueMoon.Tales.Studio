@@ -2,8 +2,9 @@
 from pathlib import Path
 import hashlib,json,os,re,subprocess,sys,time
 
-SOURCE=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(SOURCE/'Verification'))
+TOOLS=Path(__file__).resolve().parent
+SOURCE=TOOLS.parents[1]/'src'
+sys.path.insert(0,str(TOOLS))
 from QAProcesses import Job,matches
 
 def worker(identifier,mode):
@@ -19,7 +20,7 @@ def worker(identifier,mode):
 def cpu(run):
     import av
     import numpy as np
-    sys.path.insert(0,str(SOURCE.parent))
+    sys.path.insert(0,str(SOURCE.parent/'legacy/web'))
     from studio.model import Store
     from studio.paths import WorkspacePaths
     from studio.exports import Exports

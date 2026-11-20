@@ -8,8 +8,9 @@ import re
 import subprocess
 import sys
 
-SOURCE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SOURCE / "Verification"))
+TOOLS = Path(__file__).resolve().parent
+SOURCE = TOOLS.parents[1] / 'src'
+sys.path.insert(0, str(TOOLS))
 from QAProcesses import Job, matches
 
 

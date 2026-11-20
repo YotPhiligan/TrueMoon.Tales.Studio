@@ -10,8 +10,8 @@ import tempfile
 import imageio_ffmpeg
 from PIL import Image, ImageDraw, ImageFont
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'legacy/web'))
 
 import app
 from studio import scenario

@@ -46,6 +46,23 @@ class WorkspaceFixture(unittest.TestCase):
 
 
 class WorkspacePathTests(WorkspaceFixture):
+    def test_shipped_workflow_relocation_preserves_old_config_and_snapshot_paths(self):
+        studio = Path(__file__).resolve().parents[3]
+        old = studio / 'Workflows/Omni.v1.1'
+        new = studio / 'workers/full-transfer/Omni.v1.1'
+        paths = WorkspacePaths.load(self.config(profiles_root=str(old)), code_root=studio)
+        self.assertEqual(old, paths.profiles_root)
+        self.assertEqual(new, paths.workflow_root)
+        self.assertEqual(new / 'prepare.py', paths.resolve(old / 'prepare.py'))
+        self.assertEqual(new / 'run.ps1', paths.resolve('@profiles/run.ps1'))
+        self.assertEqual(old / 'README.md', paths.resolve(old / 'README.md'))
+        template = 'Clair/Workflows/CL-ST01.OmniFace.v1.json'
+        self.assertEqual(studio / 'workers/full-transfer/TemplateData' / template,
+                         paths.resolve(studio / 'Workflows/TemplateData' / template))
+        self.denied(lambda: paths.resolve(old / 'prepare.py', write=True))
+        external = WorkspacePaths.load(self.config(), code_root=studio)
+        self.assertEqual(self.profiles, external.workflow_root)
+
     def test_config_relative_paths_public_roots_and_read_write_reference_roundtrips(self):
         config = self.config(legacy_root='../Book', amv_root='../Book/TrueMoonTales/AMV', state_root='../State')
         paths = WorkspacePaths.load(config)

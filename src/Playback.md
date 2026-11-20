@@ -65,17 +65,17 @@ Debug/Release: **67 passed, 0 failed**, без предупреждений; о�
 Из `src`, Python с уже установленными PyAV/Pillow/NumPy/imageio_ffmpeg:
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/PlaybackQA.py --seconds 900
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/PlaybackQA.py --seconds 900
 ```
 
 Скрипт печатает ID сессии и свободный loopback endpoint. Для короткой сцены
 без окна, пока её сервер жив, явно запустить интеграцию и CPU-сверку:
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckPlaybackQA.py <ID> --integration
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckPlaybackQA.py <ID> --cpu
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckPlaybackQA.py <ID>
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/PlaybackQA.py --stop <ID>
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckPlaybackQA.py <ID> --integration
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckPlaybackQA.py <ID> --cpu
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckPlaybackQA.py <ID>
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/PlaybackQA.py --stop <ID>
 ```
 
 `--integration` использует реальные FFmpeg/короткий тестовый звук и ограниченную
@@ -86,7 +86,7 @@ Debug/Release: **67 passed, 0 failed**, без предупреждений; о�
 Для настоящего окна:
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/PlaybackQA.py --long --ui .local/studio-build/bin/TrueMoon.Tales.Studio/release/TrueMoon.Tales.Studio.exe --seconds 300
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/PlaybackQA.py --long --ui .local/studio-build/bin/TrueMoon.Tales.Studio/release/TrueMoon.Tales.Studio.exe --seconds 300
 ```
 
 `--long` создаёт 25-секундный участок для проверки паузы. Применяются

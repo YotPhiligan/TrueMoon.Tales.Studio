@@ -80,8 +80,8 @@ discard/reload прочитана ревизия 8.
 
 ```powershell
 & 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/WindowMenusQA.py --seconds 240
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckMoveQA.py <ID>
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckMoveQA.py <ID> --cpu
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckMoveQA.py <ID>
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckMoveQA.py <ID> --cpu
 & 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/WindowMenusQA.py --stop <ID>
 ```
 

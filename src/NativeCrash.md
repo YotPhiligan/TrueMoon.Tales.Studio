@@ -76,7 +76,7 @@ ProcDump загружен с [официальной страницы Microsoft]
 Команды итоговых детерминированных проверок:
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B -m unittest discover -s Verification -p test_qa_session.py
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B -m unittest discover -s ../tools/qa -p test_qa_session.py
 dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/studio-build --configuration Debug '-bl:.local/native-final-debug-{}.binlog'
 dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/studio-build --configuration Release '-bl:.local/native-final-release-{}.binlog'
 ```
@@ -88,7 +88,7 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 ```powershell
 & 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/WindowMenusQA.py --seconds 300
 # Пока напечатанный endpoint жив:
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/CheckNativeQA.py <ID>
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B ../tools/qa/CheckNativeQA.py <ID>
 & 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/WindowMenusQA.py --stop <ID>
 ```
 

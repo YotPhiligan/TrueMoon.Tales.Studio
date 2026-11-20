@@ -236,7 +236,7 @@ class ExportLifecycleTests(ExportFixture):
 
     def test_process_stop_ownership_requires_pid_creation_script_and_exact_job_folder(self):
         folder = self.book / 'Export';folder.mkdir()
-        worker = str(Path(exports.__file__).with_name('export_worker.py').resolve())
+        worker = str(exports.WORKER_SCRIPT)
         row = {'pid': 1001, 'process_created': 42}
         process = self.process.return_value;process.children.return_value = [Mock()]
         for ctime, command in [(41, ['python', worker, str(folder)]), (42, ['python', 'unrelated.py', str(folder)]),

@@ -2,7 +2,8 @@
 from pathlib import Path
 import fractions,hashlib,json,math,stat,subprocess,sys,time,traceback
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+if __name__ == '__main__':
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from studio.model import atomic,digest
 from studio.export_plan import DRAFT_ENCODING,parts,source_position
 from studio.transitions import brightness

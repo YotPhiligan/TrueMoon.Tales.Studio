@@ -28,9 +28,10 @@
 Использовать portable Python; общий модуль явно подключается даже при изолированном `python_embeded`. Пути ComfyUI/Python в этом кандидате привязаны к текущей portable-установке.
 
 ```powershell
-$pipe='E:\source\my\TOSAB\Book\TrueMoonTales\AMV\Workflows\Omni.v2'
+# Из корня Studio.
+$pipe=(Resolve-Path 'workers/full-transfer/Omni.v2').Path
 $python='E:\ComfyUI_windows_portable\python_embeded\python.exe'
-$config="$pipe\Examples\Draft.json"
+$config=(Resolve-Path 'Workflows/Omni.v2/Examples/Draft.json').Path
 $job='E:\source\my\TOSAB\Book\TrueMoonTales\AMV\Research\Results\MY-SHOT.Draft.Run01'
 
 # Без --stage: только файлы задания; запуск такого задания запрещён.

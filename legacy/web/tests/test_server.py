@@ -33,7 +33,7 @@ class HttpTests(Fixture):
         prepare.assert_not_called();launch.assert_not_called()
 
     def test_product_version_matches_build_bootstrap_health_and_server_header(self):
-        props=Path(__file__).resolve().parents[1]/'src/Directory.Build.props'
+        props=Path(__file__).resolve().parents[3]/'src/Directory.Build.props'
         expected=ElementTree.parse(props).getroot().findtext('PropertyGroup/Version')
         self.assertRegex(expected, r'^[1-9]\d*\.\d{4}\.[1-9]\d?\.[1-9]\d*(?:-(?:alpha|beta|rc))?$')
         before=self.current()

@@ -21,14 +21,17 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="../../studio/**/*.py" Link="ExportWorker/studio/%(RecursiveDir)%(Filename)%(Extension)"
+        <Content Include="../../workers/export/studio/**/*.py;../../legacy/web/studio/**/*.py"
+                 Exclude="../../legacy/web/studio/__init__.py" Link="ExportWorker/studio/%(RecursiveDir)%(Filename)%(Extension)"
                  CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="ExportWorker/RunExport.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="../../Workflows/Omni.v2/prepare.py;../../Workflows/Omni.v2/common.py;../../Workflows/Omni.v2/validate.py;../../Workflows/Omni.v2/server.py;../../Workflows/Omni.v2/driver.py;../../Workflows/Omni.v2/collect.py"
+        <Content Include="../../workers/export/RunExport.py" Link="ExportWorker/RunExport.py"
+                 CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="../../workers/full-transfer/Omni.v2/prepare.py;../../workers/full-transfer/Omni.v2/common.py;../../workers/full-transfer/Omni.v2/validate.py;../../workers/full-transfer/Omni.v2/server.py;../../workers/full-transfer/Omni.v2/driver.py;../../workers/full-transfer/Omni.v2/collect.py"
                  Link="FullTransferWorker/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="../../Workflows/Omni.v2/Templates/*.json"
+        <Content Include="../../workers/full-transfer/Omni.v2/Templates/*.json"
                  Link="FullTransferWorker/Templates/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="FullTransferWorker/ManagedRun.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="../../workers/full-transfer/ManagedRun.py" Link="FullTransferWorker/ManagedRun.py"
+                 CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

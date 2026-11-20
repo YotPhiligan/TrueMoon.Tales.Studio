@@ -2,7 +2,7 @@
 from pathlib import Path
 import ast
 ROOT=Path(__file__).resolve().parent
-EX=ROOT.parents[1]/'Research/Experiments'
+EX=ROOT.parents[2]/'Research/Experiments'
 assert EX.exists()
 for kind,name in [('Server','server.py'),('Validate','validate.py'),('Watchdog','watchdog.py'),('Driver','driver.py')]:
     s=(EX/f'R-03.ST01.{kind}.v1.py').read_text(encoding='utf-8')

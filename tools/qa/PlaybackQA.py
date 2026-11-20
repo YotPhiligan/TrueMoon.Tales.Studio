@@ -12,8 +12,9 @@ import subprocess
 import sys
 import wave
 
-SOURCE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SOURCE / "Verification"))
+TOOLS = Path(__file__).resolve().parent
+SOURCE = TOOLS.parents[1] / 'src'
+sys.path.insert(0, str(TOOLS))
 
 
 def tone(path, seconds, hz, amplitude, pulses=False):
@@ -31,8 +32,7 @@ def tone(path, seconds, hz, amplitude, pulses=False):
 def serve(run):
     import imageio_ffmpeg
     from PIL import Image, ImageDraw, ImageFont
-    sys.path.insert(0, str(SOURCE.parent))
-    spec = importlib.util.spec_from_file_location("playback_fixture", SOURCE.parent / "Verification/Argentis.Prototype.py")
+    spec = importlib.util.spec_from_file_location("playback_fixture", TOOLS / "Argentis.Prototype.py")
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
     config = run / "baseline/Studio.config.json"

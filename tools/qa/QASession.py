@@ -17,7 +17,8 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # Portable Python uses an isolated _pth.
 from QAProcesses import Job, identity, matches
 
-SOURCE = Path(__file__).resolve().parents[1]
+TOOLS = Path(__file__).resolve().parent
+SOURCE = TOOLS.parents[1] / 'src'
 SESSIONS = SOURCE / ".local/qa-sessions"
 
 
@@ -107,11 +108,11 @@ def run_session(*, ui=None, seconds=900, startup_seconds=45, fixture_script=None
     data = {"version": 1, "id": run.name, "created_at": now(), "owner": identity(os.getpid()),
             "launcher": identity(os.getppid()), "owner_argv": sys.argv,
             "state": "starting", "seconds": seconds, "cwd": str(SOURCE), "children": {},
-            "commands": {"server": [sys.executable, "-s", "-B", str(SOURCE / "Verification/WindowMenusQA.py"),
+            "commands": {"server": [sys.executable, "-s", "-B", str(TOOLS / "WindowMenusQA.py"),
                                     "--fixture", str(run)]}}
     if fixture_script is not None:
         fixture_script = Path(fixture_script).resolve()
-        if fixture_script.parent != SOURCE / "Verification" or fixture_script.name not in {"WindowMenusQA.py", "PlaybackQA.py"}:
+        if fixture_script.parent != TOOLS or fixture_script.name not in {"WindowMenusQA.py", "PlaybackQA.py"}:
             raise ValueError("Expected a supported Studio QA fixture")
         data["commands"]["server"][3] = str(fixture_script)
     save(manifest, data)

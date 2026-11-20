@@ -8,10 +8,10 @@ and [NOTICE](NOTICE). Third-party material retains its own license and attributi
 The following bundled workflow JSON files contain upstream documentation and
 template material identifying the Comfy Org `workflow_templates` project:
 
-- `Workflows/Omni.v2/Templates/Native.ui.json`
-- `Workflows/TemplateData/Clair/Workflows/CL-MC01.A.Omni.v1.json`
-- `Workflows/TemplateData/Clair/Workflows/CL-MC01.B.Context.Omni.v1.json`
-- `Workflows/TemplateData/Clair/Workflows/CL-ST01.OmniFace.v1.json`
+- `workers/full-transfer/Omni.v2/Templates/Native.ui.json`
+- `workers/full-transfer/TemplateData/Clair/Workflows/CL-MC01.A.Omni.v1.json`
+- `workers/full-transfer/TemplateData/Clair/Workflows/CL-MC01.B.Context.Omni.v1.json`
+- `workers/full-transfer/TemplateData/Clair/Workflows/CL-ST01.OmniFace.v1.json`
 
 Upstream: [Comfy-Org/workflow_templates](https://github.com/Comfy-Org/workflow_templates).
 License: MIT. Copyright (c) 2023-present Comfy Org.
@@ -23,7 +23,7 @@ every bundled workflow. Studio-specific additions are covered by Apache-2.0;
 that grant does not replace the upstream MIT notice.
 
 Bundled JSON, including their embedded upstream notes and the SHA records in
-`Workflows/TemplateData/Provenance.json`, are preserved without edits.
+`workers/full-transfer/TemplateData/Provenance.json`, are preserved without edits.
 
 ## External runtime and project content
 

@@ -49,7 +49,7 @@ API `GET /api/workspace` показывает фактически загруж�
 | exports_root | CPU-экспорты и ZIP эпизодов. Задания schema2 используют `BackendExports.v1` внутри корня. [Настройка CPU-экспорта](src/Verification/BackendExport.md#настройка) · [Архив эпизода](API.md#episode-archive) |
 | archive_media | Настольная Studio включает это поле в конфигурации восстановленной копии. `ArchiveMedia.json` сопоставляет ссылки снимка с файлами в каталоге `Media` той же копии. |
 | project_write_roots | Явные рабочие каталоги существующих проектов; Production существующих проектов в Videos |
-| profiles_root | Исполняемый профиль; в 0.15 — Workflows/Omni.v1.1 |
+| profiles_root | Исполняемый профиль Web, например `workers/full-transfer/Omni.v1.1`. Прежний путь в `Workflows/` остаётся допустим в профиле |
 | python_executable / comfy_root | Установленная среда и ComfyUI; ничего не скачивается |
 | protected_roots | Каталоги, запрещённые для чтения и записи Studio |
 | path_aliases | Совместимость старого префикса с новым каталогом после согласованного переноса |
@@ -121,7 +121,7 @@ immutable History/Job/Request/Result не переписываются. Авто
 
 ## Профили и проверки
 
-Omni.v1/v1.1 используют четыре включённых шаблона `Workflows/TemplateData` с
+Omni.v1/v1.1 используют четыре включённых шаблона `workers/full-transfer/TemplateData` с
 `Provenance.json`; чтение старого Research для подготовки больше не требуется.
 Omni.v2 сохраняет собственные Templates и остаётся экспериментальным отдельным
 CLI-профилем. Его контракт v2 не заменяет профиль Studio v1.1 одной сменой пути.
@@ -130,8 +130,8 @@ CLI-профилем. Его контракт v2 не заменяет проф�
 Обычный старт и `--check` не отправляют очередь GPU.
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B -m unittest discover -s tests -p 'test_*.py'
-node --test tests/test_*.mjs
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B -m unittest discover -s legacy/web/tests -p 'test_*.py'
+node --test 'legacy/web/tests/test_*.mjs'
 ```
 
 Исторические отчёты Verification описывают прежнюю конфигурацию. Приёмка M2 и

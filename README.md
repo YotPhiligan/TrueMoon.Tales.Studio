@@ -52,6 +52,10 @@ Full Transfer использует установленный ComfyUI и вес�
 
 ## Документация
 
+Исходники C# находятся в `src/`, Web и его тесты в `legacy/web/`, воркеры
+экспорта и Full Transfer в `workers/`, инструменты запуска и QA в `tools/`.
+В `Workflows/` лежат описания, профили и примеры графов. [План перехода на C#](Plan.md#studio-csharp-port)
+
 [Статус и проверки](Status.md) · [План](Plan.md) · [Архитектура](Architecture.md) · [UI-тестирование](src/UITesting.md) · [Работа с репозиторием](AGENTS.md)
 
 ## Лицензия

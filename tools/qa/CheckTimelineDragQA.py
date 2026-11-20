@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-QA_ROOT = Path(__file__).resolve().parents[1] / ".local/qa-sessions"
+QA_ROOT = Path(__file__).resolve().parents[2] / "src/.local/qa-sessions"
 
 
 def read(path):

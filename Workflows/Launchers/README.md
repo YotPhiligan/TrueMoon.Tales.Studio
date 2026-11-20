@@ -2,7 +2,7 @@
 
 27.10.2026. Отдельный запуск выбран по запросу автора после R-00.
 
-Рабочая копия: `E:/ComfyUI_windows_portable/run_nvidia_gpu_video_sage.bat`. Файл рядом с этим README — сохранённый исходник для копирования в корень portable; запускать его непосредственно из каталога книги не следует, так как пути Python и main.py определяются относительно самого .bat.
+Рабочая копия находится в `E:/ComfyUI_windows_portable/`. Скопировать [исходный BAT-файл](../../tools/comfyui/run_nvidia_gpu_video_sage.bat) в корень portable: пути Python и `main.py` считаются от каталога BAT-файла.
 
 ## Профили
 

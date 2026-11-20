@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-sys.path.insert(0, sys.argv[1])
+sys.path.insert(0, str(Path(sys.argv[1]) / 'workers/export'))
 os.environ['IMAGEIO_FFMPEG_EXE'] = os.environ['STUDIO_TEST_FFMPEG']
 from studio import export_worker
 

@@ -1,10 +1,13 @@
 """Durable, bounded CPU exports; independent from generation jobs and project revision."""
 import copy,json,re,subprocess,sys,threading,time
 from pathlib import Path
+from . import export_worker
 from .model import StudioError,atomic,read,now,uid,digest
 from .export_plan import plan,TIMEOUT
 
 ACTIVE={'queued','running','stopping'}
+WORKER_SCRIPT = Path(export_worker.__file__).resolve()
+PREVIOUS_WORKER_SCRIPT = Path(__file__).resolve().parents[3] / 'studio/export_worker.py'
 
 
 def terminate_owned(row,folder):
@@ -12,7 +15,7 @@ def terminate_owned(row,folder):
     try:
         process=psutil.Process(row['pid']);command=process.cmdline()
         if abs(process.create_time()-row['process_created'])>.02 or not command or Path(command[-1]).resolve()!=folder.resolve():return False
-        if not any(Path(c).resolve()==Path(__file__).with_name('export_worker.py').resolve() for c in command if 'export_worker.py' in c):return False
+        if not any(Path(c).resolve() in (WORKER_SCRIPT, PREVIOUS_WORKER_SCRIPT) for c in command if 'export_worker.py' in c):return False
         children=process.children(recursive=True);process.kill()
         for child in children:
             try:child.kill()
@@ -71,7 +74,7 @@ class Exports:
             try:
                 import psutil
                 with (folder/'Worker.log').open('wb') as log:
-                    process=subprocess.Popen([sys.executable,'-s','-B',str(Path(__file__).with_name('export_worker.py').resolve()),str(folder)],
+                    process=subprocess.Popen([sys.executable,'-s','-B',str(WORKER_SCRIPT),str(folder)],
                         stdout=log,stderr=log,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                 row=self.save(folder,row,state='running',pid=process.pid,process_created=psutil.Process(process.pid).create_time())
                 self.thread=threading.Thread(target=self.monitor,args=(folder,row,process),daemon=True);self.thread.start()

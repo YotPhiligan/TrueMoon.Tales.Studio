@@ -158,10 +158,11 @@ public sealed class BackendWriteProcessTests
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (!File.Exists(Path.Combine(directory.FullName, "TrueMoon.Tales.Studio.slnx"))) directory = directory.Parent!;
-        script = "import sys\nsys.path.insert(0," + JsonSerializer.Serialize(directory.Parent!.FullName) + ")\n" + script;
+        var webRoot = Path.Combine(directory.Parent!.FullName, "legacy", "web");
+        script = "import sys\nsys.path.insert(0," + JsonSerializer.Serialize(webRoot) + ")\n" + script;
         var info = Start(Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!, ["-s", "-B", "-c", script, .. args]);
         info.WorkingDirectory = directory.Parent!.FullName;
-        info.Environment["PYTHONPATH"] = directory.Parent.FullName;
+        info.Environment["PYTHONPATH"] = webRoot;
         return info;
     }
 

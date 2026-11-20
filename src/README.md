@@ -296,7 +296,7 @@ ENG7B3/1.2611.16.1-alpha и её manifest не являются новым ко�
 ./Update-TrueMoonPackages.ps1 -FrameworkRoot ../../TrueMoon
 ```
 
-[Скрипт](Update-TrueMoonPackages.ps1) сверяет версии Studio и движка, собирает только
+[Скрипт](../tools/Update-TrueMoonPackages.ps1) сверяет версии Studio и движка, собирает только
 необходимые проекты и упаковывает полный набор. Исходники движка читаются на месте;
 build/obj, кэш зависимостей, журналы и binlog направлены в `src/.local/truemoon-build/`.
 Готовые пакеты и SHA-256 manifest находятся в `src/.local/truemoon-feed/` и не входят

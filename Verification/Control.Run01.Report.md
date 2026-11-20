@@ -57,7 +57,7 @@ Omni NVFP4 QAD / Qwen NVFP4 AWQ, native AV, прежние VAE, res_multistep/si
 
 Первая UI-попытка `job-3aa92639f2214822` завершилась **до Submission и запуска сервера/GPU**. Port.prelaunch.json подтверждает ready, но Windows PowerShell 5.1 вернул пустой ExitCode для Start-Process с перенаправлением логов после timed wait, из-за чего runner отказал в старте. Диагностика не удалялась.
 
-[CPU-проба](Probe.PowerShell.ps1) воспроизвела различие на пустом Python-процессе: PS 5.1.26100.9818 — ExitCode=null; PS 7.6.9 — 0. UI теперь использует установленный PowerShell 7 и проверяет его наличие до подготовки; никакая проверка порта или повторной подачи не обходилась. Для рабочего дубля выполнена новая явная подготовка/отправка. Единственный Submission среди заданий Studio относится к успешному job-77f763f31f694b01.
+[CPU-проба](../tools/qa/Probe.PowerShell.ps1) воспроизвела различие на пустом Python-процессе: PS 5.1.26100.9818 — ExitCode=null; PS 7.6.9 — 0. UI теперь использует установленный PowerShell 7 и проверяет его наличие до подготовки; никакая проверка порта или повторной подачи не обходилась. Для рабочего дубля выполнена новая явная подготовка/отправка. Единственный Submission среди заданий Studio относится к успешному job-77f763f31f694b01.
 
 **54 unittest — OK, 3,351 с**, JS logic — PASS, синтаксис app.js проверен. Два добавленных теста: `test_missing_powershell7_refuses_preparation_before_job_creation`, `test_worker_uses_powershell7_with_bounded_wait_and_literal_job_path`. Они проверяют границу запуска без GPU. Реальное выполнение подтверждено отдельно перечисленными артефактами, не этими имитациями.
 

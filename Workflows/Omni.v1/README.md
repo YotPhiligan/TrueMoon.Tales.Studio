@@ -13,7 +13,7 @@
 
 ## Быстрый ручной путь
 
-1. Открыть `run_manual_omni.bat` в этом каталоге. Он запускает установленную portable ComfyUI с Sage и только пакетом Motion Context. Другие запуски Comfy предварительно завершить обычным способом; скрипт не управляет чужими процессами.
+1. Открыть [run_manual_omni.bat](../../tools/comfyui/run_manual_omni.bat). Он запускает установленную portable ComfyUI с Sage и только пакетом Motion Context. Другие запуски Comfy предварительно завершить обычным способом; скрипт не управляет чужими процессами.
 2. Загрузить один из [готовых UI-графов](Profiles/): `Omni.First.v1.json`, `Omni.Calm.TwoGuides.v1.json` или `Omni.Continue.v1.json`. Это примеры с реальными ассетами Клэр; заменить содержимое узлов Picture и промпт под новый шот.
 3. Роли подписаны в заголовках Picture: локация, взрослый персонаж/костюм, поза, предмет, сценическая опора. Порядок Picture N в промпте должен совпадать с фактическими входами. Один арт может выполнять несколько ролей; отдельные картинки для каждой роли не обязательны.
 4. Отдельно выставить длительность, seed и имена вывода. Сохранять seed фиксированным для сравнения. Назначение и индексы Guides проверять по изображению и фактической длине, а не только по имени файла.
@@ -27,10 +27,12 @@
 Редактируется JSON задания, затем создаётся новая уникальная папка результата. Пример: [Action.First.json](Examples/Action.First.json), спокойный вариант — [Calm.json](Examples/Calm.json). Промпт хранится отдельным UTF-8 TXT.
 
 ```powershell
-$omniPipe='E:\source\my\TOSAB\Book\TrueMoonTales\AMV\Workflows\Omni.v1'
+# Из корня Studio.
+$omniPipe=(Resolve-Path 'workers/full-transfer/Omni.v1').Path
+$omniExamples=(Resolve-Path 'Workflows/Omni.v1/Examples').Path
 $omniPython='E:\ComfyUI_windows_portable\python_embeded\python.exe'
 $omniJob='E:\source\my\TOSAB\Book\TrueMoonTales\AMV\Research\Results\MY-SHOT.Run01'
-& $omniPython -s -B "$omniPipe\prepare.py" "$omniPipe\Examples\Action.First.json" $omniJob --stage
+& $omniPython -s -B "$omniPipe\prepare.py" "$omniExamples\Action.First.json" $omniJob --stage
 & "$omniPipe\run.ps1" -JobDir $omniJob -Mode api
 & $omniPython -s -B "$omniPipe\collect.py" $omniJob
 ```
@@ -67,8 +69,8 @@ $omniJob='E:\source\my\TOSAB\Book\TrueMoonTales\AMV\Research\Results\MY-SHOT.Run
 ## Продолжение из результата
 
 ```powershell
-$omniNextConfig="$omniPipe\Examples\MY-SHOT.Continue.json"
-& $omniPython -s -B "$omniPipe\continue_from.py" $omniJob $omniNextConfig --id MY-SHOT.B --prompt "$omniPipe\Examples\Action.Continue.Prompt.txt" --anchor-picture 5
+$omniNextConfig="$omniExamples\MY-SHOT.Continue.json"
+& $omniPython -s -B "$omniPipe\continue_from.py" $omniJob $omniNextConfig --id MY-SHOT.B --prompt "$omniExamples\Action.Continue.Prompt.txt" --anchor-picture 5
 ```
 
 Эта команда **не генерирует**: получает native latent и последний PNG из успешного History, сохраняет их SHA256 и создаёт следующий config. Номер Picture границы задаётся явно; роли остальных картинок сохраняются. Пример использует существующий учебный промпт движения у парапета — для иного содержания его нужно переписать, не запускать вслепую. Затем снова вызвать `prepare.py` в новой папке и `run.ps1`.

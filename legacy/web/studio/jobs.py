@@ -8,7 +8,7 @@ from .model import ACTIVE,StudioError,atomic,block_hash,digest,now,read,uid
 class Jobs:
     def __init__(self,store,python=None,core=None):
         self.store=store;self.python=Path(python or store.paths.python_executable)
-        self.core=Path(core or store.paths.profiles_root);self.lock=threading.RLock();self.threads={}
+        self.core=Path(core or store.paths.workflow_root);self.lock=threading.RLock();self.threads={}
 
     def directory(self,pid,jid):
         if not re.fullmatch(r'job-[a-f0-9]{16}',jid):raise StudioError('Некорректный ID задания.')
@@ -165,8 +165,10 @@ class Jobs:
             data=read(watchdog);process=psutil.Process(data['server_pid'])
             if abs(process.create_time()-data['server_created_epoch'])>.02:return None
             if Path(process.exe()).resolve()!=self.python.resolve():return None
-            expected=(self.core/'server.py').resolve()
-            if not any(Path(s).resolve()==expected for s in process.cmdline()[1:] if not s.startswith('-')):return None
+            expected = {(self.core / 'server.py').resolve()}
+            if self.core == self.store.paths.workflow_root:
+                expected.add((self.store.paths.profiles_root / 'server.py').resolve())
+            if not any(Path(s).resolve() in expected for s in process.cmdline()[1:] if not s.startswith('-')):return None
             return process
         except (OSError,ValueError,KeyError,psutil.NoSuchProcess,psutil.AccessDenied):return None
 

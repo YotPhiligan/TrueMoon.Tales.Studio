@@ -23,7 +23,7 @@ Pop-Location
 В отдельном терминале из корня Studio запустите проверочную сцену существующим Python из среды Studio. Скрипт создаёт исходный проект и его копию в новом каталоге `.local/argentis-qa-*`, затем публикует копию на свободном loopback-порту. Он печатает адрес и путь к FFmpeg.
 
 ```powershell
-& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B Verification/Argentis.Prototype.py
+& 'E:/ComfyUI_windows_portable/python_embeded/python.exe' -s -B tools/qa/Argentis.Prototype.py
 ```
 
 В первом терминале подставьте адрес и путь из вывода скрипта.
