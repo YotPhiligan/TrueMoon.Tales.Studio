@@ -143,6 +143,117 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task Dependencies_FromRaster_CompareSavedRevisionsAndKeepOriginalResults()
+    {
+        TrueMoon.Alloy.Rendering.Skia.SkiaNativeLibrary.Initialize();
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var texts = Directory.CreateDirectory(Path.Combine(files.Files.Files.Root, "texts")).FullName;
+        var chapter = Path.Combine(texts, "Глава.md");
+        File.WriteAllText(chapter, "Прежний текст.\n");
+        var config = JsonNode.Parse(File.ReadAllText(files.Files.Base.ConfigPath))!;
+        config["mounts"]!["texts"] = texts;
+        File.WriteAllText(files.Files.Base.ConfigPath, config.ToJsonString());
+        Draw("Watch1.png", SkiaSharp.SKColors.Red);
+        Draw("Watch2.png", SkiaSharp.SKColors.Green);
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var head = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = head.Project.Sources.First();
+        await Write(new SaveSegment(null, "Привал", "", 72, 48));
+        var scene = head.Project.Segments.Last().Id;
+        await Write(new SaveAction(scene, null, "Крупный план", "", 12));
+        await Write(new SaveAction(scene, null, "Перебивка", "", 12));
+        var (action, insert) = (head.Project.Segments.Last().Actions[0].Id, head.Project.Segments.Last().Actions[1].Id);
+        await Write(new LinkSource(scene, action, source.Id, null));
+        await Write(new PlaceClip(scene, action, source.Id, source.Takes[0].Id, 72, 12, 0));
+        var clip = head.Project.Montage.Clips.Single(row => row.ActionId == action);
+        await Write(new AddReferenceVersion(null, "Часы", "prop", "Версия A", "@videos/Watch1.png"));
+        var reference = Assert.Single(BackendReferenceLibrary.Read(head.Project).Entries).Id;
+        await Write(new AddReferenceVersion(reference, null, null, "Версия B", "@videos/Watch2.png"));
+        await Write(new AssignSceneReference(scene, null, reference, 1));
+        await Write(new AssignSceneReference(scene, insert, reference, 1));
+        await Write(new RecordTakeReference(source.Id, source.Takes[0].Id, reference, 1));
+        const string text = "@texts/Глава.md";
+        await Write(new BindAdaptationText(scene, null, text, 1, 1, Hash(File.ReadAllBytes(chapter))));
+        var voice = new SaveMontageSound(null, scene, null, "Рассказчик", "voice", "video-a", 0, 2, 10, 0, .6, false,
+            new("narrator", "Рассказчик", action, 0, "Фикстура", "", 0, 0, false));
+        await Write(voice);
+        voice = voice with { Id = Assert.Single(head.Project.Montage.Properties["sound_events"].EnumerateArray()).GetProperty("id").GetString() };
+        var before = head;
+        var export = await api.StartExportAsync("dependencies-before", "draft", before.Project.Revision, before.Fingerprint);
+        var directory = files.JobDirectory(export.Id);
+        var completed = await session.UntilAsync(export.Id, row => (string?)row["state"] == "completed", directory);
+        var mp4 = File.ReadAllBytes(Path.Combine(directory, "Draft.mp4"));
+        var request = File.ReadAllBytes(Path.Combine(directory, "Request.json"));
+
+        await Write(new AssignSceneReference(scene, null, reference, 2));
+        var referenceOnly = await api.CheckDependenciesAsync(before.Project.Revision, head, CancellationToken.None);
+        Assert.DoesNotContain(referenceOnly.Rows, row => row.Kind is "montage" or "animatic" or "export");
+        Assert.DoesNotContain(referenceOnly.Rows, row => row.ActionId == insert);
+        File.WriteAllText(chapter, "Обновлённый текст.\n");
+        await Write(new BindAdaptationText(scene, action, text, 1, 1, Hash(File.ReadAllBytes(chapter))));
+        var editorial = await api.CheckDependenciesAsync(before.Project.Revision, head, CancellationToken.None);
+        Assert.Contains(editorial.Rows, row => row.Kind == "chapter" && row.ActionId == action);
+        Assert.DoesNotContain(editorial.Rows, row => row.Kind is "montage" or "export");
+        await Write(voice with { Input = "video-b" });
+        await Write(new AssignTake(clip.Id, source.Takes[1].Id));
+
+        var report = await api.CheckDependenciesAsync(before.Project.Revision, head, CancellationToken.None);
+        Assert.Equal((before.Project.Revision, before.Fingerprint, head.Project.Revision, head.Fingerprint),
+            (report.ComparedRevision, report.ComparedFingerprint, report.Revision, report.Fingerprint));
+        Assert.Equal(new[] { "animatic", "chapter", "clip", "export", "montage", "reference", "sound", "take_reference" },
+            report.Rows.Select(row => row.Kind).Order(StringComparer.Ordinal));
+        Assert.Equal(action, Assert.Single(report.Rows, row => row.Kind == "chapter").ActionId);
+        Assert.Equal(source.Takes[0].Id, Assert.Single(report.Rows, row => row.Kind == "take_reference").TakeId);
+        Assert.Contains("v1", Assert.Single(report.Rows, row => row.Kind == "take_reference").Before);
+        Assert.Contains("v2", Assert.Single(report.Rows, row => row.Kind == "sound").After);
+        Assert.Equal(clip.Id, Assert.Single(report.Rows, row => row.Kind == "clip").ClipId);
+        var savedExport = Assert.Single(report.Rows, row => row.Kind == "export");
+        Assert.Equal(((string?)completed["artifact_sha256"], export.Id), (savedExport.After, savedExport.Label));
+        Assert.Equal("revision_conflict", (await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.CheckDependenciesAsync(before.Project.Revision - 1, before, CancellationToken.None))).Code);
+        Assert.Equal("dependency_history_missing", (await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.CheckDependenciesAsync(0, head, CancellationToken.None))).Code);
+
+        var current = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var editor = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !editor.Busy);
+        host.Click(ButtonIn(editor, "Зависимости"));
+        SetField(editor, "Ревизия для сравнения", before.Project.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        host.Click(ButtonIn(editor, "Сравнить ревизии"));
+        host.PumpUntil(() => !editor.Busy);
+        Assert.Contains(RasterWindow<SceneView>.Walk(editor).OfType<Text>(), row => row.Value == "Дубль с прежней опорой · " + BackendScenarioEdit.TakeName(source.Takes[0]));
+        host.Capture("dependencies-revisions", new { before.Project.Revision, Current = head.Project.Revision });
+        host.Resize(840, 660, 1);
+        host.Capture("dependencies-compact", new { before.Project.Revision, Current = head.Project.Revision });
+        host.Resize(1280, 820, 1);
+        var open = RasterWindow<SceneView>.Walk(editor).OfType<Button>().First(row => row.Value == "К дублю");
+        for (var user = open.Parent; user is not null; user = user.Parent)
+            if (user is ScrollViewer scroll) { scroll.BringIntoView(open.Bounds); host.Update(); }
+        host.Click(open);
+        Assert.Equal(ControlTone.Accent, ButtonIn(editor, "Библиотека").Tone);
+        Assert.Equal(ControlTone.Accent, ButtonIn(editor, BackendScenarioEdit.TakeName(source.Takes[0])).Tone);
+        files.AssertProject(current, history);
+        Assert.Equal(mp4, File.ReadAllBytes(Path.Combine(directory, "Draft.mp4")));
+        Assert.Equal(request, File.ReadAllBytes(Path.Combine(directory, "Request.json")));
+
+        async Task Write(ScenarioCommand command) => head = await api.EditScenarioAsync(command, head);
+        void Draw(string name, SkiaSharp.SKColor color)
+        {
+            using var bitmap = new SkiaSharp.SKBitmap(8, 8);
+            bitmap.Erase(color);
+            using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+            using var encoded = image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            File.WriteAllBytes(files.MediaPath(name), encoded.ToArray());
+        }
+    }
+
+    [BackendMediaFact]
     public async Task Speech_FromRaster_KeepsVersionsAndRendersVerifiedSubtitle()
     {
         using var files = new ExportFixture();

@@ -82,6 +82,9 @@ internal sealed class BackendExportStorage
 
     internal string ClientOutputDirectory => _root;
 
+    internal IEnumerable<string> ExportIds() => Directory.Exists(Check(_project))
+        ? Directory.EnumerateDirectories(_project, "export-*").Select(Path.GetFileName).OfType<string>() : [];
+
     internal string? LoadClientKey()
     {
         var path = Check(Path.Combine(_project, "ClientKey"));

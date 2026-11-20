@@ -33,7 +33,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private Action? _refreshDraftChapter;
     private Button? _storyboardFocus;
     private bool _stale;
-    private enum Pane { Chapter, Library, References }
+    private enum Pane { Chapter, Library, References, Dependencies }
     private Pane? _pane;
     private string _query = "";
     private string? _segmentId, _actionId, _sourceId, _takeId, _clipId;
@@ -101,11 +101,12 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _browser.Divider.AccessibleName = "Ширина сценария";
         _browser.FirstPane.SetContent(ScrollViewer.Create().Content(Inset(story)));
         var references = CreateReferencePane();
+        var dependencies = CreateDependenciesPane();
         _browser.SecondPane.SetContent(new WorkspaceLayout(Inset(Row(_chapterTab, _libraryTab, _referenceTab)),
-            ScrollViewer.Create().Content(Inset(Stack(_chapterDetails, _library, references))), new Text { IsVisible = false }));
+            ScrollViewer.Create().Content(Inset(Stack(_chapterDetails, _library, references, dependencies))), new Text { IsVisible = false }));
         _body.SetContent(_browser);
         _title.FontSize = 22;
-        SetContent(new WorkspaceLayout(new StudioHeading(_title, _back), _body,
+        SetContent(new WorkspaceLayout(new StudioHeading(_title, Row(_dependenciesTab, _back)), _body,
             Stack(_status, Row(_commit, _cancel, _reload))));
         ShowPane(Pane.Library);
         RefreshCommands();
@@ -237,6 +238,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "transfer_already_launched" => "У задания уже была попытка запуска. Обновите статус или подготовьте новое задание.",
                 "transfer_run_busy" => "Другой Full Transfer выполняется в этой Studio.",
                 "transfer_run_incomplete" => "Финальный MP4 ещё не готов к сохранению.",
+                "invalid_dependency_revision" => "Укажите более раннюю ревизию проекта.",
+                "dependency_history_missing" => "Этой ревизии нет в истории проекта.",
+                "dependency_schema" => "Для сравнения нужна сохранённая ревизия schema2.",
+                "dependency_invalid" => "Не удалось сверить сохранённый снимок проекта.",
                 "invalid_scenario_edit" => "Проверьте поля и выбранные связи.",
                 _ => error.Message
             }, error: true);
@@ -399,6 +404,8 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _launchTransfer.IsEnabled = _refreshTransferRun.IsEnabled = _stopTransfer.IsEnabled = _collectTransfer.IsEnabled = _openTransfer.IsEnabled;
         _transferId.IsEnabled = _openTransfer.IsEnabled;
         RefreshReferenceCommands(ready && _baseline?.SchemaVersion == 2);
+        _compareDependencies.IsEnabled = ready && _baseline is { SchemaVersion: 2, Project.Revision: > 1 };
+        _dependencyRevision.IsEnabled = _compareDependencies.IsEnabled;
     }
 
     private static void Rows(VStack target, IEnumerable<(string Id, string Name)> rows, string? selection, Action<string> select)

@@ -304,6 +304,38 @@ internal sealed class BackendExportJobs : IDisposable
         { return null; }
     }
 
+    internal static (BackendExportStatus[] Jobs, bool Complete) ReadCompletedAt(BackendOptions options,
+        ProjectFileDocument snapshot, CancellationToken token)
+    {
+        List<BackendExportStatus> jobs = [];
+        try
+        {
+            var storage = new BackendExportStorage(options);
+            var candidates = storage.ExportIds().Take(129).ToArray();
+            var complete = candidates.Length <= 128;
+            foreach (var id in candidates.Take(128))
+            {
+                token.ThrowIfCancellationRequested();
+                if (!ValidId(id)) continue;
+                try
+                {
+                    var directory = storage.JobDirectory(id);
+                    var receipt = JsonSerializer.Deserialize<BackendExportStatus>(storage.Read(directory, "Receipt.json", MaxStatusBytes), Json);
+                    if (receipt is null || !ValidStatus(receipt, id)) { complete = false; continue; }
+                    if (receipt.ProjectId != snapshot.Project.Id || receipt.ProjectRevision != snapshot.Project.Revision ||
+                        !EqualHash(receipt.ProjectFingerprint, snapshot.Fingerprint)) continue;
+                    var status = Load(storage, directory, id);
+                    if (status.State == "completed") jobs.Add(status);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+                { complete = false; }
+            }
+            return ([..jobs], complete);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        { return ([..jobs], false); }
+    }
+
     private static BackendExportStatus Load(BackendExportStorage storage, string directory, string id)
     {
         if (!Directory.Exists(directory)) throw new BackendExportException("export_not_found");

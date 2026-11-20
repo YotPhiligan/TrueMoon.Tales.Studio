@@ -23,6 +23,7 @@ internal sealed partial class ScenarioWorkspace
         _chapterDetails.IsVisible = pane == Pane.Chapter;
         _library.IsVisible = pane == Pane.Library;
         _referencePane.IsVisible = pane == Pane.References;
+        ShowDependencies(pane == Pane.Dependencies);
         _sceneNotes.IsVisible = _chapterDetails.IsVisible && Segment is not null;
         _actionNotes.IsVisible = _chapterDetails.IsVisible && Story is not null;
         _chapterTab.Tone = _chapterDetails.IsVisible ? ControlTone.Accent : ControlTone.Neutral;

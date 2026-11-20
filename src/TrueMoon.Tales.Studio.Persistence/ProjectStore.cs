@@ -106,6 +106,41 @@ public sealed class ProjectStore
         return ProjectFileCodec.Read(bytes).AtPath(path);
     }
 
+    /// <summary>Reads one immutable history snapshot by project identity and revision.</summary>
+    /// <param name="projectId">Identity of the currently opened project.</param>
+    /// <param name="revision">Revision stored in the history snapshot.</param>
+    /// <param name="cancellationToken">Cancellation of enumeration and reading.</param>
+    /// <returns>The exact archived snapshot, without making it a writable baseline.</returns>
+    public async Task<ProjectFileDocument> ReadHistoryAsync(string projectId, long revision,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(revision);
+        cancellationToken.ThrowIfCancellationRequested();
+        RequireNoPendingCommit();
+        var directory = _paths.At("Production", "History");
+        var prefix = FormattableString.Invariant($"r{revision:D6}-");
+        var matches = Directory.EnumerateFiles(directory, prefix + "*.json").Where(file =>
+        {
+            var name = Path.GetFileName(file);
+            return name.StartsWith(prefix, StringComparison.Ordinal) &&
+                Regex.IsMatch(name[prefix.Length..], @"\A[0-9a-f]{32}\.json\z", RegexOptions.CultureInvariant);
+        })
+            .Take(2).ToArray();
+        if (matches.Length == 0) throw new FileNotFoundException("The revision is not in project history.");
+        if (matches.Length != 1) throw new InvalidDataException("More than one history snapshot has this revision.");
+        var path = matches[0];
+        _paths.Check(path);
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        if (stream.Length is < 1 or > 16 * 1024 * 1024) throw new InvalidDataException("Invalid history snapshot size.");
+        var bytes = new byte[(int)stream.Length];
+        await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
+        var snapshot = ProjectFileCodec.Read(bytes);
+        if (stream.ReadByte() != -1 || snapshot.Project.Id != projectId || snapshot.Project.Revision != revision)
+            throw new InvalidDataException("History snapshot identity does not match.");
+        RequireNoPendingCommit();
+        return snapshot;
+    }
+
     /// <summary>Checks path grants for a writer session and project commits without claiming a lease or writing.</summary>
     public void VerifyWriteAccess()
     {

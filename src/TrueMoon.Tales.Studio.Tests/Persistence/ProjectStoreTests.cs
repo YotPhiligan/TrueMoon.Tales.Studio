@@ -28,6 +28,29 @@ public sealed class ProjectStoreTests
         Assert.False(File.Exists(fixture.JournalPath));
     }
 
+    [Fact]
+    public async Task ReadHistory_WithoutWriteGrant_VerifiesIdentityAndNeverUsesArchiveAsBaseline()
+    {
+        using var fixture = new PersistenceFixture();
+        var writer = fixture.Store();
+        var original = await writer.OpenAsync();
+        var migrated = await writer.MigrateAsync(original, 11, "author");
+        var current = await writer.SaveAsync(migrated, migrated.Project with { Name = "Current" }, 12, "author");
+        var reader = fixture.Store(writable: false);
+        var archive = await reader.ReadHistoryAsync(current.Project.Id, 12);
+
+        Assert.Equal(migrated.Fingerprint, archive.Fingerprint);
+        Assert.Null(archive.FilePath);
+        await Assert.ThrowsAsync<InvalidDataException>(() => reader.ReadHistoryAsync("another-project", 12));
+        await Assert.ThrowsAsync<FileNotFoundException>(() => reader.ReadHistoryAsync(current.Project.Id, 0));
+        var duplicate = Path.Combine(fixture.HistoryDirectory, $"r000012-{Guid.NewGuid():N}.json");
+        File.Copy(Assert.Single(fixture.HistoryFiles, row => Path.GetFileName(row).StartsWith("r000012-")), duplicate);
+        try { await Assert.ThrowsAsync<InvalidDataException>(() => reader.ReadHistoryAsync(current.Project.Id, 12)); }
+        finally { File.Delete(duplicate); }
+        Assert.Equal(current.Fingerprint, (await reader.OpenAsync()).Fingerprint);
+        Assert.Equal(2, fixture.HistoryFiles.Length);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

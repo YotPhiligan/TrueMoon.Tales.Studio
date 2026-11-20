@@ -168,6 +168,10 @@ public interface IStudioBackend
     /// <returns>The role and contract identity.</returns>
     Task<BackendIdentity> HelloAsync(string sessionKey, CancellationToken cancellationToken = default);
 
+    /// <summary>Compares a saved project with an immutable history revision without changing either snapshot.</summary>
+    Task<BackendExportReply> CheckDependenciesAsync(string sessionKey, long comparedRevision, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Reads the startup-selected project without migration, recovery or writes.</summary>
     /// <param name="sessionKey">The per-launch capability.</param><param name="cancellationToken">The local call deadline.</param>
     /// <returns>A normalized snapshot or a classified failure.</returns>

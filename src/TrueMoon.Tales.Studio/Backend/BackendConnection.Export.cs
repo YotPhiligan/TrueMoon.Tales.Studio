@@ -37,6 +37,20 @@ internal sealed partial class BackendConnection
         return BackendReadinessReport.Decode(reply.JobJson, revision, fingerprint);
     }
 
+    internal async Task<DependencyReport> CheckDependenciesAsync(long compared, OpenedBackendProject head, CancellationToken token)
+    {
+        var reply = await SendExportAsync(ct => service.CheckDependenciesAsync(options.SessionKey, compared, head.Project.Revision,
+            head.Fingerprint, ct), token).ConfigureAwait(false);
+        if (reply.Data.Length != 0 || Encoding.Unicode.GetByteCount(reply.JobJson) > 32 * 1024 ||
+            JsonSerializer.Deserialize<DependencyReport>(reply.JobJson, BackendAdaptation.Json) is not { Rows.Length: <= 80 } report ||
+            report.ComparedRevision != compared || report.Revision != head.Project.Revision || report.Fingerprint != head.Fingerprint ||
+            report.Total < report.Rows.Length || !IsHash(report.ComparedFingerprint) ||
+            report.Rows.Any(row => row is null || row.Kind is not ("chapter" or "reference" or "take_reference" or "take_draft" or
+                "sound" or "clip" or "montage" or "animatic" or "export")))
+            throw new InvalidDataException("Invalid dependency report.");
+        return report;
+    }
+
     internal async Task<BackendExportStatus> StartWorkingReviewAsync(string clientKey, long revision, string fingerprint,
         CancellationToken token, BackendReviewRange? range = null, bool animatic = false)
     {
