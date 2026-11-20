@@ -39,7 +39,8 @@ API `GET /api/workspace` показывает фактически загруж�
 | mounts | Библиотеки `@arts/`, `@videos/`, `@lore/`, `@texts/`; по умолчанию только чтение |
 | state_root | Реестр Studio; вне кода и вне проектов |
 | cache_root | Производные волны, звуковые превью, слои титров и выбранные прокси schema2. Прокси хранятся в `StudioProxies.v1` и не меняют JSON проекта. |
-| exports_root | Новые CPU-экспорты. Schema2 использует отдельный каталог `BackendExports.v1` внутри корня. Прежние экспорты доступны на старом месте. [Настройка schema2](src/Verification/BackendExport.md#настройка) |
+| exports_root | CPU-экспорты и ZIP эпизодов. Задания schema2 используют `BackendExports.v1` внутри корня. [Настройка CPU-экспорта](src/Verification/BackendExport.md#настройка) · [Архив эпизода](API.md#episode-archive) |
+| archive_media | Настольная Studio включает это поле в конфигурации восстановленной копии. `ArchiveMedia.json` сопоставляет ссылки снимка с файлами в каталоге `Media` той же копии. |
 | project_write_roots | Явные рабочие каталоги существующих проектов; Production существующих проектов в Videos |
 | profiles_root | Исполняемый профиль; в 0.15 — Workflows/Omni.v1.1 |
 | python_executable / comfy_root | Установленная среда и ComfyUI; ничего не скачивается |

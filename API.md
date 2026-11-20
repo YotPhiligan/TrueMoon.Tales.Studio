@@ -315,6 +315,36 @@ backend сверяет SHA MP4 и удерживает проверенный ф
 звуковой сетке проекта. Завершение возвращает `SampleOffset = TotalSamples`.
 PCM передаётся порциями до 32 КиБ с SHA, как и для звука отдельного клипа.
 
+<a id="episode-archive"></a>
+## Архив эпизода и восстановление через CLI Studio
+
+Команды того же EXE работают с сохранённой schema2. Возьмите `project.revision`
+и `fingerprint` из `--inspect-project`. Для восстановления укажите архив по
+имени под `exports_root`, его SHA из квитанции и конфигурацию с существующим
+родительским `projects_root`, разрешённым в `project_write_roots`.
+
+```powershell
+.\TrueMoon.Tales.Studio.exe --archive-episode <project> --config <workspace.json> --revision <revision> --sha256 <project_sha256>
+.\TrueMoon.Tales.Studio.exe --restore-episode <Episode-id.zip> --config <workspace.json> --sha256 <archive_sha256>
+.\TrueMoon.Tales.Studio.exe --edit-project <directory> --config <config>
+```
+
+Третья команда берёт `directory` и `config` из квитанции восстановления.
+В отдельном каталоге сохраняются прежние ID, ревизия и точные байты проекта
+и `Production/History`. `Manifest.json` в ZIP содержит размер и SHA каждой
+записи. Восстановление сверяет SHA ZIP, проверяет разрешённые имена записей,
+их размер, SHA и обязательные материалы, затем одним переносом публикует
+новый каталог. Повтор создаёт отдельную копию. Параметры инструментов берутся
+из локальной конфигурации, а исходные ссылки разрешаются через `ArchiveMedia.json`
+внутрь восстановленной папки.
+
+В ZIP входят зарегистрированные материалы текущего проекта, главы и стоп-кадры
+аниматика, версии эталонов, опоры дублей и версии речи. Исторические JSON
+сохраняются побайтно. Файлы, на которые ссылается только старая ревизия,
+кэши, состояния очередей, рабочие задания и готовые экспорты в ZIP не входят.
+Лимит — 4096 файлов, 8 ГиБ на материал и 32 ГиБ на весь набор без сжатия.
+[Приёмка](Status.md#studio-ui11-episode-archive).
+
 <a id="episode-readiness"></a>
 ## Проверка эпизода через Enerit
 

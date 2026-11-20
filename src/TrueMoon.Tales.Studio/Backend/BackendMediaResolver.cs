@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TrueMoon.Tales.Studio.Backend.Export;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -13,6 +14,8 @@ internal sealed class BackendMediaResolver
     private readonly List<string> _roots = [];
     private readonly List<string> _protected = [];
     private readonly List<(string Source, string Target)> _aliases = [];
+    private readonly string _projectDirectory;
+    private readonly Lazy<Dictionary<string, string>>? _episodeMedia;
     private static readonly StringComparison Comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     private static readonly StringComparer Comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
@@ -23,6 +26,9 @@ internal sealed class BackendMediaResolver
         if (config.ValueKind != JsonValueKind.Object || !config.TryGetProperty("version", out var version) || version.GetInt32() != 1)
             throw new InvalidDataException("Unsupported workspace configuration version.");
         var directory = Path.GetDirectoryName(options.ConfigPath)!;
+        _projectDirectory = Path.GetFullPath(options.ProjectDirectory);
+        if (config.TryGetProperty("archive_media", out var episode) && episode.GetBoolean())
+            _episodeMedia = new(() => BackendEpisodeArchive.ReadMediaIndex(_projectDirectory));
         string ConfigPath(JsonElement value) => Absolute(RequiredString(value), directory, trustedConfiguration: true);
         _legacy = config.TryGetProperty("legacy_root", out var legacy) ? ConfigPath(legacy) : null;
         _legacyEnabled = !config.TryGetProperty("legacy_read_enabled", out var enabled) || enabled.GetBoolean();
@@ -85,6 +91,13 @@ internal sealed class BackendMediaResolver
 
     internal string ResolveReference(string reference)
     {
+        if (_episodeMedia?.Value.TryGetValue(reference, out var entry) == true)
+        {
+            Validate(reference);
+            var archived = Path.Combine(_projectDirectory, entry.Replace('/', Path.DirectorySeparatorChar));
+            CheckNamespace(archived, alias: false);
+            return archived;
+        }
         var path = Logical(reference);
         var visited = new HashSet<string>(Comparer);
         for (var hops = 0; ; hops++)
@@ -148,7 +161,7 @@ internal sealed class BackendMediaResolver
         return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value, relativeTo));
     }
 
-    private static void Validate(string value, bool trustedConfiguration = false)
+    internal static void Validate(string value, bool trustedConfiguration = false)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 4096 || value.Contains('\0') || value.StartsWith("\\\\", StringComparison.Ordinal) || value.StartsWith("//", StringComparison.Ordinal))
             throw new UnauthorizedAccessException("Invalid media reference.");

@@ -7,6 +7,7 @@ internal sealed class BackendProjectAccess
 {
     private readonly string[] _allowed, _denied, _writes;
     private readonly string[] _stateExcluded;
+    private readonly string[] _codeRoots;
     internal string? ProjectsRoot { get; }
     internal string? StateRoot { get; }
     private string? CacheRoot { get; }
@@ -55,6 +56,7 @@ internal sealed class BackendProjectAccess
                     if (picker && directory.Parent is { } parent) code.Add(parent.FullName);
                 }
         _denied = denied.ToArray();
+        _codeRoots = code.ToArray();
         _writes = write && config.TryGetProperty("project_write_roots", out var grants)
             ? grants.EnumerateArray().Select(Resolve).ToArray() : [];
         var mounts = picker && config.TryGetProperty("mounts", out var values)
@@ -90,6 +92,22 @@ internal sealed class BackendProjectAccess
         var path = Path.Combine(CacheRoot, "StudioProxies.v1");
         BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
         return path;
+    }
+
+    internal string RestoreRoot()
+    {
+        if (ProjectsRoot is not { } root || root == Path.GetPathRoot(root) || !_writes.Any(grant => Within(root, grant)) ||
+            _denied.Concat(_codeRoots).Any(path => Within(root, path) || Within(path, root)))
+            throw new UnauthorizedAccessException("Для восстановления нужен разрешённый каталог projects_root вне исходников Studio.");
+        BackendMediaResolver.CheckNoLinks(root);
+        if (!Directory.Exists(root)) throw new DirectoryNotFoundException("Каталог projects_root не найден.");
+        foreach (var candidate in new[] { Path.Combine(root, "Studio.project.json"), Path.Combine(root, "Production", "Studio.project.json") })
+        {
+            BackendMediaResolver.CheckNoLinks(candidate, allowMissing: true);
+            if (Path.Exists(candidate))
+                throw new UnauthorizedAccessException("projects_root должен быть родительским каталогом для новой копии проекта.");
+        }
+        return root;
     }
 
     private static bool Within(string path, string root)

@@ -32,6 +32,9 @@ internal static class StudioApplicationExtensions
                 [UnitParentProcessEventsHandler.ControlPipeKey] = Environment.GetEnvironmentVariable(UnitParentProcessEventsHandler.ControlPipeKey),
                 ["TRUEMOON_MITHRIL__DISABLED"] = Environment.GetEnvironmentVariable("TRUEMOON_MITHRIL__DISABLED")
             });
+            if (args.FirstOrDefault() is "--archive-episode" or "--restore-episode" && launch.UnitId is null &&
+                launch.ParentProcessId is null && launch.ControlPipe is null)
+                return await EpisodeArchiveCommand.RunAsync(args, token).ConfigureAwait(false);
             if (args is ["--projects", "--config", var config] && launch.UnitId is null &&
                 launch.ParentProcessId is null && launch.ControlPipe is null && !launch.UnitsDisabled)
             {
@@ -80,7 +83,8 @@ internal static class StudioApplicationExtensions
                 "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
-                "HTTP/CLI: --serve-project <каталог> --config <Studio.config.json> [--http-port <0..65535>] [--with-ui]");
+                "HTTP/CLI: --serve-project <каталог> --config <Studio.config.json> [--http-port <0..65535>] [--with-ui]" +
+                Environment.NewLine + EpisodeArchiveCommand.Usage);
             return 2;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return 0; }
