@@ -9,7 +9,7 @@ internal sealed record BackendVideoInfo(double Fps, int FrameCount, int Width, i
 
 // Input paths and executable names have already been selected by trusted workspace policy.
 // No shell, network protocols, playlists or external MOV data references are admitted here.
-internal sealed class BackendMediaDecoder(string ffmpegExecutable, string ffprobeExecutable,
+internal sealed partial class BackendMediaDecoder(string ffmpegExecutable, string ffprobeExecutable,
     Func<ProcessStartInfo, Process>? startProcess = null)
 {
     internal const int FrameBytes = FrameDecoder.Width * FrameDecoder.Height * 4;
@@ -165,11 +165,12 @@ internal sealed class BackendMediaDecoder(string ffmpegExecutable, string ffprob
         return seconds;
     }
 
-    private async Task<byte[]> RunAsync(string executable, IEnumerable<string> arguments, int outputLimit, CancellationToken token)
+    private async Task<byte[]> RunAsync(string executable, IEnumerable<string> arguments, int outputLimit, CancellationToken token,
+        TimeSpan? budget = null)
     {
         token.ThrowIfCancellationRequested();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(8));
+        deadline.CancelAfter(budget ?? TimeSpan.FromSeconds(8));
         var start = new ProcessStartInfo(executable)
         {
             UseShellExecute = false, CreateNoWindow = true,

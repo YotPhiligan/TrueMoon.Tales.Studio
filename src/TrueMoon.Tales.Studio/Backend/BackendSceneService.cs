@@ -86,7 +86,7 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
         { return take.VideoInfo ?? throw new InvalidDataException("Missing clip extent."); }
     }
     public Uri Media(string assetId) => _snapshot is { } snapshot
-        ? BackendFrameDecoder.Reference(assetId, snapshot.Project.Revision, snapshot.Fingerprint)
+        ? BackendFrameDecoder.Reference(assetId, snapshot.Project.Revision, snapshot.Fingerprint, preferProxy: true)
         : throw new InvalidOperationException("Open the project first.");
     public Task<bool> HasAudioAsync(string assetId, int stream, CancellationToken token) => Task.FromResult(false);
     public async Task<SceneSnapshot> TrimAsync(SceneSnapshot scene, double start, double end, CancellationToken cancellationToken, int? timelineStart = null) =>

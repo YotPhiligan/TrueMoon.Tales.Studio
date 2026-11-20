@@ -94,7 +94,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         var find = ButtonFor("Найти", () => { _query = _search.Value.Trim(); RefreshLists(); });
         _library = Stack(new StudioHeading(_search, find), Row(_import, _addTake),
             _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink, CreateTakePairPanel(), CreateTransferPanel(),
-            new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB),
+            new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB, CreateProxyToggle()), CreateProxyPanel(),
             new FramePair(_first.Content, _second.Content));
         _browser = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 420 };
         _browser.FirstPane.MinWidth = 320; _browser.SecondPane.MinWidth = 340;
@@ -177,7 +177,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     internal void ExplainClose() => Show(HasDraft ? "Сохраните или отмените черновик." :
         Busy ? "Дождитесь результата операции." : "Откройте монтаж, чтобы подтвердить остановку экспорта.", error: true);
 
-    public bool NeedsFrame => Busy || _storyboardFocus is not null;
+    public bool NeedsFrame => Busy || _storyboardFocus is not null || TrackingProxy;
 
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
@@ -190,7 +190,11 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 context.Focus(focus);
             }
         }
-        if (_pending is not { IsCompleted: true } ready) return;
+        if (_pending is not { IsCompleted: true } ready)
+        {
+            if (!Busy) PollProxy(elapsed);
+            return;
+        }
         _pending = null;
         try { ready.GetAwaiter().GetResult()(); }
         catch (BackendCommandException error)
@@ -245,6 +249,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "job_snapshot_ids" => "Укажите два разных ID задания вида ft-… или job-…",
                 "job_snapshot_missing" => "В проекте отсутствуют файлы одного из заданий.",
                 "job_snapshot_invalid" => "Не удалось проверить один из снимков задания.",
+                "proxy_cache_required" => "Настройте cache_root для прокси.",
+                "proxy_busy" => "Сейчас готовится другой прокси. Дождитесь результата или отмените подготовку.",
+                "proxy_not_running" => "Подготовка уже завершилась. Проверьте статус прокси.",
+                "proxy_timeout" => "Ответ о состоянии прокси не получен. Проверьте статус.",
                 "invalid_scenario_edit" => "Проверьте поля и выбранные связи.",
                 _ => error.Message
             }, error: true);
@@ -409,6 +417,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         RefreshReferenceCommands(ready && _baseline?.SchemaVersion == 2);
         _compareDependencies.IsEnabled = ready && _baseline is { SchemaVersion: 2, Project.Revision: > 1 };
         _dependencyRevision.IsEnabled = _compareDependencies.IsEnabled;
+        RefreshProxy(ready && _baseline?.SchemaVersion == 2 && video);
     }
 
     private static void Rows(VStack target, IEnumerable<(string Id, string Name)> rows, string? selection, Action<string> select)

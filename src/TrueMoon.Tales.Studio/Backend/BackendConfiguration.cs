@@ -28,6 +28,7 @@ internal static class BackendConfiguration
             .Services(r => r.Instance(storage).Singleton<ProjectStore>(resolver => new(resolver.Resolve<ProjectStoreOptions>()))
                 .Singleton<IFactory<BackendMediaResolver>, BackendMediaResolverFactory>()
                 .Singleton<BackendMediaDecoder>(_ => BackendMediaReader.Decoder(options))
+                .Singleton<BackendProxyStore>(resolver => new(options, resolver.Resolve<BackendMediaDecoder>()!))
                 .Singleton<BackendMediaReader>()
                 .Singleton<IStudioBackend, StudioBackendService>())
             .ListenInvocationService<IStudioBackend, StudioBackendService>(), configuration =>

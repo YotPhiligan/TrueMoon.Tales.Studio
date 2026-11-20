@@ -23,12 +23,12 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
 
     internal static async Task<BackendExportPlan> CreateAsync(ProjectContract project, string fingerprint, string profile,
         string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, CancellationToken token,
-        BackendReviewRange? range = null, bool animatic = false)
+        BackendReviewRange? range = null, bool animatic = false, BackendProxyStore? proxies = null)
     {
         try
         {
             return (await CreateCoreAsync(project, fingerprint, profile, jobDirectory, resolver, decoder, range, token,
-                animatic: animatic).ConfigureAwait(false))!;
+                animatic: animatic, proxies: proxies).ConfigureAwait(false))!;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or ScenarioEditException)
         {
@@ -57,7 +57,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
 
     private static async Task<BackendExportPlan?> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,
         string jobDirectory, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendReviewRange? range, CancellationToken token,
-        List<BackendReadinessIssue>? issues = null, bool animatic = false)
+        List<BackendReadinessIssue>? issues = null, bool animatic = false, BackendProxyStore? proxies = null)
     {
         token.ThrowIfCancellationRequested();
         ProjectContractJson.Validate(project);
@@ -135,7 +135,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         sounds.RemoveAll(sound => !Intersects(sound.StartFrame, sound.DurationFrames));
         var size = Size(project.Properties, profile);
         var titleCanvas = Size(project.Properties, "project");
-        var registry = new Inputs(project, resolver, decoder);
+        var registry = new Inputs(project, resolver, decoder, proxies);
         var titleRows = new List<Dictionary<string, JsonElement>>();
         var stillRows = new List<AnimaticImage>();
         var unreadableVideo = issues is null ? null : new Dictionary<string, Exception>(StringComparer.Ordinal);
@@ -207,6 +207,15 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         }
 
         if (issues is not null) return null;
+        if (proxies is not null)
+        {
+            for (var index = 0; index < placements.Count; index++)
+            {
+                var clip = placements[index];
+                if (await registry.ProxyAsync(clip.AssetId, registry.Assets[clip.AssetId], token).ConfigureAwait(false) is { } proxy)
+                    placements[index] = clip with { AssetId = proxy };
+            }
+        }
         var final = profile == "final";
         var startFrame = range?.Start ?? 0;
         frames = (range?.End ?? frames) - startFrame;
@@ -406,7 +415,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     private sealed record Asset(string Path, string Format, string ExpectedSha256);
     private sealed record AnimaticImage(string AssetId, int StartFrame, int DurationFrames);
 
-    private sealed class Inputs(ProjectContract project, BackendMediaResolver resolver, BackendMediaDecoder decoder)
+    private sealed class Inputs(ProjectContract project, BackendMediaResolver resolver, BackendMediaDecoder decoder, BackendProxyStore? proxies)
     {
         internal Dictionary<string, Asset> Assets { get; } = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _hashes = new(PathComparer);
@@ -414,6 +423,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
         private readonly Dictionary<(string Path, int Stream), double> _audio = new();
         private readonly Dictionary<string, string> _fonts = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _images = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string?> _proxies = new(StringComparer.Ordinal);
         private long _inputBytes;
 
         internal async Task<Asset> GetAsync(string id, bool video, CancellationToken token)
@@ -434,6 +444,25 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             var format = BackendMediaDecoder.LocalInputFormat(path, audio: !video);
             return Assets[id] = await ReadInputAsync(path, format, () => PathComparer.Equals(resolver.Resolve(logical), path), token)
                 .ConfigureAwait(false);
+        }
+
+        internal async Task<string?> ProxyAsync(string id, Asset original, CancellationToken token)
+        {
+            if (proxies is null) return null;
+            if (_proxies.TryGetValue(id, out var saved)) return saved;
+            _proxies[id] = null;
+            if (Assets.Count >= MaxAssets) return null;
+            BackendMediaResolver.CheckNoLinks(original.Path);
+            await using var source = new FileStream(original.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+            await using var proxy = await proxies.TryOpenAsync(project.Id, id, source, token).ConfigureAwait(false);
+            if (proxy is null || !string.Equals(proxy.Receipt.OriginalSha256, original.ExpectedSha256, StringComparison.OrdinalIgnoreCase) ||
+                proxy.File.Length > MaxInputBytes - _inputBytes)
+                return null;
+            // Keep the original in the immutable request for SHA validation and any separate audio uses.
+            var key = "working-proxy-" + Guid.NewGuid().ToString("N");
+            Assets.Add(key, new(proxy.File.Name, "mov", proxy.Receipt.ProxySha256.ToLowerInvariant()));
+            _inputBytes += proxy.File.Length;
+            return _proxies[id] = key;
         }
 
         internal async Task<string> ImageAsync(string reference, CancellationToken token)

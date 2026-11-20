@@ -516,6 +516,225 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task SelectiveProxies_UseRasterAndWorkingReview_AndKeepFinalExportOnOriginals()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(withTransition: true);
+        const string uhd = "4K HEVC.mp4", wide = "Широкий AVC.mp4";
+        await MakeInput(uhd, "3840x2160", "libx265", "yuv420p10le", 440,
+            ["-x265-params", "log-level=error:pools=2:frame-threads=2:keyint=96:min-keyint=96:scenecut=0:open-gop=0"]);
+        await MakeInput(wide, "2560x800", "libx264", "yuv420p", 660, ["-g", "96", "-sc_threshold", "0"]);
+        var cache = Path.Combine(files.Files.Files.Root, "proxy-cache");
+        var configPath = files.Files.Base.ConfigPath;
+        var config = JsonNode.Parse(File.ReadAllText(configPath))!;
+        config["cache_root"] = cache;
+        File.WriteAllText(configPath, config.ToJsonString());
+        var project = JsonNode.Parse(File.ReadAllText(files.ProjectPath))!;
+        var assets = project["project"]!["properties"]!["assets"]!;
+        assets["video-a"]!["path"] = "@videos/" + uhd;
+        assets["video-b"]!["path"] = "@videos/" + wide;
+        File.WriteAllText(files.ProjectPath, project.ToJsonString());
+        var projectBytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var original = File.ReadAllBytes(files.MediaPath(uhd));
+        var wideSha = Hash(File.ReadAllBytes(files.MediaPath(wide)));
+        var decoder = BackendMediaReader.Decoder(BackendOptions.Create(files.Files.Files.ProjectDirectory, configPath));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        var token = deadline.Token;
+
+        await using (var session = await files.OpenAsync(workspace: true))
+        {
+            var api = session.Connection;
+            var head = await api.AcquireWriterAsync(await api.OpenAsync(token), token);
+            using var host = Workspace(session);
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+            var before = Sync(api.FrameAsync("video-a", 12, head.Project.Revision, head.Fingerprint, token));
+            var (fourKSource, fourKTake) = TakeFor("video-a");
+            var (wideSource, wideTake) = TakeFor("video-b");
+            Assert.Equal("original", Sync(Proxy("status", "video-a")).State);
+            var stale = head with { Fingerprint = new('0', 64) };
+            Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+                Sync(api.TakeProxyAsync("prepare_4k", fourKSource.Id, fourKTake.Id, "video-a", stale, token))).Code);
+
+            host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+            var editor = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+            host.PumpUntil(() => !editor.NeedsFrame, TimeSpan.FromSeconds(15));
+            ClickEditor("Библиотека");
+            ClickEditor(fourKSource.Title, libraryOnly: true);
+            ClickEditor(BackendScenarioEdit.TakeName(fourKTake));
+            ClickEditor("Прокси");
+            ClickEditor("Подготовить прокси 4K");
+            host.PumpUntil(() => !editor.NeedsFrame, TimeSpan.FromSeconds(70));
+            var uhdProxy = Assert.IsType<ProxyReceipt>(Sync(Proxy("status", "video-a")).Receipt);
+            Assert.Equal((960, 540, 96, 24d, Hash(original)), (uhdProxy.Proxy.Width, uhdProxy.Proxy.Height,
+                uhdProxy.Proxy.FrameCount, uhdProxy.Proxy.Fps, uhdProxy.OriginalSha256));
+
+            Assert.Equal("running", Sync(Proxy("prepare_4k", "video-b")).State);
+            var refused = Sync(UntilProxy("video-b"));
+            Assert.Equal(("failed", "proxy_4k_required"), (refused.State, refused.Error));
+            ClickEditor(wideSource.Title, libraryOnly: true);
+            ClickEditor(BackendScenarioEdit.TakeName(wideTake));
+            ClickEditor("Подготовить прокси вручную");
+            host.PumpUntil(() => !editor.NeedsFrame, TimeSpan.FromSeconds(70));
+            var wideProxy = Assert.IsType<ProxyReceipt>(Sync(Proxy("status", "video-b")).Receipt);
+            Assert.Equal((960, 300, 96, wideSha), (wideProxy.Proxy.Width, wideProxy.Proxy.Height,
+                wideProxy.Proxy.FrameCount, wideProxy.OriginalSha256));
+            var uhdPath = ProxyFile(uhdProxy);
+            var widePath = ProxyFile(wideProxy);
+            Assert.Equal(Sync(decoder.ProxyAudioFingerprintAsync(files.MediaPath(uhd), token)),
+                Sync(decoder.ProxyAudioFingerprintAsync(uhdPath, token)));
+            Assert.Equal(Sync(decoder.ProxyAudioFingerprintAsync(files.MediaPath(wide), token)),
+                Sync(decoder.ProxyAudioFingerprintAsync(widePath, token)));
+            var preview = Sync(api.PreviewFrameAsync("video-a", 12, head.Project.Revision, head.Fingerprint, token));
+            Assert.Equal(Sync(decoder.ReadAsync(uhdPath, 12, uhdProxy.Proxy, token)), preview.Pixels);
+            Assert.NotEqual(before.PixelSha256, preview.PixelSha256);
+            Assert.Equal(before.Pixels, Sync(api.FrameAsync("video-a", 12, head.Project.Revision, head.Fingerprint, token)).Pixels);
+
+            ClickEditor("К монтажу");
+            Ready(host, model);
+            var strip = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<SceneStrip>());
+            var cursor = model.Scene!.Clip.StartFrame + 7;
+            var x = strip.Bounds.X + (float)(cursor - model.Scene.Segment.StartFrame + .1) * strip.Bounds.Width / model.Scene.Segment.DurationFrames;
+            host.Input(new(InputKind.PointerDown, x, strip.Bounds.Y + 8));
+            host.Input(new(InputKind.PointerUp, x, strip.Bounds.Y + 8));
+            host.PumpUntil(() => model.Idle && model.SplitFrame == cursor, TimeSpan.FromSeconds(15));
+            Assert.Equal(Sync(decoder.ReadAsync(uhdPath, model.FrameIndex, uhdProxy.Proxy, token)), model.Pixels);
+            host.PumpUntil(() => !model.NeedsFrame, TimeSpan.FromSeconds(15));
+            var stream = Sync(api.OpenPlaybackAsync(model.Scene!, "video", 7, token));
+            try
+            {
+                var packet = Sync(api.ReadPlaybackAsync(stream, token));
+                Assert.Equal(7, packet.LocalFrame);
+                Assert.Equal(model.FrameIndex, packet.NativeFrame);
+                Assert.Equal(model.Pixels, packet.Data);
+            }
+            finally { api.ClosePlaybackAsync(stream.SessionId, token).GetAwaiter().GetResult(); }
+            host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+            var setup = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<WorkingReviewWorkspace>());
+            host.Click(ButtonIn(setup, "Подготовить проект"));
+            var view = ButtonIn(setup, "Смотреть проект");
+            host.PumpUntil(() => view.IsEnabled || !setup.NeedsFrame, TimeSpan.FromSeconds(50));
+            Assert.True(view.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(setup).OfType<Text>().Select(row => row.Value)));
+            var working = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            AssertPlacement(working, "clip-main", uhdPath, uhdProxy.ProxySha256);
+            AssertPlacement(working, "clip-extra", widePath, wideProxy.ProxySha256);
+            Assert.Equal(Hash(original), AssetSha(working, "video-a"), ignoreCase: true);
+            host.Click(view);
+            var review = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<RenderedReviewPanel>());
+            ReviewReady(host, review);
+            host.Capture("proxy-working-preview", new { uhdProxy.Proxy.Width, wideProxy.Proxy.Height });
+            host.Click(ButtonIn(review, "К монтажу"));
+            Ready(host, model);
+
+            var export = Sync(api.StartExportAsync("checked-original-export", "final", head.Project.Revision, head.Fingerprint, token));
+            var directory = files.JobDirectory(export.Id);
+            var saved = Sync(session.UntilAsync(export.Id, row => (string?)row["state"] == "completed", directory));
+            var request = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, "Request.json")))!;
+            AssertPlacement(request, "clip-main", files.MediaPath(uhd), Hash(original));
+            AssertPlacement(request, "clip-extra", files.MediaPath(wide), wideSha);
+            var videoPlacements = working["clips"]!.DeepClone().AsArray();
+            for (var index = 0; index < videoPlacements.Count; index++)
+                videoPlacements[index]!["asset_id"] = request["clips"]![index]!["asset_id"]!.DeepClone();
+            Assert.True(JsonNode.DeepEquals(request["clips"], videoPlacements));
+            Assert.True(JsonNode.DeepEquals(request["transition_windows"], working["transition_windows"]));
+            Assert.Equal(true, (bool?)request["clip_audio"]);
+            Assert.Equal(true, (bool?)working["clip_audio"]);
+            Assert.All(request["assets"]!.AsObject(), entry => Assert.False(((string)entry.Value!["path"]!).StartsWith(cache, StringComparison.OrdinalIgnoreCase)));
+            Assert.Equal((string?)saved["artifact_sha256"], Hash(File.ReadAllBytes(Path.Combine(directory, "Draft.mp4"))), ignoreCase: true);
+
+            Assert.Equal("original", Sync(Proxy("original", "video-b")).State);
+            Assert.Equal("original", Sync(Proxy("status", "video-b")).State);
+            Assert.Equal("running", Sync(Proxy("prepare_manual", "video-b")).State);
+            Assert.Equal(wideProxy.FileId, Sync(UntilProxy("video-b")).Receipt?.FileId);
+            host.PumpUntil(() => !model.NeedsFrame, TimeSpan.FromSeconds(15));
+            var held = widePath + ".held";
+            File.Move(widePath, held);
+            try
+            {
+                var fallback = Sync(api.PreviewFrameAsync("video-b", 12, head.Project.Revision, head.Fingerprint, token));
+                Assert.Equal(Sync(api.FrameAsync("video-b", 12, head.Project.Revision, head.Fingerprint, token)).Pixels, fallback.Pixels);
+                Assert.Equal("original", Sync(Proxy("status", "video-b")).State);
+            }
+            finally { File.Move(held, widePath); }
+            var replacement = original.ToArray();
+            replacement[11] = replacement[11] == (byte)'m' ? (byte)'6' : (byte)'m';
+            File.WriteAllBytes(files.MediaPath(uhd), replacement);
+            try
+            {
+                var fallback = Sync(api.PreviewFrameAsync("video-a", 12, head.Project.Revision, head.Fingerprint, token));
+                Assert.Equal(before.Pixels, fallback.Pixels);
+                Assert.Equal("original", Sync(Proxy("status", "video-a")).State);
+            }
+            finally { File.WriteAllBytes(files.MediaPath(uhd), original); }
+            files.AssertProject(projectBytes, history);
+            Assert.Empty(Directory.GetFiles(cache, "*.pending", SearchOption.AllDirectories));
+
+            (TrueMoon.Tales.Studio.Contracts.Projects.SourceContract, TrueMoon.Tales.Studio.Contracts.Projects.TakeContract) TakeFor(string asset)
+            {
+                var source = head.Project.Sources.First(row => row.Takes.Any(take => take.VideoAssetId == asset));
+                return (source, source.Takes.First(take => take.VideoAssetId == asset));
+            }
+            Task<ProxyStatus> Proxy(string operation, string asset)
+            {
+                var (source, take) = TakeFor(asset);
+                return api.TakeProxyAsync(operation, source.Id, take.Id, asset, head, token);
+            }
+            async Task<ProxyStatus> UntilProxy(string asset)
+            {
+                using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
+                limit.CancelAfter(TimeSpan.FromSeconds(45));
+                while (true)
+                {
+                    var response = await Proxy("status", asset);
+                    if (response.State != "running") return response;
+                    await Task.Delay(40, limit.Token);
+                }
+            }
+            void ClickEditor(string label, bool libraryOnly = false)
+            {
+                var panel = libraryOnly ? (Element)RasterWindow<SceneView>.Walk(editor).OfType<SplitView>().First().SecondPane : editor;
+                var button = ButtonIn(panel, label);
+                for (var parent = button.Parent; parent is not null; parent = parent.Parent)
+                    if (parent is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); }
+                host.Click(button);
+                host.PumpUntil(() => !editor.Busy, TimeSpan.FromSeconds(20));
+            }
+            string ProxyFile(ProxyReceipt proxy) => Assert.Single(Directory.GetFiles(cache, proxy.FileId + ".mp4", SearchOption.AllDirectories));
+        }
+
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Equal(original, File.ReadAllBytes(files.MediaPath(uhd)));
+        Assert.Equal(wideSha, Hash(File.ReadAllBytes(files.MediaPath(wide))));
+        await using (var reopened = await files.OpenAsync())
+        {
+            var state = await reopened.Connection.OpenAsync(token);
+            foreach (var asset in new[] { "video-a", "video-b" })
+            {
+                var source = state.Project.Sources.First(row => row.Takes.Any(take => take.VideoAssetId == asset));
+                var take = source.Takes.First(row => row.VideoAssetId == asset);
+                Assert.Equal("ready", (await reopened.Connection.TakeProxyAsync("status", source.Id, take.Id, asset, state, token)).State);
+            }
+        }
+
+        Task<byte[]> MakeInput(string name, string size, string codec, string pixelFormat, int tone, string[] options) =>
+            BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", $"testsrc2=size={size}:rate=24:duration=4",
+                 "-f", "lavfi", "-i", $"sine=frequency={tone}:sample_rate=48000:duration=4", "-map", "0:v:0", "-map", "1:a:0",
+                 "-c:v", codec, "-pix_fmt", pixelFormat, "-preset", "ultrafast", "-crf", "25", "-threads", "2", .. options,
+                 "-c:a", "aac", "-ac", "2", "-n", files.MediaPath(name)], 4096);
+        static T Sync<T>(Task<T> task) => task.GetAwaiter().GetResult();
+        static string AssetSha(JsonNode request, string key) => (string)request["assets"]![key]!["expected_sha256"]!;
+        static void AssertPlacement(JsonNode request, string clip, string path, string sha)
+        {
+            var row = Assert.Single(request["clips"]!.AsArray(), candidate => (string?)candidate!["id"] == clip);
+            var key = (string)row!["asset_id"]!;
+            Assert.Equal(path, (string?)request["assets"]![key]!["path"]);
+            Assert.Equal(sha, AssetSha(request, key), ignoreCase: true);
+        }
+    }
+
+    [BackendMediaFact]
     public async Task RangeReview_FromRaster_PreservesProjectCoordinatesAndMatchesFullExport()
     {
         using var files = new ExportFixture();

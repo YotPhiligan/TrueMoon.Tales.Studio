@@ -21,8 +21,18 @@ internal sealed partial class StudioBackendService
         long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
         ReadMediaAsync(sessionKey, "", finalFrame, expectedRevision, fingerprint, cancellationToken, pair: (sourceId, finalTakeId, draft));
 
+    /// <inheritdoc />
+    public Task<BackendMediaReply> PreviewFrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default)
+    {
+        Authorize(sessionKey);
+        return frame < 0 ? Task.FromResult(new BackendMediaReply { ErrorCode = "invalid_frame" }) :
+            ReadMediaAsync(sessionKey, assetId, frame, expectedRevision, fingerprint, cancellationToken, preferProxy: true);
+    }
+
     private async Task<BackendMediaReply> ReadMediaAsync(string key, string assetId, int frame, long revision, string fingerprint,
-        CancellationToken token, bool waitForAdmission = false, (string Source, string Final, bool Draft)? pair = null)
+        CancellationToken token, bool waitForAdmission = false, (string Source, string Final, bool Draft)? pair = null,
+        bool preferProxy = false)
     {
         Authorize(key);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -56,7 +66,7 @@ internal sealed partial class StudioBackendService
                 var review = BackendRenderedMontage.Resolve(assetId, document.Project, job, start);
                 reply = await media.ReadReviewedAsync(review, file.Name, frame, timeout.Token).ConfigureAwait(false);
             }
-            else reply = await media.ReadAsync(document.Project, assetId, frame, timeout.Token).ConfigureAwait(false);
+            else reply = await media.ReadAsync(document.Project, assetId, frame, timeout.Token, preferProxy: preferProxy).ConfigureAwait(false);
             if (reply.ErrorCode.Length != 0) return reply;
             // A concurrent move cannot silently label a frame with a different project baseline.
             await ObserveAsync(revision, fingerprint, timeout.Token).ConfigureAwait(false);

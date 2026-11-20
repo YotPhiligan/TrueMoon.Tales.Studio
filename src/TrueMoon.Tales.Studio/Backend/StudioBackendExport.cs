@@ -6,7 +6,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService
 {
-    private readonly BackendExportJobs _exports = new(options);
+    private readonly BackendExportJobs _exports = new(options, proxies: proxies);
 
     public Task<BackendExportReply> WorkingReviewAsync(string sessionKey, string operation, string key, long revision,
         string fingerprint, int startFrame, int endFrame, CancellationToken cancellationToken = default) =>

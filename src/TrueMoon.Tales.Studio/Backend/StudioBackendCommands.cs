@@ -156,6 +156,7 @@ internal sealed partial class StudioBackendService
     public void Dispose()
     {
         _mediaStopping.Cancel();
+        proxies?.Dispose();
         try { StopPlayback(_playback); }
         finally { StopPlayback(_reviewAudio); }
         _mediaGate.Wait();

@@ -38,7 +38,7 @@ API `GET /api/workspace` показывает фактически загруж�
 | projects_root | Новые проекты; именованный путь `@projects/<id>` |
 | mounts | Библиотеки `@arts/`, `@videos/`, `@lore/`, `@texts/`; по умолчанию только чтение |
 | state_root | Реестр Studio; вне кода и вне проектов |
-| cache_root | Производные волны/звуковые превью/слои титров; без изменения проекта |
+| cache_root | Производные волны, звуковые превью, слои титров и выбранные прокси schema2. Прокси хранятся в `StudioProxies.v1` и не меняют JSON проекта. |
 | exports_root | Новые CPU-экспорты. Schema2 использует отдельный каталог `BackendExports.v1` внутри корня. Прежние экспорты доступны на старом месте. [Настройка schema2](src/Verification/BackendExport.md#настройка) |
 | project_write_roots | Явные рабочие каталоги существующих проектов; Production существующих проектов в Videos |
 | profiles_root | Исполняемый профиль; в 0.15 — Workflows/Omni.v1.1 |

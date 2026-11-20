@@ -9,7 +9,8 @@ using TrueMoon.Tales.Studio.Models;
 namespace TrueMoon.Tales.Studio.Backend;
 
 // One media operation at a time, no retained frame cache or writes to project/cache roots.
-internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolvers, BackendMediaDecoder decoder)
+internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolvers, BackendMediaDecoder decoder,
+    BackendProxyStore? proxies = null)
 {
     private const long MaxTakeBytes = 512L * 1024 * 1024;
     private readonly SemaphoreSlim _slot = new(1, 1);
@@ -132,17 +133,29 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         }
         try
         {
-            var videoPath = Resolve(scene.Takes.Single(row => row.Id == scene.Clip.TakeId).VideoAssetId);
-            var info = await decoder.ProbeAsync(videoPath, operation).ConfigureAwait(false);
+            var asset = scene.Takes.Single(row => row.Id == scene.Clip.TakeId).VideoAssetId;
+            var videoPath = Resolve(asset);
+            var proxy = kind == "video" && proxies is not null
+                ? await proxies.TryOpenAsync(project.Id, asset, leases[0], operation).ConfigureAwait(false) : null;
+            if (proxy is not null)
+            {
+                leases.Add(proxy.File);
+                videoPath = proxy.File.Name;
+            }
+            var info = proxy?.Receipt.Proxy ?? await decoder.ProbeAsync(videoPath, operation).ConfigureAwait(false);
             var audio = kind == "audio" ? scene.Audio!.Select(slice => (slice, Resolve(slice.AssetId))).ToArray() : [];
             ValidatePaths();
             operation.ThrowIfCancellationRequested();
-            return new(decoder, scene, info, videoPath, audio, leases, kind, localFrame, fingerprint, stopping, ValidatePaths);
+            return new(decoder, scene, info, videoPath, audio, leases, kind, localFrame, fingerprint, stopping, () =>
+            {
+                ValidatePaths();
+                if (proxy is not null) BackendMediaResolver.CheckNoLinks(videoPath);
+            });
         }
         catch { foreach (var lease in leases) await lease.DisposeAsync().ConfigureAwait(false); throw; }
     }
     internal async Task<BackendMediaReply> ReadAsync(ProjectContract project, string assetId, int frame, CancellationToken token,
-        TakeVideoSnapshot? expected = null)
+        TakeVideoSnapshot? expected = null, bool preferProxy = false)
     {
         if (!await _slot.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
         try
@@ -161,11 +174,14 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
             var sourceSha = expected is null ? null : await HashTakeAsync(lease, token).ConfigureAwait(false);
             if (expected is not null && !string.Equals(sourceSha, expected.Sha256, StringComparison.OrdinalIgnoreCase))
                 return new() { ErrorCode = "take_pair_changed" };
-            var info = await decoder.ProbeAsync(path, token).ConfigureAwait(false);
+            await using var proxy = preferProxy && expected is null && frame >= 0 && proxies is not null
+                ? await proxies.TryOpenAsync(project.Id, assetId, lease, token).ConfigureAwait(false) : null;
+            var info = proxy?.Receipt.Original ?? await decoder.ProbeAsync(path, token).ConfigureAwait(false);
             if (expected is not null && (expected.Fps, expected.Frames, expected.Width, expected.Height) !=
                 (info.Fps, info.FrameCount, info.Width, info.Height)) return new() { ErrorCode = "take_pair_changed" };
             if (frame < -1 || frame >= info.FrameCount) return new() { ErrorCode = "invalid_frame" };
-            var pixels = frame < 0 ? [] : await decoder.ReadAsync(path, frame, info, token).ConfigureAwait(false);
+            var pixels = frame < 0 ? [] : await decoder.ReadAsync(proxy?.File.Name ?? path, frame, proxy?.Receipt.Proxy ?? info, token).ConfigureAwait(false);
+            if (proxy is not null) BackendMediaResolver.CheckNoLinks(proxy.File.Name);
             if (resolver.Resolve(reference.GetString()!) != path) return new() { ErrorCode = "access_denied" };
             return new()
             {

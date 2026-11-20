@@ -127,6 +127,14 @@ public interface IStudioBackend
     /// <returns>Owned BGRA pixels with SHA256, or a classified refusal.</returns>
     Task<BackendMediaReply> FrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads an editing frame using the selected verified proxy when available.</summary>
+    Task<BackendMediaReply> PreviewFrameAsync(string sessionKey, string assetId, int frame, long expectedRevision, string fingerprint,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Prepares, inspects, cancels, or disables the cache proxy for a selected take.</summary>
+    Task<BackendExportReply> TakeProxyAsync(string sessionKey, string operation, string sourceId, string takeId, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Reads one SHA-verified side of a saved draft/final comparison.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="sourceId">Owning library source.</param>
     /// <param name="finalTakeId">Final take with the saved derivation.</param><param name="draft">Selects the draft side.</param>

@@ -9,6 +9,7 @@ internal sealed class BackendProjectAccess
     private readonly string[] _stateExcluded;
     internal string? ProjectsRoot { get; }
     internal string? StateRoot { get; }
+    private string? CacheRoot { get; }
 
     internal static ProjectStoreOptions Read(BackendOptions options) =>
         new BackendProjectAccess(options.ConfigPath, picker: false, options.WriteEnabled)
@@ -37,6 +38,7 @@ internal sealed class BackendProjectAccess
         string? Root(string key) => config.TryGetProperty(key, out var value) ? Resolve(value) : null;
         ProjectsRoot = Root("projects_root");
         StateRoot = picker ? Root("state_root") : null;
+        CacheRoot = picker ? Root("cache_root") : null;
         _allowed = new[] { Root("amv_root"), ProjectsRoot }.OfType<string>().ToArray();
         var denied = config.TryGetProperty("protected_roots", out var roots)
             ? roots.EnumerateArray().Select(Resolve).ToList() : [];
@@ -75,6 +77,17 @@ internal sealed class BackendProjectAccess
             _stateExcluded.Any(root => Within(StateRoot, root) || Within(root, StateRoot)))
             throw new UnauthorizedAccessException("Файл состояния пересекается с защищённым каталогом или каталогом исходных данных.");
         var path = Path.Combine(StateRoot, name);
+        BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
+        return path;
+    }
+
+    internal string? ProxyCache()
+    {
+        if (CacheRoot is null) return null;
+        if (CacheRoot == Path.GetPathRoot(CacheRoot) ||
+            _stateExcluded.Any(root => Within(CacheRoot, root) || Within(root, CacheRoot)))
+            throw new UnauthorizedAccessException("Proxy cache overlaps a source or protected root.");
+        var path = Path.Combine(CacheRoot, "StudioProxies.v1");
         BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
         return path;
     }

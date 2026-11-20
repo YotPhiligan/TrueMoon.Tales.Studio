@@ -13,6 +13,13 @@ internal sealed partial class BackendConnection
         return MediaAsync(assetId, frame, revision, fingerprint, token);
     }
 
+    internal Task<BackendMediaReply> PreviewFrameAsync(string assetId, int frame, long revision, string fingerprint,
+        CancellationToken token = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(frame);
+        return MediaAsync(assetId, frame, revision, fingerprint, token, preferProxy: true);
+    }
+
     internal async Task<BackendMediaReply> TakePairFrameAsync(string sourceId, DraftFinalPair pair, bool draft, int finalFrame,
         OpenedBackendProject baseline, CancellationToken token)
     {
@@ -42,7 +49,8 @@ internal sealed partial class BackendConnection
         if (!IsHash(reply.SourceSha256)) throw new InvalidDataException("Missing storyboard still version.");
         return reply;
     }
-    private async Task<BackendMediaReply> MediaAsync(string assetId, int frame, long revision, string fingerprint, CancellationToken token)
+    private async Task<BackendMediaReply> MediaAsync(string assetId, int frame, long revision, string fingerprint, CancellationToken token,
+        bool preferProxy = false)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(12));
@@ -50,6 +58,7 @@ internal sealed partial class BackendConnection
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         var reply = await TransportAsync(() => frame < 0
             ? service.MediaInfoAsync(options.SessionKey, assetId, revision, fingerprint, deadline.Token)
+            : preferProxy ? service.PreviewFrameAsync(options.SessionKey, assetId, frame, revision, fingerprint, deadline.Token)
             : service.FrameAsync(options.SessionKey, assetId, frame, revision, fingerprint, deadline.Token)).ConfigureAwait(false);
         ValidateMedia(reply, assetId, frame, revision, fingerprint);
         return reply;

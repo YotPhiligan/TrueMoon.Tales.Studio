@@ -14,7 +14,7 @@ internal sealed class BackendExportJobs : IDisposable
     private readonly Lazy<BackendExportStorage> _storage;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly Func<ProjectFileDocument, string, string, BackendReviewRange?, bool, CancellationToken, Task<BackendExportPlan>> _plan;
+    private readonly Func<ProjectFileDocument, string, string, BackendReviewRange?, bool, bool, CancellationToken, Task<BackendExportPlan>> _plan;
     private readonly Func<string, string, CancellationToken, Task> _run;
     private ActiveJob? _active;
     private string? _workingId;
@@ -22,13 +22,14 @@ internal sealed class BackendExportJobs : IDisposable
 
     internal BackendExportJobs(BackendOptions options,
         Func<ProjectFileDocument, string, string, CancellationToken, Task<BackendExportPlan>>? plan = null,
-        Func<string, string, CancellationToken, Task>? run = null)
+        Func<string, string, CancellationToken, Task>? run = null, BackendProxyStore? proxies = null)
     {
         _storage = new(() => new BackendExportStorage(options));
-        _plan = (document, profile, directory, range, animatic, token) => range is null && !animatic && plan is not null
+        _plan = (document, profile, directory, range, animatic, working, token) => range is null && !animatic && plan is not null
             ? plan(document, profile, directory, token)
             : BackendExportPlan.CreateAsync(document.Project, document.Fingerprint, profile, directory,
-                new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range, animatic);
+                new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range, animatic,
+                proxies: working && !animatic ? proxies : null);
         _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options.ConfigPath, directory, sha, token));
     }
 
@@ -58,7 +59,7 @@ internal sealed class BackendExportJobs : IDisposable
             {
                 if (Directory.Exists(storage.Check(directory))) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range, animatic);
                 var baseline = await observe(scope.Token).ConfigureAwait(false);
-                var plan = await _plan(baseline, profile, directory, range, animatic, scope.Token).ConfigureAwait(false);
+                var plan = await _plan(baseline, profile, directory, range, animatic, working, scope.Token).ConfigureAwait(false);
                 if (plan.Request.Length is < 1 or > MaxRequestBytes || plan.Frames <= 0 || !double.IsFinite(plan.Fps) || plan.Fps <= 0)
                     throw new BackendExportException("invalid_export");
                 await observe(scope.Token).ConfigureAwait(false);
@@ -93,7 +94,7 @@ internal sealed class BackendExportJobs : IDisposable
         if (!ValidProfile(profile)) throw new BackendExportException("invalid_export");
         var directory = _storage.Value.JobDirectory("export-00000000000000000000000000000000");
         var baseline = await observe(token).ConfigureAwait(false);
-        var plan = await _plan(baseline, profile, directory, null, false, token).ConfigureAwait(false);
+        var plan = await _plan(baseline, profile, directory, null, false, false, token).ConfigureAwait(false);
         if (plan.Request.Length is < 1 or > MaxRequestBytes) throw new BackendExportException("invalid_export");
         await observe(token).ConfigureAwait(false);
         return new() { JobJson = JsonSerializer.Serialize(new BackendExportCheck(baseline.Project.Revision,
