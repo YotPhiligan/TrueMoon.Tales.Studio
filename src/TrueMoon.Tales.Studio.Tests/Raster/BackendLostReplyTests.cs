@@ -79,6 +79,15 @@ public sealed class BackendLostReplyTests
         public Task<BackendMediaReply> FrameAsync(string key, string id, int frame, long revision, string hash, CancellationToken cancellationToken = default) => inner.FrameAsync(key, id, frame, revision, hash, cancellationToken);
         public Task<BackendMediaReply> TakePairFrameAsync(string key, string source, string final, bool draft, int frame, long revision, string hash,
             CancellationToken cancellationToken = default) => inner.TakePairFrameAsync(key, source, final, draft, frame, revision, hash, cancellationToken);
+        public Task<BackendPreparationReply> PrepareFullTransferAsync(string key, string json, long revision, string hash,
+            CancellationToken cancellationToken = default) => inner.PrepareFullTransferAsync(key, json, revision, hash, cancellationToken);
+        public Task<BackendPreparationReply> FullTransferJobAsync(string key, string id, string? request, long revision, string hash,
+            CancellationToken cancellationToken = default) => inner.FullTransferJobAsync(key, id, request, revision, hash, cancellationToken);
+        public Task<BackendPreparationReply> FullTransferRunAsync(string key, string id, string request, string operation,
+            long revision, string hash, CancellationToken cancellationToken = default) =>
+            inner.FullTransferRunAsync(key, id, request, operation, revision, hash, cancellationToken);
+        public Task<BackendProjectReply> CollectFullTransferAsync(string key, string id, string request, long revision, string hash,
+            CancellationToken cancellationToken = default) => inner.CollectFullTransferAsync(key, id, request, revision, hash, cancellationToken);
         public Task<BackendMediaReply> StoryboardStillAsync(string key, string segment, string action, long revision, string hash, CancellationToken cancellationToken = default) => inner.StoryboardStillAsync(key, segment, action, revision, hash, cancellationToken);
         internal int MoveCalls;
         public Task<BackendIdentity> HelloAsync(string key, CancellationToken cancellationToken = default) => inner.HelloAsync(key, cancellationToken);

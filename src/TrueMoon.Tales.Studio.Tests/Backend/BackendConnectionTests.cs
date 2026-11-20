@@ -97,6 +97,14 @@ public sealed class BackendConnectionTests
         public Task<BackendMediaReply> FrameAsync(string key, string id, int frame, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendMediaReply> TakePairFrameAsync(string key, string source, string final, bool draft, int frame, long revision, string hash,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendPreparationReply> PrepareFullTransferAsync(string key, string json, long revision, string hash,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendPreparationReply> FullTransferJobAsync(string key, string id, string? request, long revision, string hash,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendPreparationReply> FullTransferRunAsync(string key, string id, string request, string operation,
+            long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendProjectReply> CollectFullTransferAsync(string key, string id, string request, long revision, string hash,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendMediaReply> StoryboardStillAsync(string key, string segment, string action, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> AcquireWriterAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> MigrateProjectAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();

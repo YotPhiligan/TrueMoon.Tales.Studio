@@ -39,7 +39,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private string? _segmentId, _actionId, _sourceId, _takeId, _clipId;
 
     internal bool Busy => _pending is not null;
-    internal bool HasDraft => _draft is not null;
+    internal bool HasDraft => _draft is not null || _transferDraft is not null;
     internal string Status => _status.Value;
     internal Action? ReturnToMontage { get; set; }
     private ScenarioSegmentContract? Segment => _baseline?.Project.Segments.FirstOrDefault(row => row.Id == _segmentId);
@@ -93,7 +93,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
             Caption("Клипы действия"), _clips, _link, _place, _assign);
         var find = ButtonFor("Найти", () => { _query = _search.Value.Trim(); RefreshLists(); });
         _library = Stack(new StudioHeading(_search, find), Row(_import, _addTake),
-            _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink, CreateTakePairPanel(),
+            _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink, CreateTakePairPanel(), CreateTransferPanel(),
             new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB),
             new FramePair(_first.Content, _second.Content));
         _browser = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 420 };
@@ -221,6 +221,22 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "take_pair_recorded" => "Связь этого финала уже записана. Для другого варианта добавьте новый дубль.",
                 "take_pair_timing" => "Для Full Transfer оба дубля должны иметь 24 кадра/с и одинаковое число кадров.",
                 "take_pair_changed" => "Видео отличается от записанной версии. Для сравнения нужен исходный файл.",
+                "invalid_transfer" => "Проверьте черновик, роли изображений, Guide 0 и поля Full Transfer.",
+                "transfer_timing" => "Нужен MP4 на 24 кадра/с с длительностью Omni.v2, от 56 до 192 кадров по сетке 17k+5.",
+                "transfer_invalid_profile" => "Проверьте шесть разделов промпта, метки Picture и Video 1 и длительность MP4.",
+                "transfer_prompt_sound" => "Для Full Transfer оба звуковых раздела должны содержать N/A.",
+                "transfer_unavailable" or "transfer_worker_failed" => "Проверьте Python с PyAV, путь ComfyUI и файлы моделей Omni.v2.",
+                "transfer_missing" => "Один из входов Full Transfer отсутствует.",
+                "transfer_timeout" => "Операция Full Transfer остановилась по таймауту. Проверьте входы и попробуйте ещё раз.",
+                "transfer_input_changed" => "Вход изменился. Сверьте черновик и опоры перед подготовкой.",
+                "transfer_interrupted" or "transfer_key_conflict" => "У этой попытки уже есть файлы. Откройте форму заново для нового задания.",
+                "transfer_damaged" => "Файлы подготовки не прошли проверку SHA.",
+                "transfer_stage_path_changed" => "Путь входа или каталог ComfyUI изменился. Подготовьте задание заново.",
+                "transfer_stage_conflict" => "Файл с таким именем в ComfyUI/input имеет другое содержимое. Он сохранён.",
+                "transfer_not_staged" => "Сначала скопируйте и проверьте все входы Full Transfer.",
+                "transfer_already_launched" => "У задания уже была попытка запуска. Обновите статус или подготовьте новое задание.",
+                "transfer_run_busy" => "Другой Full Transfer выполняется в этой Studio.",
+                "transfer_run_incomplete" => "Финальный MP4 ещё не готов к сохранению.",
                 "invalid_scenario_edit" => "Проверьте поля и выбранные связи.",
                 _ => error.Message
             }, error: true);
@@ -248,7 +264,9 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
 
     private void Save()
     {
-        if (_draft is null || _baseline is not { } baseline || _stale || Busy) return;
+        if (_baseline is not { } baseline || _stale || Busy) return;
+        if (_transferDraft is not null) { PrepareTransfer(baseline); return; }
+        if (_draft is null) return;
         ScenarioCommand command;
         try { command = _draft(); }
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
@@ -343,6 +361,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         ShowPane(_pane ?? (bound is null ? Pane.Library : Pane.Chapter));
         _sourceInfo.Value = Take?.VideoAssetId is { } asset ? ShortReference(BackendScenarioEdit.TryReference(project, asset) ?? "Файл не указан") : "";
         RefreshTakePairs();
+        RefreshTransfer();
         RefreshReferences(project);
         RefreshCommands();
     }
@@ -375,6 +394,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _relink.IsEnabled = _frameA.IsEnabled = _frameB.IsEnabled = ready && video;
         _linkTakePair.IsEnabled = ready && _baseline?.SchemaVersion == 2;
         _compareTakePair.IsEnabled = ready && _takePair is not null;
+        _openTransfer.IsEnabled = ready && _baseline?.SchemaVersion == 2;
+        _inspectTransfer.IsEnabled = _stageTransfer.IsEnabled = _openTransfer.IsEnabled;
+        _launchTransfer.IsEnabled = _refreshTransferRun.IsEnabled = _stopTransfer.IsEnabled = _collectTransfer.IsEnabled = _openTransfer.IsEnabled;
+        _transferId.IsEnabled = _openTransfer.IsEnabled;
         RefreshReferenceCommands(ready && _baseline?.SchemaVersion == 2);
     }
 

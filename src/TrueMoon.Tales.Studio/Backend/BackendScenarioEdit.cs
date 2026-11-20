@@ -206,7 +206,7 @@ internal static class BackendScenarioEdit
             throw new ScenarioEditException("scenario_source_range");
     }
 
-    private static ProjectContract SetReference(ProjectContract project, string assetId, string reference)
+    internal static ProjectContract SetReference(ProjectContract project, string assetId, string reference)
     {
         var assets = project.Properties.TryGetValue("assets", out var current)
             ? JsonNode.Parse(current.GetRawText()) as JsonObject ?? throw Invalid() : new JsonObject();

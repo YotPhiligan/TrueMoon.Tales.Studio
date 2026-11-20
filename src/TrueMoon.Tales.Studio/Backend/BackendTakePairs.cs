@@ -48,13 +48,18 @@ internal static class BackendTakePairs
         var b = await reader.SnapshotTakeAsync(project, final, token).ConfigureAwait(false);
         if (a.Sha256 == b.Sha256) throw Invalid();
         if (edit.Method == FullTransfer && !TransferGrid(a, b)) throw new ScenarioEditException("take_pair_timing");
-        var properties = new Dictionary<string, JsonElement>(final.Properties)
-        {
-            [Key] = JsonSerializer.SerializeToElement(new DraftFinalPair(edit.Method, a, b), BackendAdaptation.Json)
-        };
-        var updated = source with { Takes = source.Takes.Select(row => row.Id == final.Id ? row with { Properties = properties } : row).ToArray() };
+        var recorded = WithPair(final, new DraftFinalPair(edit.Method, a, b));
+        var updated = source with { Takes = source.Takes.Select(row => row.Id == final.Id ? recorded : row).ToArray() };
         return project with { Sources = project.Sources.Select(row => row.Id == source.Id ? updated : row).ToArray() };
     }
+
+    internal static TakeContract WithPair(TakeContract take, DraftFinalPair pair) => take with
+    {
+        Properties = new Dictionary<string, JsonElement>(take.Properties)
+        {
+            [Key] = JsonSerializer.SerializeToElement(pair, BackendAdaptation.Json)
+        }
+    };
 
     internal static (TakeVideoSnapshot Sample, int Frame) Frame(ProjectContract project, string sourceId, string finalTakeId, bool draft, int finalFrame)
     {

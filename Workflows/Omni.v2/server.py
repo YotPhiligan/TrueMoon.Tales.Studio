@@ -12,7 +12,7 @@ for name in ("output", "temp", "user"):
     (RESULT / name).mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(COMFY))
 os.chdir(COMFY)
-sys.argv = [str(COMFY / "main.py"), "--listen", "127.0.0.1", "--port", "8199",
+sys.argv = [str(COMFY / "main.py"), "--listen", "127.0.0.1", "--port", os.environ.get("TMT_OMNI2_PORT", "8199"),
     "--windows-standalone-build", "--use-sage-attention", "--fast", "fp16_accumulation",
     "--disable-auto-launch", "--disable-all-custom-nodes", "--offline", "--disable-assets",
     "--input-directory", str(COMFY / "input"),
@@ -149,6 +149,9 @@ def install_http(module):
         persist()
         @web.middleware
         async def guard(request, handler):
+            owner = os.environ.get('TMT_OMNI2_OWNER')
+            if owner and request.headers.get('X-Studio-Owner') != owner:
+                return web.json_response({'error': 'Owned Studio server'}, status=403)
             if request.method != 'POST' or request.path not in ['/prompt','/api/prompt']:
                 return await handler(request)
             payload = await request.json()

@@ -136,6 +136,29 @@ public interface IStudioBackend
     Task<BackendMediaReply> TakePairFrameAsync(string sessionKey, string sourceId, string finalTakeId, bool draft, int finalFrame,
         long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
 
+    /// <summary>Builds and verifies a CPU-only Omni.v2 Full Transfer preview.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="formJson">Source, draft and authored profile inputs.</param>
+    /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>
+    /// <param name="cancellationToken">Caller deadline.</param><returns>Prepared receipt or classified refusal.</returns>
+    Task<BackendPreparationReply> PrepareFullTransferAsync(string sessionKey, string formJson, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Opens a Full Transfer receipt or explicitly copies its inputs.</summary>
+    /// <param name="sessionKey">Launch capability.</param><param name="jobId">Prepared job identifier.</param>
+    /// <param name="expectedRequestSha">Request SHA for staging, or null for read-only inspection.</param>
+    /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>
+    /// <param name="cancellationToken">Caller deadline.</param><returns>Verified job state or classified refusal.</returns>
+    Task<BackendPreparationReply> FullTransferJobAsync(string sessionKey, string jobId, string? expectedRequestSha,
+        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads, explicitly launches or stops a single staged Full Transfer job.</summary>
+    Task<BackendPreparationReply> FullTransferRunAsync(string sessionKey, string jobId, string requestSha, string operation,
+        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Registers the verified result as a new take with its original draft provenance.</summary>
+    Task<BackendProjectReply> CollectFullTransferAsync(string sessionKey, string jobId, string requestSha, long expectedRevision,
+        string fingerprint, CancellationToken cancellationToken = default);
+
     /// <summary>Returns the assigned storyboard still for a saved action through the bounded frame envelope.</summary>
     Task<BackendMediaReply> StoryboardStillAsync(string sessionKey, string segmentId, string actionId, long expectedRevision,
         string fingerprint, CancellationToken cancellationToken = default);

@@ -84,6 +84,41 @@
   `source_sha256` и SHA пикселей. Если файл изменился, возвращается
   `take_pair_changed`. Для прямой генерации кадр черновика выбирается по
   времени финала, по окончании черновика показывается последний кадр.
+- Enerit protocol21 добавляет `PrepareFullTransferAsync`. Команда принимает
+  ожидаемые ревизию, SHA проекта и JSON с `client_key` (32 строчные hex-цифры),
+  `source_id`, `draft_take_id`, `seed` (`uint64`), `prompt`, `images`
+  (`reference` и `role`), `guide_picture`, `motion_role`, `motion_notes`.
+  Длина результата следует из 24 fps черновика на сетке 17k+5, от 56 до
+  192 кадров. Допускается 1–8 PNG/JPEG из разрешённых `@mount`, один Guide 0.
+  Writer публикует `Prepared.json` только после проверки входов, графов и
+  снимка. Повтор того же ключа со снимком и входами возвращает прежний ответ.
+  Изменение запроса даёт `transfer_key_conflict`, повреждение графа или
+  конфигурации — `transfer_damaged`. Ответ содержит SHA черновика, запроса,
+  конфигурации и Build, а также `staged: false`, `enqueued: false`.
+  Проектная ревизия и история записи не меняются.
+- Enerit protocol22 добавляет `FullTransferJobAsync` для текущего проекта.
+  `jobId` состоит из `ft-` и 32 строчных hex-цифр. При `expectedRequestSha: null`
+  возвращается проверенная квитанция по сохранённому снимку. Указанный SHA
+  включает staging под текущим writer. Повтор команды сверяет содержимое
+  и копирует только отсутствующие входы, `transfer_stage_conflict` сохраняет
+  файл с другим SHA. Смена разрешённого пути даёт `transfer_stage_path_changed`.
+  После проверки `Staged.json` фиксирует `state: staged`, `staged: true`,
+  `enqueued: false`. `Prepared.json`, графы Preview и ревизия проекта сохранены.
+- Enerit protocol23 добавляет `FullTransferRunAsync` с операциями
+  `status`, `launch`, `stop` и `CollectFullTransferAsync`. Обе команды
+  сверяют ID задания и SHA запроса. Запуск сверяет точную ревизию и SHA
+  первоначального снимка и наличие всех staged-файлов. `Run/Launch.json`
+  фиксирует SHA манифеста запуска до старта worker. Повторный запуск того
+  же ID отклоняется с `transfer_already_launched`.
+- Статус возвращает `prepared`, `staged`, `running`, `stopping`,
+  `cancelled`, `timed_out`, `interrupted`, `failed` или `completed`.
+  В `completed` возвращается записанный SHA MP4. После потери backend
+  сохраняются проверяемый завершённый результат либо `interrupted`, если
+  есть только запуск. Команды статуса и открытия не отправляют граф.
+- Сохранение сверяет текущие ревизию и SHA под writer, проверяет исходный
+  черновик и SHA готового MP4 и добавляет дубль с постоянным ID в тот же
+  источник. Монтажное назначение не меняется. Повтор той же регистрации
+  с актуальной ревизией не добавляет новую запись истории.
 
 - POST /api/backend/v1/media-info: asset_id, expected_revision, fingerprint.
 - POST /api/backend/v1/frame: те же обязательные поля и frame>=0.

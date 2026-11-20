@@ -190,6 +190,11 @@ internal sealed partial class ScenarioWorkspace
     private void Form(string title, IEnumerable<Element> fields, Func<ScenarioCommand> draft, Func<AdaptationText?>? chapterBinding = null)
     {
         _draft = draft;
+        ShowForm(title, fields, chapterBinding);
+    }
+
+    private void ShowForm(string title, IEnumerable<Element> fields, Func<AdaptationText?>? chapterBinding = null)
+    {
         var editor = ScrollViewer.Create().Content(Inset(Stack([Caption(title), .. fields])));
         if (chapterBinding is null) _body.SetContent(editor);
         else
@@ -216,6 +221,8 @@ internal sealed partial class ScenarioWorkspace
         _body.SetContent(_browser);
         form.Dispose();
         _draft = null;
+        _transferDraft = null;
+        _commit.Value = "Сохранить";
         _refreshDraftChapter = null;
         Show("");
         RefreshLists();

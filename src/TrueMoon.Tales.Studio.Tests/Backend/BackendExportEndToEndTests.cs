@@ -927,6 +927,343 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
+    public async Task FullTransfer_FromRaster_StagesRunsStopsRecoversAndRegistersAtMostOnce()
+    {
+        TrueMoon.Alloy.Rendering.Skia.SkiaNativeLibrary.Initialize();
+        using var files = new ExportFixture();
+        await files.PrepareAsync(fullTransfer: true);
+        const string video = "Черновик.mp4";
+        await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+            ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=blue:s=160x120:r=24", "-frames:v", "56",
+             "-threads", "1", "-n", files.MediaPath(video)], 2048);
+        foreach (var name in new[] { "1.png", "2.png" })
+            await BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=160x120", "-frames:v", "1",
+                 "-threads", "1", "-n", files.MediaPath(name)], 2048);
+        var exe = await files.PrepareTransferWorkerFixtureAsync();
+        await using var session = await files.OpenAsync(workspace: true, executable: exe);
+        var api = session.Connection;
+        var previous = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = previous.Project.Sources.First();
+        var baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "PV · черновик", "@videos/" + video), previous);
+        var draft = baseline.Project.Sources.First().Takes.Last();
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var jobs = Path.Combine(Path.GetDirectoryName(files.ProjectPath)!, "Production", "FullTransfer.v1");
+        var prompt = "subject_definitions: <Picture 1> is the room. <Picture 2> is the opening. <Video 1> supplies motion.\n" +
+            "summary: Follow the selected motion.\nretention_analysis: Keep Picture roles.\ndetailed_description: One continuous shot.\n" +
+            "overall_soundscape: N/A\n\nnon_diegetic_music: N/A";
+        var request = new FullTransferForm(new('a', 32), source.Id, draft.Id, ulong.MaxValue, prompt,
+            [new("@videos/1.png", "Комната"), new("@videos/2.png", "Первый кадр")], 2, "Ритм", "Пауза и поворот.");
+        await Refused(request, previous, "revision_conflict");
+        await Refused(request with { DraftTakeId = source.Takes[0].Id }, baseline, "transfer_timing");
+        await Refused(request with { Images = [new("@videos/../Production/1.png", "Вне корня")], GuidePicture = 1 }, baseline, "access_denied");
+        Assert.False(Directory.Exists(jobs));
+
+        using var firstHost = Workspace(session);
+        var host = firstHost;
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+        var scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+        host.PumpUntil(() => !scenario.NeedsFrame);
+        Click("Библиотека");
+        Click("PV · черновик");
+        Click("Подготовить Full Transfer");
+        Assert.True(scenario.HasDraft);
+        Click("Добавить Picture");
+        Fill("Picture 1 · файл из @mount", "@videos/1.png");
+        Fill("Picture 1 · роль", "Комната");
+        Fill("Picture 2 · файл из @mount", "@videos/2.png");
+        Fill("Picture 2 · роль", "Первый кадр");
+        Fill("Seed", ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Fill("Picture для Guide 0", "2");
+        Fill("Роль Video 1", "Ритм");
+        Fill("Фазы движения Video 1", "Пауза и поворот.");
+        Click("Подготовить");
+        Assert.True(scenario.HasDraft);
+        Assert.Contains("Проверьте шесть разделов", scenario.Status);
+        Assert.Empty(Directory.GetDirectories(jobs));
+        Fill("Промпт Ref2VA", prompt);
+        Click("Подготовить");
+        Assert.False(scenario.HasDraft, scenario.Status);
+        Assert.Contains("без постановки в очередь", scenario.Status);
+        var job = Assert.Single(Directory.GetDirectories(jobs));
+        var receipt = JsonSerializer.Deserialize<FullTransferReceipt>(File.ReadAllBytes(Path.Combine(job, "Prepared.json")), BackendAdaptation.Json)!;
+        var recorded = JsonSerializer.Deserialize<FullTransferRequest>(File.ReadAllBytes(Path.Combine(job, "Request.json")), BackendAdaptation.Json)!;
+        Assert.Equal((56, 24, 1280, 736, false, false), (receipt.Frames, receipt.Fps, receipt.Width, receipt.Height, receipt.Staged, receipt.Enqueued));
+        Assert.Equal(Hash(File.ReadAllBytes(files.MediaPath(video))), receipt.DraftSha256);
+        Assert.Equal((baseline.Project.Revision, baseline.Fingerprint, draft.Id, ulong.MaxValue),
+            (recorded.Revision, recorded.Fingerprint, recorded.Draft.TakeId, recorded.Form.Seed));
+        var preview = Path.Combine(job, "Preview");
+        using var graph = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(preview, "Prepared.api.json")));
+        Assert.Equal("1002", graph.RootElement.GetProperty("170").GetProperty("inputs").GetProperty("image")[0].GetString());
+        Assert.Equal("172", graph.RootElement.GetProperty("136").GetProperty("inputs").GetProperty("ref_videos.ref_video_0")[0].GetString());
+        Assert.Equal(ulong.MaxValue, graph.RootElement.GetProperty("129").GetProperty("inputs").GetProperty("noise_seed").GetUInt64());
+        Assert.Equal(receipt.BuildSha256, Hash(File.ReadAllBytes(Path.Combine(preview, "Build.json"))));
+        Assert.Equal(receipt, api.PrepareFullTransferAsync(recorded.Form, baseline, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Equal("transfer_key_conflict", Assert.Throws<BackendCommandException>(() => api.PrepareFullTransferAsync(
+            recorded.Form with { MotionNotes = "Другая попытка." }, baseline, CancellationToken.None).GetAwaiter().GetResult()).Code);
+        var config = Path.Combine(job, "Prepare.config.json");
+        var originalConfig = File.ReadAllBytes(config);
+        File.AppendAllText(config, " ");
+        try
+        {
+            Assert.Equal("transfer_damaged", Assert.Throws<BackendCommandException>(() =>
+                api.PrepareFullTransferAsync(recorded.Form, baseline, CancellationToken.None).GetAwaiter().GetResult()).Code);
+        }
+        finally { File.WriteAllBytes(config, originalConfig); }
+        Assert.Equal("keep", File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input")))));
+        Assert.Empty(Directory.GetFiles(job, "*Submission*", SearchOption.AllDirectories));
+        files.AssertProject(bytes, history);
+        host.Capture("full-transfer-prepared", new { receipt.Id, receipt.Frames, receipt.DraftSha256 });
+
+        var buildPath = Path.Combine(preview, "Build.json");
+        var previewBytes = File.ReadAllBytes(buildPath);
+        using var build = JsonDocument.Parse(previewBytes);
+        var targets = build.RootElement.GetProperty("source_input_hashes").EnumerateArray().Select(row =>
+            (Source: row.GetProperty("Source").GetString()!, Target: row.GetProperty("Target").GetString()!,
+             Sha: row.GetProperty("SHA256").GetString()!)).ToArray();
+        var marker = Path.Combine(job, "Staged.json");
+        Click("Открыть задание");
+        Assert.Contains("Задание Full Transfer открыто", scenario.Status);
+        Assert.False(File.Exists(marker));
+        Assert.Equal("transfer_not_staged", RejectRun(receipt, baseline, "launch"));
+        Assert.False(Directory.Exists(Path.Combine(job, "Run")));
+        Assert.Single(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input")));
+        Assert.Equal("revision_conflict", RejectJob(receipt.RequestSha256, previous));
+        Assert.Equal("transfer_key_conflict", RejectJob(new('0', 64), baseline));
+        var originalImage = File.ReadAllBytes(targets[1].Source);
+        File.AppendAllText(targets[1].Source, "substitute");
+        try { Assert.Equal("transfer_input_changed", RejectJob(receipt.RequestSha256, baseline)); }
+        finally { File.WriteAllBytes(targets[1].Source, originalImage); }
+        Assert.All(targets, row => Assert.False(File.Exists(row.Target)));
+
+        File.Copy(targets[0].Source, targets[0].Target);
+        File.WriteAllText(targets[^1].Target, "foreign-content");
+        Click("Скопировать входы Full Transfer");
+        Assert.Contains("другое содержимое", scenario.Status);
+        Assert.Equal("foreign-content", File.ReadAllText(targets[^1].Target));
+        Assert.False(File.Exists(targets[1].Target));
+        Assert.False(File.Exists(marker));
+        File.Delete(targets[^1].Target);
+        Click("Скопировать входы Full Transfer");
+        Assert.Contains("без постановки в очередь", scenario.Status);
+        var staged = receipt with { State = "staged", Staged = true };
+        Assert.Equal(staged, api.FullTransferJobAsync(receipt.Id, null, baseline, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Equal(staged, api.FullTransferJobAsync(receipt.Id, receipt.RequestSha256, baseline, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.All(targets, row => Assert.Equal(row.Sha, Hash(File.ReadAllBytes(row.Target)), ignoreCase: true));
+        var markerBytes = File.ReadAllBytes(marker);
+        File.Delete(targets[^1].Target);
+        Click("Скопировать входы Full Transfer");
+        Assert.Equal(targets[^1].Sha, Hash(File.ReadAllBytes(targets[^1].Target)), ignoreCase: true);
+        Assert.Equal(markerBytes, File.ReadAllBytes(marker));
+        Assert.Equal(previewBytes, File.ReadAllBytes(buildPath));
+        Assert.Equal(receipt, api.PrepareFullTransferAsync(recorded.Form, baseline, CancellationToken.None).GetAwaiter().GetResult());
+        Assert.Empty(Directory.GetFiles(job, "*Submission*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input"), "*.pending"));
+        files.AssertProject(bytes, history);
+        host.Capture("full-transfer-inputs-staged", new { receipt.Id, inputCount = targets.Length });
+
+        File.Delete(targets[0].Target);
+        Assert.Equal("transfer_not_staged", RejectRun(receipt, baseline, "launch"));
+        Assert.False(File.Exists(targets[0].Target));
+        Click("Скопировать входы Full Transfer");
+        var apiGraph = Path.Combine(preview, "Prepared.api.json");
+        var originalGraph = File.ReadAllBytes(apiGraph);
+        File.AppendAllText(apiGraph, " ");
+        try { Assert.Equal("transfer_damaged", RejectRun(receipt, baseline, "launch")); }
+        finally { File.WriteAllBytes(apiGraph, originalGraph); }
+        Assert.False(Directory.Exists(Path.Combine(job, "Run")));
+
+        var cancelled = StageOther('b', 1);
+        var badEnvironment = StageOther('c', 2);
+        var interrupted = StageOther('d', 1);
+        var cancelledDir = Path.Combine(jobs, cancelled.Id, "Run");
+        Assert.Equal("running", Run(cancelled, baseline, "launch").State);
+        Eventually(() => File.Exists(Path.Combine(cancelledDir, "FixtureDriver.pid")), cancelledDir).GetAwaiter().GetResult();
+        using var stoppedDriver = OwnerProcess(cancelledDir, "FixtureDriver.pid");
+        using var stoppedServer = OwnerProcess(cancelledDir, "server.pid");
+        Assert.Equal("transfer_run_busy", RejectRun(receipt, baseline, "launch"));
+        Fill("ID задания Full Transfer", cancelled.Id);
+        Click("Открыть задание");
+        Click("Остановить Full Transfer");
+        Assert.Contains("Запуск остановлен", scenario.Status);
+        Task.WhenAll(stoppedDriver.WaitForExitAsync(), stoppedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+        Assert.True(stoppedDriver.HasExited && stoppedServer.HasExited);
+        Assert.Equal("transfer_already_launched", RejectRun(cancelled, baseline, "launch"));
+        Assert.False(File.Exists(Path.Combine(cancelledDir, "Completed.json")));
+
+        var model = Directory.GetFiles(Path.Combine(files.ComfyRoot, "models"), "*.safetensors", SearchOption.AllDirectories).First();
+        var modelStamp = File.GetLastWriteTimeUtc(model);
+        var badRun = Path.Combine(jobs, badEnvironment.Id, "Run");
+        File.SetLastWriteTimeUtc(model, modelStamp.AddMinutes(5));
+        try
+        {
+            Run(badEnvironment, baseline, "launch");
+            Eventually(() => Run(badEnvironment, baseline, "status").State == "failed", badRun).GetAwaiter().GetResult();
+            Assert.Contains("Model metadata changed", File.ReadAllText(Path.Combine(badRun, "Runner.failure.log")));
+            Assert.False(File.Exists(Path.Combine(badRun, "server.pid")));
+            Assert.False(File.Exists(Path.Combine(badRun, "Submission.claim")));
+        }
+        finally { File.SetLastWriteTimeUtc(model, modelStamp); }
+
+        Fill("ID задания Full Transfer", receipt.Id);
+        Click("Открыть задание");
+        Click("Запустить Full Transfer на GPU");
+        var runDir = Path.Combine(job, "Run");
+        Eventually(() => Run(receipt, baseline, "status").State == "completed", runDir).GetAwaiter().GetResult();
+        Click("Обновить статус Full Transfer");
+        Assert.Contains("MP4 проверен", scenario.Status);
+        var resultPath = Path.Combine(runDir, "output", "Final.mp4");
+        var outputHash = Hash(File.ReadAllBytes(resultPath));
+        var completed = Run(receipt, baseline, "status");
+        Assert.Equal(outputHash, completed.OutputSha256, ignoreCase: true);
+        Assert.Equal("transfer_already_launched", RejectRun(receipt, baseline, "launch"));
+        Assert.Single(Directory.GetFiles(runDir, "Submission.claim"));
+        Assert.Equal(markerBytes, File.ReadAllBytes(marker));
+        Assert.Equal(previewBytes, File.ReadAllBytes(buildPath));
+        files.AssertProject(bytes, history);
+        host.Capture("full-transfer-run-completed", new { receipt.Id, outputHash });
+
+        var otherRun = Path.Combine(jobs, interrupted.Id, "Run");
+        Run(interrupted, baseline, "launch");
+        Eventually(() => File.Exists(Path.Combine(otherRun, "FixtureDriver.pid")), otherRun).GetAwaiter().GetResult();
+        using var interruptedDriver = OwnerProcess(otherRun, "FixtureDriver.pid");
+        using var interruptedServer = OwnerProcess(otherRun, "server.pid");
+        using (var backend = System.Diagnostics.Process.GetProcessById(baseline.Identity.ProcessId))
+        {
+            Assert.Equal(exe, backend.MainModule!.FileName, ignoreCase: true);
+            backend.Kill();
+            backend.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+        }
+        Task.WhenAll(interruptedDriver.WaitForExitAsync(), interruptedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+        var reopened = files.OpenAsync(workspace: true, executable: exe).GetAwaiter().GetResult();
+        try { VerifyRecoveryAndCollect(reopened); }
+        finally { reopened.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+
+        void VerifyRecoveryAndCollect(ExportSession recovered)
+        {
+            var connection = recovered.Connection;
+            var current = connection.AcquireWriterAsync(connection.OpenAsync().GetAwaiter().GetResult()).GetAwaiter().GetResult();
+            Assert.Equal("interrupted", connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "status",
+                current, CancellationToken.None).GetAwaiter().GetResult().State);
+            Assert.Equal("transfer_already_launched", Assert.Throws<BackendCommandException>(() =>
+                connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "launch", current, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            Assert.Single(Directory.GetFiles(otherRun, "Submission.claim"));
+            Assert.Equal(completed, connection.FullTransferRunAsync(receipt.Id, receipt.RequestSha256, "status", current, CancellationToken.None).GetAwaiter().GetResult());
+            Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+                connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, previous, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            var originalMp4 = File.ReadAllBytes(resultPath);
+            try
+            {
+                originalMp4[^1] ^= 1;
+                File.WriteAllBytes(resultPath, originalMp4);
+                Assert.Equal("transfer_damaged", Assert.Throws<BackendCommandException>(() =>
+                    connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, current, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            }
+            finally
+            {
+                originalMp4[^1] ^= 1;
+                File.WriteAllBytes(resultPath, originalMp4);
+            }
+            files.AssertProject(bytes, history);
+            using var collectHost = Workspace(recovered);
+            host = collectHost;
+            Ready(host, recovered.App.Services.Resolve<SceneViewModel>()!);
+            host.Click(ButtonIn(host.Window.Navigation, "Сценарий и материалы"));
+            scenario = Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<ScenarioWorkspace>());
+            host.PumpUntil(() => !scenario.NeedsFrame);
+            Click("Библиотека");
+            Click("PV · черновик");
+            Fill("ID задания Full Transfer", receipt.Id);
+            Click("Открыть задание");
+            Click("Сохранить финальный дубль");
+            Assert.Contains("Финальный дубль сохранён", scenario.Status);
+            var written = connection.OpenAsync().GetAwaiter().GetResult();
+            Assert.Equal(current.Project.Revision + 1, written.Project.Revision);
+            Assert.Equal(history.Length + 1, files.History().Length);
+            var newTake = Assert.Single(written.Project.Sources.Single(row => row.Id == source.Id).Takes,
+                row => row.Id == BackendFullTransfer.FinalTakeId(receipt.Id));
+            var pair = BackendTakePairs.Read(newTake)!;
+            Assert.Equal(recorded.Draft, pair.Draft);
+            Assert.Equal(outputHash, pair.Final.Sha256);
+            Assert.Equal(current.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)), written.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)));
+            var repeated = connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, written, CancellationToken.None).GetAwaiter().GetResult();
+            Assert.Equal(written.Fingerprint, repeated.Fingerprint);
+            Assert.Equal(history.Length + 1, files.History().Length);
+            host.Capture("full-transfer-final-take", new { receipt.Id, TakeId = newTake.Id, outputHash });
+        }
+
+        FullTransferRunState Run(FullTransferReceipt row, OpenedBackendProject head, string op) =>
+            api.FullTransferRunAsync(row.Id, row.RequestSha256, op, head, CancellationToken.None).GetAwaiter().GetResult();
+        string RejectRun(FullTransferReceipt row, OpenedBackendProject head, string op) =>
+            Assert.Throws<BackendCommandException>(() => Run(row, head, op)).Code;
+        FullTransferReceipt StageOther(char key, ulong seed)
+        {
+            var second = api.PrepareFullTransferAsync(recorded.Form with { ClientKey = new(key, 32), Seed = seed },
+                baseline, CancellationToken.None).GetAwaiter().GetResult();
+            return api.FullTransferJobAsync(second.Id, second.RequestSha256, baseline, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        static async Task Eventually(Func<bool> condition, string directory)
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+            while (!condition())
+            {
+                if (deadline.IsCancellationRequested)
+                {
+                    var logs = Directory.GetFiles(directory, "*.log").Select(path => Path.GetFileName(path) + "\n" + File.ReadAllText(path));
+                    Assert.Fail(string.Join("\n", logs.Prepend(directory)));
+                }
+                await Task.Delay(50);
+            }
+        }
+        static System.Diagnostics.Process OwnerProcess(string directory, string file)
+        {
+            var process = System.Diagnostics.Process.GetProcessById(int.Parse(File.ReadAllText(Path.Combine(directory, file)),
+                System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(Path.GetFullPath(Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!), process.MainModule!.FileName, ignoreCase: true);
+            return process;
+        }
+
+        string RejectJob(string sha, OpenedBackendProject head) => Assert.Throws<BackendCommandException>(() =>
+            api.FullTransferJobAsync(receipt.Id, sha, head, CancellationToken.None).GetAwaiter().GetResult()).Code;
+        async Task Refused(FullTransferForm form, OpenedBackendProject head, string code) =>
+            Assert.Equal(code, (await Assert.ThrowsAsync<BackendCommandException>(() => api.PrepareFullTransferAsync(form, head, CancellationToken.None))).Code);
+        void Click(string label)
+        {
+            var button = ButtonIn(scenario, label);
+            Assert.True(button.IsVisible && button.IsEffectivelyEnabled);
+            Reveal(button);
+            host.Click(button);
+            host.PumpUntil(() => !scenario.NeedsFrame, TimeSpan.FromSeconds(30));
+        }
+        void Fill(string label, string value)
+        {
+            var field = Assert.Single(RasterWindow<SceneView>.Walk(scenario), row => row.AccessibleName == label && row is TextBox or RichTextEditor);
+            Reveal(field);
+            host.Click(field);
+            host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
+            var lines = value.ReplaceLineEndings("\n").Split('\n');
+            for (var index = 0; index < lines.Length; index++)
+            {
+                if (index > 0) host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
+                if (lines[index].Length > 0) host.Input(new(InputKind.Text, Text: lines[index]));
+            }
+            Assert.Equal(value.ReplaceLineEndings("\n"), (field switch
+            {
+                TextBox box => box.Value,
+                RichTextEditor editor => editor.Text,
+                _ => throw new InvalidOperationException()
+            }).ReplaceLineEndings("\n"));
+        }
+        void Reveal(Element control)
+        {
+            for (var node = control.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(control.Bounds); host.Update(); break; }
+        }
+    }
+
+    [BackendMediaFact]
     public async Task TakePairs_FromRaster_RecordFullTransferAndRejectReplacedInput()
     {
         using var files = new ExportFixture();
@@ -2239,6 +2576,7 @@ public sealed class BackendExportEndToEndTests
         private string Exports => Path.Combine(Root, "exports");
         internal string OutputDirectory => Exports;
         private string Media => Path.Combine(Root, "media");
+        internal string ComfyRoot => Path.Combine(Root, "comfy-fixture");
         internal string MediaPath(string name) => Path.Combine(Media, name);
         private static string Ffmpeg => Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
         private static string Ffprobe => Environment.GetEnvironmentVariable("STUDIO_TEST_FFPROBE")!;
@@ -2247,7 +2585,7 @@ public sealed class BackendExportEndToEndTests
         internal string JobDirectory(string id) => Directory.GetDirectories(Exports, id, SearchOption.AllDirectories).Single();
         internal byte[][] History() => Files.Files.HistoryFiles.Order().Select(File.ReadAllBytes).ToArray();
 
-        internal async Task PrepareAsync(bool withTransition = false, bool scenarioOnly = false)
+        internal async Task PrepareAsync(bool withTransition = false, bool scenarioOnly = false, bool fullTransfer = false)
         {
             Directory.CreateDirectory(Media);
             Directory.CreateDirectory(Exports);
@@ -2258,6 +2596,18 @@ public sealed class BackendExportEndToEndTests
             config["python_executable"] = Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON");
             config["ffmpeg_executable"] = Ffmpeg;
             config["ffprobe_executable"] = Ffprobe;
+            if (fullTransfer)
+            {
+                config["comfy_root"] = ComfyRoot;
+                foreach (var model in new[] { "diffusion_models/fasth3_omniref_qad_nvfp4_comfy.safetensors",
+                    "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "vae/minimax_h3_video_vae_fp16.safetensors",
+                    "vae/minimax_h3_audio_vae_fp32.safetensors", "input/Keep.txt" })
+                {
+                    var path = model.StartsWith("input/", StringComparison.Ordinal) ? Path.Combine(ComfyRoot, model) : Path.Combine(ComfyRoot, "models", model);
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.WriteAllText(path, "keep");
+                }
+            }
             File.WriteAllText(Files.Base.ConfigPath, config.ToJsonString());
             if (!scenarioOnly)
             {
@@ -2301,10 +2651,88 @@ public sealed class BackendExportEndToEndTests
              $"sine=frequency={frequency}:sample_rate=48000:duration=2", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264",
              "-c:a", "alac", "-ac", "2", "-threads", "1", "-n", Path.Combine(Media, name)], 4096);
 
-        internal async Task<ExportSession> OpenAsync(bool workspace = false)
+        internal async Task<string> PrepareTransferWorkerFixtureAsync()
+        {
+            var source = BackendWriteFixture.Executable();
+            var directory = Path.GetDirectoryName(source)!;
+            var isolated = Path.Combine(Root, "app");
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                var destination = Path.Combine(isolated, Path.GetRelativePath(directory, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(file, destination);
+            }
+            var helpers = Path.Combine(isolated, "FullTransferWorker");
+            File.WriteAllText(Path.Combine(ComfyRoot, "main.py"), "# Isolated Comfy environment fixture.\n");
+            await BackendTrimFixture.RunAsync(Ffmpeg,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=purple:s=1280x736:r=24",
+                 "-frames:v", "56", "-threads", "1", "-n", Path.Combine(ComfyRoot, "Fixture.mp4")], 2048);
+            await BackendTrimFixture.RunAsync(Ffmpeg,
+                ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=purple:s=1280x736",
+                 "-frames:v", "1", "-threads", "1", "-n", Path.Combine(ComfyRoot, "Fixture.png")], 2048);
+            // Keep the packaged orchestration, ownership, preflight hashes and collector.
+            // Only the native Comfy schema/HTTP/execution processes are simulated in this copy.
+            File.WriteAllText(Path.Combine(helpers, "validate.py"), """
+                import os
+                from pathlib import Path
+                import sys
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from common import verify_job
+                assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
+                verify_job(Path(os.environ["TMT_OMNI2_JOB"]))
+                """);
+            File.WriteAllText(Path.Combine(helpers, "server.py"), """
+                import os
+                from http.server import BaseHTTPRequestHandler, HTTPServer
+
+                class Handler(BaseHTTPRequestHandler):
+                    def do_GET(self):
+                        if self.headers.get("X-Studio-Owner") != os.environ["TMT_OMNI2_OWNER"]:
+                            self.send_error(403)
+                            return
+                        self.send_response(200)
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+
+                HTTPServer(("127.0.0.1", int(os.environ["TMT_OMNI2_PORT"])), Handler).serve_forever()
+                """);
+            File.WriteAllText(Path.Combine(helpers, "driver.py"), """
+                import os
+                from pathlib import Path
+                import shutil
+                import sys
+                import time
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from common import atomic_write, read, verify_job
+
+                job = Path(os.environ["TMT_OMNI2_JOB"])
+                verify_job(job)
+                (job / "Submission.claim").open("x").close()
+                atomic_write(job / "Submission.json", {"submissions": 1})
+                (job / "FixtureDriver.pending").write_text(str(os.getpid()), encoding="ascii")
+                (job / "FixtureDriver.pending").rename(job / "FixtureDriver.pid")
+                if read(job / "Job.json")["seed"] == 1:
+                    time.sleep(60)
+                    raise RuntimeError("Ownership test did not stop the driver")
+                output = job / "output"
+                output.mkdir()
+                shutil.copyfile("Fixture.mp4", output / "Final.mp4")
+                shutil.copyfile("Fixture.png", output / "Last.png")
+                atomic_write(job / "History.json", {
+                    "status": {"status_str": "success", "messages": [
+                        ["execution_start", {"timestamp": 0}], ["execution_success", {"timestamp": 1000}]]},
+                    "outputs": {"92": {"images": [{"filename": "Final.mp4", "subfolder": ""}]},
+                                "202": {"images": [{"filename": "Last.png", "subfolder": ""}]}}})
+                atomic_write(job / "Runtime.json", {"h3_forwards": [{"output_finite": [True]}], "sage_success": 1, "sdpa_calls": 0})
+                atomic_write(job / "Telemetry.summary.json", {"process_rss_peak_bytes": 1024, "device_gpu_peak_MiB": 0})
+                """);
+            return Path.Combine(isolated, Path.GetFileName(source));
+        }
+
+        internal async Task<ExportSession> OpenAsync(bool workspace = false, string? executable = null)
         {
             var options = BackendOptions.Create(Files.Files.ProjectDirectory, Files.Base.ConfigPath) with
-            { WriteEnabled = true, Action = "serve", ExecutablePath = BackendWriteFixture.Executable() };
+            { WriteEnabled = true, Action = "serve", ExecutablePath = executable ?? BackendWriteFixture.Executable() };
             var app = TrueMoon.App.Builder(_ => { }).Setup(context =>
             {
                 context.UseProjectBackend(options, false);

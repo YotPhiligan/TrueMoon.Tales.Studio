@@ -163,7 +163,12 @@ internal sealed partial class StudioBackendService
         _exports.Dispose();
         // Drain a command before relinquishing the session lease, including durable commit completion.
         _gate.Wait();
-        try { _disposed = true; _writer?.Dispose(); _writer = null; }
+        try
+        {
+            _disposed = true;
+            try { _transfers.Dispose(); }
+            finally { _writer?.Dispose(); _writer = null; }
+        }
         finally { _gate.Release(); _mediaGate.Release(); }
     }
     private sealed class WriterRequiredException(string code) : InvalidOperationException(code);

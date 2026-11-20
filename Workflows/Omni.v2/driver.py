@@ -8,11 +8,22 @@ from common import atomic_write, verify_job
 JOB="Run01"
 RESULT = Path(os.environ["TMT_OMNI2_JOB"]).resolve()
 verify_job(RESULT)
-URL = "http://127.0.0.1:8199"
+PORT = int(os.environ.get("TMT_OMNI2_PORT", "8199"))
+URL = f"http://127.0.0.1:{PORT}"
+OWNER = os.environ.get("TMT_OMNI2_OWNER")
+server_pid = int((RESULT / "server.pid").read_text().strip())
+process = psutil.Process(server_pid)
+
 
 def api(path, body=None):
+    headers = {"Content-Type": "application/json"}
+    if OWNER:
+        assert process.is_running() and any(
+            row.status == psutil.CONN_LISTEN and row.laddr.ip == "127.0.0.1" and row.laddr.port == PORT
+            for row in process.net_connections(kind="tcp")), "The owned server is no longer listening"
+        headers["X-Studio-Owner"] = OWNER
     data = None if body is None else json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(URL + path, data=data, headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(URL + path, data=data, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.load(response)
@@ -24,8 +35,6 @@ assert not queue["queue_running"] and not queue["queue_pending"], "Diagnostic qu
 assert not (RESULT / "Submission.json").exists(), "A job has already been submitted; do not duplicate it"
 system = api("/system_stats")
 (RESULT / "System.json").write_text(json.dumps(system, indent=2), encoding="utf-8")
-server_pid = int((RESULT / "server.pid").read_text().strip())
-process = psutil.Process(server_pid)
 assert "server.py" in " ".join(process.cmdline())
 graph = json.loads((RESULT / "Prepared.api.json").read_text(encoding="utf-8"))
 workflow = json.loads((RESULT / "Workflow.ui.json").read_text(encoding="utf-8"))

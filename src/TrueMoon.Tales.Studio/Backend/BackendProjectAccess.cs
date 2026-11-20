@@ -14,6 +14,16 @@ internal sealed class BackendProjectAccess
         new BackendProjectAccess(options.ConfigPath, picker: false, options.WriteEnabled)
             .ForProject(options.ProjectDirectory, options.WriteEnabled);
 
+    internal static void CheckProductionWrite(ProjectStoreOptions project, string path)
+    {
+        path = Path.GetFullPath(path);
+        if (!Within(path, Path.Combine(project.ProjectDirectory, "Production")) ||
+            project.ProtectedRoots.Any(root => Within(path, root)) ||
+            !project.AllowedWriteRoots.Any(root => Within(path, root)))
+            throw new UnauthorizedAccessException("Project production write is not permitted.");
+        BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
+    }
+
     internal BackendProjectAccess(string configPath) : this(configPath, picker: true, write: true) { }
 
     private BackendProjectAccess(string configPath, bool picker, bool write)

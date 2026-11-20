@@ -24,6 +24,11 @@
         <Content Include="../../studio/**/*.py" Link="ExportWorker/studio/%(RecursiveDir)%(Filename)%(Extension)"
                  CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Include="ExportWorker/RunExport.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="../../Workflows/Omni.v2/prepare.py;../../Workflows/Omni.v2/common.py;../../Workflows/Omni.v2/validate.py;../../Workflows/Omni.v2/server.py;../../Workflows/Omni.v2/driver.py;../../Workflows/Omni.v2/collect.py"
+                 Link="FullTransferWorker/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="../../Workflows/Omni.v2/Templates/*.json"
+                 Link="FullTransferWorker/Templates/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+        <Content Include="FullTransferWorker/ManagedRun.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>
