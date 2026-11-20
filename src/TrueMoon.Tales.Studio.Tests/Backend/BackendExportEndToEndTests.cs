@@ -604,19 +604,23 @@ public sealed class BackendExportEndToEndTests
             double error = Math.Sqrt(pcm.Zip(fullPcm, (a, b) => (double)(a - b) * (a - b)).Average());
             Assert.InRange(error, 0, .018);
             Assert.Contains(pcm, sample => Math.Abs(sample) > .02f);
+            Assert.Equal(pcm.AsSpan(5 * 4000).ToArray(), Audio(reviewKey, start, end - start, 5));
+            Assert.Equal(fullPcm.AsSpan(5 * 4000).ToArray(), Audio(exportKey, 0, export.Frames, 24).AsSpan(0, (end - 24) * 4000).ToArray());
             files.AssertProject(bytes, history);
 
-            float[] Audio(string key, int origin, int length)
+            float[] Audio(string key, int origin, int length, int? reviewOffset = null)
             {
                 var scene = new BackendRenderedMontage(key, origin, length, 24, (int)head.Project.Revision, head.Fingerprint).Scene();
-                var stream = connection.OpenPlaybackAsync(scene, "audio", 0, CancellationToken.None).GetAwaiter().GetResult();
+                var offset = reviewOffset ?? 0;
+                var stream = connection.OpenPlaybackAsync(scene, reviewOffset is null ? "audio" : BackendPlaybackSession.ReviewAudio,
+                    offset, CancellationToken.None).GetAwaiter().GetResult();
                 using var data = new MemoryStream();
                 try
                 {
                     while (true)
                     {
                         var packet = connection.ReadPlaybackAsync(stream, CancellationToken.None).GetAwaiter().GetResult();
-                        Assert.Equal(data.Length / 8, packet.SampleOffset);
+                        Assert.Equal(offset * 2000 + data.Length / 8, packet.SampleOffset);
                         if (packet.Completed) break;
                         data.Write(packet.Data);
                     }
@@ -626,6 +630,98 @@ public sealed class BackendExportEndToEndTests
             }
         }
         Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+    }
+
+    [BackendMediaFact]
+    public async Task CursorReview_FromRaster_CancelsPreparationAndStartsPcmAtTheRequestedFrame()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(withTransition: true);
+        var starts = new List<ReviewSoundProbe>();
+        await using (var session = await files.OpenAsync(workspace: true, reviewSound: source =>
+        {
+            var sound = new ReviewSoundProbe(source);
+            starts.Add(sound);
+            return sound;
+        }))
+        {
+            var connection = session.Connection;
+            var head = await connection.AcquireWriterAsync(await connection.OpenAsync());
+            head = await connection.EditScenarioAsync(new SaveMontageMusic("video-a", 8, 40, 0, .35, false), head);
+            var bytes = File.ReadAllBytes(files.ProjectPath);
+            var history = files.History();
+            using var host = Workspace(session);
+            var model = session.App.Services.Resolve<SceneViewModel>()!;
+            Ready(host, model);
+
+            PlaceCursor(19);
+            Start();
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+            host.PumpUntil(() => !Views().OfType<WorkingReviewWorkspace>().Any() && model.Idle, TimeSpan.FromSeconds(20));
+            Assert.Empty(Views().OfType<RenderedReviewPanel>());
+            Assert.Empty(starts);
+            Assert.Empty(Directory.GetFiles(files.OutputDirectory, "Draft.mp4", SearchOption.AllDirectories));
+
+            PlaceCursor(19);
+            Start();
+            host.PumpUntil(() => Views().OfType<RenderedReviewPanel>().Any(), TimeSpan.FromSeconds(30));
+            var player = Assert.Single(Views().OfType<RenderedReviewPanel>());
+            ReviewReady(host, player);
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            Assert.Equal((19, 53), ((int)request["start_frame"]!, (int)request["frames"]!));
+            Assert.Contains(Views().OfType<Text>(), item => item.Value.Contains("кадры 19–71"));
+            Assert.Empty(starts);
+
+            host.Click(ButtonIn(player, "Старт"));
+            host.PumpUntil(() => starts.Count == 1 && starts[0].PlayedSamples > 0, TimeSpan.FromSeconds(15));
+            Assert.Contains(MemoryMarshal.Cast<byte, float>(starts[0].First).ToArray(), sample => Math.Abs(sample) > .005f);
+            host.Click(ButtonIn(player, "Пауза"));
+            Assert.True(starts[0].Disposed);
+
+            SetField(player, "Кадр предпросмотра", "10");
+            host.Click(ButtonIn(player, "Перейти"));
+            ReviewReady(host, player);
+            Assert.Contains(Views().OfType<Text>(), item => item.Value.Contains("0010 / 0052"));
+            host.Click(ButtonIn(player, "Старт"));
+            host.PumpUntil(() => starts.Count == 2 && starts[1].PlayedSamples > 0, TimeSpan.FromSeconds(15));
+            Assert.False(starts[0].First.SequenceEqual(starts[1].First));
+            Assert.Equal(0, starts[0].Source.Read(new byte[8]));
+            host.Capture("cursor-review-buffered-seek", new { Cursor = 19, Seek = 29 });
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+            Assert.True(starts[1].Disposed);
+            Assert.Empty(Views().OfType<RenderedReviewPanel>());
+            files.AssertProject(bytes, history);
+
+            IEnumerable<Element> Views() => RasterWindow<SceneView>.Walk(host.Window);
+            void PlaceCursor(int frame)
+            {
+                var strip = Assert.Single(Views().OfType<SceneStrip>());
+                var segment = model.Scene!.Segment;
+                var x = strip.Bounds.X + (float)(frame - segment.StartFrame + .1) * strip.Bounds.Width / segment.DurationFrames;
+                host.Input(new(InputKind.PointerDown, x, strip.Bounds.Y + 8));
+                host.Input(new(InputKind.PointerUp, x, strip.Bounds.Y + 8));
+                host.PumpUntil(() => model.Idle && model.SplitFrame == frame);
+            }
+            void Start()
+            {
+                host.Click(ButtonIn(host.Window.Preview, "Рабочий просмотр"));
+                var setup = Assert.Single(Views().OfType<WorkingReviewWorkspace>());
+                host.Click(ButtonIn(setup, "Смотреть от курсора"));
+            }
+        }
+        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+    }
+
+    private sealed class ReviewSoundProbe(NAudio.Wave.IWaveProvider source) : TrueMoon.Tales.Studio.Media.IPreviewSound
+    {
+        internal readonly byte[] First = new byte[8192];
+        internal NAudio.Wave.IWaveProvider Source { get; } = source;
+        internal bool Disposed { get; private set; }
+        public long PlayedSamples { get; private set; }
+        public string? Warning => null;
+        public Exception? Error => null;
+        public void Play() { PlayedSamples = Source.Read(First) / 8; }
+        public void Dispose() { Disposed = true; }
     }
 
     [BackendMediaFact]
@@ -3102,7 +3198,8 @@ public sealed class BackendExportEndToEndTests
             return Path.Combine(isolated, Path.GetFileName(source));
         }
 
-        internal async Task<ExportSession> OpenAsync(bool workspace = false, string? executable = null)
+        internal async Task<ExportSession> OpenAsync(bool workspace = false, string? executable = null,
+            Func<NAudio.Wave.IWaveProvider, TrueMoon.Tales.Studio.Media.IPreviewSound>? reviewSound = null)
         {
             var options = BackendOptions.Create(Files.Files.ProjectDirectory, Files.Base.ConfigPath) with
             { WriteEnabled = true, Action = "serve", ExecutablePath = executable ?? BackendWriteFixture.Executable() };
@@ -3110,6 +3207,9 @@ public sealed class BackendExportEndToEndTests
             {
                 context.UseProjectBackend(options, false);
                 if (workspace) context.UseBackendScene();
+                if (reviewSound is not null)
+                    context.Services(services => services.Singleton<TrueMoon.Tales.Studio.Media.IPreviewMedia>(resolved =>
+                        new BackendPreviewMedia(resolved.Resolve<BackendConnection>()!, reviewSoundFactory: reviewSound)));
             }).Build();
             var session = new ExportSession(app);
             try

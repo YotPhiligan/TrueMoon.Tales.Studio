@@ -43,6 +43,9 @@ internal sealed partial class SceneViewModel
     internal SceneViewModel ReviewPlayer(BackendRenderedMontage review, BackendConnection backend)
     {
         ClearPreparedPlayback();
-        return new(new RenderedReviewSource(review), new BackendFrameDecoder(backend), _playback);
+        return new(new RenderedReviewSource(review), new BackendFrameDecoder(backend), _playback)
+        {
+            _reviewMedia = _playback as BackendPreviewMedia
+        };
     }
 }

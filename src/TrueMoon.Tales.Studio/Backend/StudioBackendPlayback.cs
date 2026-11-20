@@ -7,24 +7,47 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService
 {
-    private readonly SemaphoreSlim _playbackGate = new(1, 1);
-    private BackendPlaybackSession? _playback;
+    private readonly PlaybackSlot _playback = new();
+    private readonly PlaybackSlot _reviewAudio = new();
+
+    private sealed class PlaybackSlot
+    {
+        internal readonly SemaphoreSlim Gate = new(1, 1);
+        // Close may interrupt a read before it acquires the gate.
+        internal volatile BackendPlaybackSession? Session;
+
+        internal async Task CloseAsync()
+        {
+            try
+            {
+                if (Session is { } session) await session.DisposeAsync().ConfigureAwait(false);
+            }
+            finally { Session = null; }
+        }
+    }
+
+    private PlaybackSlot SlotForSession(string id) => _reviewAudio.Session?.Id == id ? _reviewAudio : _playback;
 
     public Task<BackendPlaybackReply> OpenPlaybackAsync(string sessionKey, string clipId, string kind, int localFrame,
-        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default) =>
-        PlaybackOperationAsync(sessionKey, async token =>
+        long expectedRevision, string fingerprint, CancellationToken cancellationToken = default)
+    {
+        var slot = kind == BackendPlaybackSession.ReviewAudio ? _reviewAudio : _playback;
+        return PlaybackOperationAsync(sessionKey, slot, async token =>
         {
-            if (_playback is { Expired: true }) await ClosePlaybackCoreAsync().ConfigureAwait(false);
-            if (_playback is not null) return new() { ErrorCode = "media_busy" };
+            if (slot.Session is { Expired: true }) await slot.CloseAsync().ConfigureAwait(false);
+            if (slot.Session is not null) return new() { ErrorCode = "media_busy" };
+            if (slot == _reviewAudio && !BackendRenderedMontage.IsReview(clipId)) return new() { ErrorCode = "invalid_request" };
             var baseline = await ObserveAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
             if (baseline.SchemaVersion != 2) return new() { ErrorCode = "migration_required" };
             if (media is null) return new() { ErrorCode = "decoder_unavailable" };
-            _playback = BackendRenderedMontage.IsReview(clipId)
+            var opened = BackendRenderedMontage.IsReview(clipId)
                 ? await OpenReviewedPlaybackAsync(baseline, clipId, kind, localFrame, token).ConfigureAwait(false)
                 : await media.OpenPlaybackAsync(baseline.Project, clipId, kind, localFrame, fingerprint, token, _mediaStopping.Token).ConfigureAwait(false);
+            slot.Session = opened;
             await ObserveAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
-            return _playback.Metadata();
+            return opened.Metadata();
         }, cancellationToken);
+    }
 
     private async Task<BackendPlaybackSession> OpenReviewedPlaybackAsync(ProjectFileDocument baseline, string key, string kind, int localFrame,
         CancellationToken token)
@@ -39,10 +62,12 @@ internal sealed partial class StudioBackendService
         catch { await file.DisposeAsync().ConfigureAwait(false); throw; }
     }
 
-    public Task<BackendPlaybackReply> ReadPlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default) =>
-        PlaybackOperationAsync(sessionKey, async token =>
+    public Task<BackendPlaybackReply> ReadPlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default)
+    {
+        var slot = SlotForSession(sessionId);
+        return PlaybackOperationAsync(sessionKey, slot, async token =>
         {
-            var session = _playback;
+            var session = slot.Session;
             if (session is null || session.Id != sessionId) return new() { ErrorCode = "playback_not_found" };
             await ObserveAsync(session.Revision, session.Fingerprint, token).ConfigureAwait(false);
             session.ValidatePaths();
@@ -51,33 +76,37 @@ internal sealed partial class StudioBackendService
             session.ValidatePaths();
             return reply;
         }, cancellationToken);
+    }
 
     public async Task<BackendPlaybackReply> ClosePlaybackAsync(string sessionKey, string sessionId, CancellationToken cancellationToken = default)
     {
         Authorize(sessionKey);
+        var slot = SlotForSession(sessionId);
         // Interrupt a blocked read before waiting for its serialization gate.
-        if (_playback is { } pending && pending.Id == sessionId) pending.Cancel();
-        await _playbackGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (slot.Session is not { } pending || pending.Id != sessionId) return new() { SessionId = sessionId, Completed = true };
+        pending.Cancel();
+        await slot.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_playback?.Id == sessionId) await ClosePlaybackCoreAsync().ConfigureAwait(false);
+            if (slot.Session?.Id == sessionId) await slot.CloseAsync().ConfigureAwait(false);
             return new() { SessionId = sessionId, Completed = true };
         }
-        finally { _playbackGate.Release(); }
+        finally { slot.Gate.Release(); }
     }
 
-    private async Task<BackendPlaybackReply> PlaybackOperationAsync(string key, Func<CancellationToken, Task<BackendPlaybackReply>> operation, CancellationToken token)
+    private async Task<BackendPlaybackReply> PlaybackOperationAsync(string key, PlaybackSlot slot,
+        Func<CancellationToken, Task<BackendPlaybackReply>> operation, CancellationToken token)
     {
         Authorize(key);
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!await _playbackGate.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
+        if (!await slot.Gate.WaitAsync(0, token).ConfigureAwait(false)) return new() { ErrorCode = "media_busy" };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, _mediaStopping.Token);
         deadline.CancelAfter(TimeSpan.FromSeconds(10));
         try { ObjectDisposedException.ThrowIf(_disposed, this); return await operation(deadline.Token).ConfigureAwait(false); }
         catch (Exception error) when (error is ProjectRevisionConflictException or ProjectRecoveryRequiredException or UnauthorizedAccessException or
             OperationCanceledException or ArgumentException or IOException or InvalidDataException or JsonException or InvalidOperationException or Win32Exception or NotSupportedException or OverflowException)
         {
-            await ClosePlaybackCoreAsync().ConfigureAwait(false);
+            await slot.CloseAsync().ConfigureAwait(false);
             if (error is OperationCanceledException && token.IsCancellationRequested) throw;
             return new() { ErrorCode = error switch
             {
@@ -89,12 +118,13 @@ internal sealed partial class StudioBackendService
                 _ => "media_io_error"
             } };
         }
-        finally { _playbackGate.Release(); }
+        finally { slot.Gate.Release(); }
     }
 
-    private async Task ClosePlaybackCoreAsync()
+    private static void StopPlayback(PlaybackSlot slot)
     {
-        var session = _playback; _playback = null;
-        if (session is not null) await session.DisposeAsync().ConfigureAwait(false);
+        slot.Gate.Wait();
+        try { slot.CloseAsync().GetAwaiter().GetResult(); }
+        finally { slot.Gate.Release(); }
     }
 }

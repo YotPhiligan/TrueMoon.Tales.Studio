@@ -22,7 +22,9 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private readonly ProgressBar _progress = new() { Height = 6, AccessibleName = "Подготовка CPU" };
     private readonly TextBox _start = new() { Width = 88, AccessibleName = "Начало диапазона" };
     private readonly TextBox _end = new() { Width = 88, AccessibleName = "Конец диапазона (не входит)" };
-    private readonly Button _prepareRange, _prepareProject, _reset, _range, _segment, _project, _cancel, _back, _inspect;
+    private readonly Button _quick, _prepareRange, _prepareProject, _reset, _range, _segment, _project, _cancel, _back, _inspect;
+    private readonly BackendReviewRange? _cursorRange;
+    private bool _openWhenReady, _cancelQuick;
     private readonly Button _issueClip, _issueAsset;
     private readonly HStack _issueActions;
     private BackendExportStatus? _job;
@@ -33,9 +35,14 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     private bool Active => _job?.State is "running" or "stopping";
     public bool NeedsFrame => _pending is not null || Active && !_unresolved;
 
-    internal WorkingReviewWorkspace(BackendConnection backend, SceneSnapshot scene, Action<BackendRenderedMontage, bool> open, Action close,
+    internal WorkingReviewWorkspace(BackendConnection backend, SceneSnapshot scene, int cursor, Action<BackendRenderedMontage, bool> open, Action close,
         Action<BackendReadinessIssue, bool> navigate)
-        : this(backend, scene.Revision, scene.Fingerprint!, scene.Segment, open, close, navigate) { }
+        : this(backend, scene.Revision, scene.Fingerprint!, scene.Segment, open, close, navigate)
+    {
+        var end = (int)Math.Min(scene.MontageEndFrame, cursor + Math.Ceiling(scene.Fps * 12));
+        if (cursor >= 0 && cursor < end) _cursorRange = new(cursor, end);
+        Refresh();
+    }
 
     internal WorkingReviewWorkspace(BackendConnection backend, int revision, string fingerprint, Segment? window,
         Action<BackendRenderedMontage, bool> open, Action close, Action<BackendReadinessIssue, bool> navigate)
@@ -44,6 +51,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         Padding = new Thickness(16, 44, 16, 16);
         SetSegmentRange();
         _reset = Button("По сегменту", SetSegmentRange);
+        _quick = Button("Смотреть от курсора", PrepareFromCursor);
         _prepareRange = Button("Подготовить диапазон", () => Prepare(wholeProject: false));
         _prepareProject = Button(IsAnimatic ? "Подготовить аниматик" : "Подготовить проект", () => Prepare(wholeProject: true));
         _range = Button("Смотреть диапазон", () => View(false));
@@ -58,7 +66,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         var bounds = Row(Text.Plain("Кадр начала"), _start, Text.Plain("Конец (не входит)"), _end, _reset);
         bounds.IsVisible = _prepareRange.IsVisible = !IsAnimatic;
         SetContent(VStack.Create().Configure(stack => stack.Spacing = 12).WithChildren(
-            Text.Plain(IsAnimatic ? "Аниматик всей шкалы" : "Рабочий предпросмотр"), bounds,
+            Text.Plain(IsAnimatic ? "Аниматик всей шкалы" : "Рабочий предпросмотр"), _quick, bounds,
             Row(_prepareRange, _prepareProject), _status, _issueActions, _progress,
             Row(_range, _segment, _project), Row(_cancel, _inspect, _back)));
         Refresh();
@@ -90,9 +98,24 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
             }
             range = new(start, end);
         }
+        Prepare(range, autoOpen: false);
+    }
+
+    private void PrepareFromCursor()
+    {
+        if (!CanClose || _cursorRange is not { } range) return;
+        _start.Value = range.Start.ToString(CultureInfo.InvariantCulture);
+        _end.Value = range.End.ToString(CultureInfo.InvariantCulture);
+        Prepare(range, autoOpen: true);
+    }
+
+    private void Prepare(BackendReviewRange? range, bool autoOpen)
+    {
         var key = "preview-" + Guid.NewGuid().ToString("N");
         _key = key;
         _job = null;
+        _openWhenReady = autoOpen;
+        _cancelQuick = false;
         Start("Готовлю сохранённый монтаж…", () =>
             _backend.StartWorkingReviewAsync(key, _revision, _fingerprint, _closing.Token, range, IsAnimatic));
     }
@@ -101,6 +124,12 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
     internal void Back()
     {
         if (CanClose) _close();
+        else if (_openWhenReady && !_unresolved)
+        {
+            _cancelQuick = true;
+            if (_pending is null && _job?.State == "running") Cancel();
+            else Show("Останавливаю предпросмотр…");
+        }
         else if (_job?.State == "running" && _pending is null) Cancel();
         else Show(_unresolved ? "Проверьте статус подготовки." : "Дождитесь завершения или отмены.", true);
     }
@@ -129,6 +158,7 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
 
     private void Cancel()
     {
+        _cancelQuick |= _openWhenReady;
         if (_job is { State: "running" } job)
             Start("Отменяю подготовку…", () => _backend.CancelWorkingReviewAsync(job.Id, job.Revision, _closing.Token));
     }
@@ -183,6 +213,12 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
             }
             _elapsed = TimeSpan.Zero;
             Refresh();
+            if (_openWhenReady && !_unresolved)
+            {
+                if (_cancelQuick && _job?.State == "running") { Cancel(); return; }
+                if (_cancelQuick && CanClose) { _close(); return; }
+                if (_job?.State == "completed" && CanClose) { View(false); return; }
+            }
         }
         if (_pending is null && Active && !_unresolved && (_elapsed += elapsed) >= TimeSpan.FromMilliseconds(250)) Inspect();
     }
@@ -194,9 +230,11 @@ internal sealed class WorkingReviewWorkspace : Border, IUiFrameParticipant
         _project.IsVisible = _project.IsEnabled = ready && _job!.RangeStart is null;
         _segment.IsVisible = _segment.IsEnabled = _project.IsVisible && !IsAnimatic;
         _prepareRange.IsEnabled = _prepareProject.IsEnabled = _reset.IsEnabled = _start.IsEnabled = _end.IsEnabled = CanClose;
+        _quick.IsVisible = _cursorRange is not null;
+        _quick.IsEnabled = _quick.IsVisible && CanClose;
         _cancel.IsEnabled = _pending is null && _job?.State == "running";
         _inspect.IsEnabled = _pending is null && _unresolved;
-        _back.IsEnabled = CanClose;
+        _back.IsEnabled = CanClose || _openWhenReady && !_unresolved;
         var canNavigate = CanClose && _issue?.Matches(_revision, _fingerprint) == true;
         _issueClip.IsVisible = _issueClip.IsEnabled = canNavigate && _issue?.ClipId is not null;
         _issueAsset.IsVisible = _issueAsset.IsEnabled = canNavigate && _issue?.AssetId is not null;

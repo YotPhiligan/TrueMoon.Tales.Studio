@@ -12,9 +12,17 @@ internal static class PreviewSound
     {
         if (!audio.Peaks.Any(peak => peak > 0)) return new SilentClock(null);
         if (!OperatingSystem.IsWindows()) return new SilentClock("Звуковой вывод доступен в Windows");
-        try { return new Device(audio, localFrame); }
+        try { return new Device(new Provider(audio, localFrame)); }
         catch (Exception error) when (error is NAudio.MmException or InvalidOperationException)
         { return new SilentClock("Звук недоступен · " + error.Message); }
+    }
+
+    public static IPreviewSound CreateBuffered(IWaveProvider source)
+    {
+        if (!OperatingSystem.IsWindows()) return new BufferedClock(source, "Звуковой вывод доступен в Windows");
+        try { return new Device(source); }
+        catch (Exception error) when (error is NAudio.MmException or InvalidOperationException)
+        { return new BufferedClock(source, "Звук недоступен · " + error.Message); }
     }
 
     [SupportedOSPlatform("windows")]
@@ -25,9 +33,9 @@ internal static class PreviewSound
         public string? Warning => null;
         public Exception? Error => Volatile.Read(ref _error);
         public long PlayedSamples => _output.GetPosition() / (sizeof(float) * AudioTimeline.Channels);
-        public Device(PreviewAudio audio, int frame)
+        public Device(IWaveProvider source)
         {
-            try { _output.Init(new Provider(audio, frame)); _output.PlaybackStopped += Stopped; }
+            try { _output.Init(source); _output.PlaybackStopped += Stopped; }
             catch { _output.Dispose(); throw; }
         }
         private void Stopped(object? sender, StoppedEventArgs args) { if (args.Exception is { } error) Volatile.Write(ref _error, error); }
@@ -58,5 +66,51 @@ internal static class PreviewSound
         public Exception? Error => null;
         public void Play() => _clock.Start();
         public void Dispose() => _clock.Stop();
+    }
+
+    private sealed class BufferedClock(IWaveProvider source, string warning) : IPreviewSound
+    {
+        private readonly CancellationTokenSource _stop = new();
+        private Task? _drain;
+        private long _played;
+        private Exception? _error;
+
+        public long PlayedSamples => Interlocked.Read(ref _played);
+        public string Warning => warning;
+        public Exception? Error => Volatile.Read(ref _error);
+
+        public void Play()
+        {
+            var token = _stop.Token;
+            _drain ??= Task.Run(() => ConsumeAsync(token));
+        }
+
+        private async Task ConsumeAsync(CancellationToken token)
+        {
+            var clock = Stopwatch.StartNew();
+            var buffer = new byte[960 * source.WaveFormat.BlockAlign];
+            long samples = 0;
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var bytes = source.Read(buffer);
+                    if (bytes == 0) return;
+                    samples += bytes / source.WaveFormat.BlockAlign;
+                    var wait = TimeSpan.FromSeconds(samples / (double)AudioTimeline.SampleRate) - clock.Elapsed;
+                    if (wait > TimeSpan.Zero) await Task.Delay(wait, token).ConfigureAwait(false);
+                    Interlocked.Exchange(ref _played, samples);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception error) { Volatile.Write(ref _error, error); }
+        }
+
+        public void Dispose()
+        {
+            _stop.Cancel();
+            if (_drain is null) _stop.Dispose();
+            else _ = _drain.ContinueWith(_ => _stop.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
     }
 }

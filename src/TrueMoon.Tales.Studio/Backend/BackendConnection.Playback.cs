@@ -73,7 +73,9 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
 
     internal static void ValidateScene(SceneSnapshot scene, string kind, int localFrame)
     {
-        if (kind is not ("audio" or "video") || localFrame < 0 || localFrame >= scene.Clip.DurationFrames ||
+        if (kind is not ("audio" or "video" or BackendPlaybackSession.ReviewAudio) ||
+            kind == BackendPlaybackSession.ReviewAudio && !BackendRenderedMontage.IsReview(scene.Clip.Id) ||
+            localFrame < 0 || localFrame >= scene.Clip.DurationFrames ||
             kind == "audio" && localFrame != 0 || !double.IsFinite(scene.Fps) || scene.Fps is <= 0 or > 240 ||
             scene.Clip.DurationFrames / scene.Fps is <= 0 or > 600 || scene.Clip.StartFrame < 0 ||
             (long)scene.Clip.StartFrame + scene.Clip.DurationFrames > int.MaxValue || scene.Revision < 0 ||
@@ -107,7 +109,7 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
         if (reply.Completed)
         {
             if (reply.Data.Length != 0 || reply.DataSha256.Length != 0 || reply.LocalFrame != -1 || reply.NativeFrame != -1 ||
-                reply.SampleOffset != (reply.Kind == "audio" ? reply.TotalSamples : 0))
+                reply.SampleOffset != (reply.Kind == "video" ? 0 : reply.TotalSamples))
                 throw new InvalidDataException("Invalid playback completion envelope.");
             return;
         }
@@ -117,7 +119,8 @@ internal sealed partial class BackendConnection : IBackendPlaybackClient
                 reply.NativeFrame is < 0 or >= BackendMediaDecoder.MaxFrames || reply.SampleOffset != 0)
                 throw new InvalidDataException("Invalid playback video frame.");
         }
-        else if (reply.Kind != "audio" || reply.LocalFrame != -1 || reply.NativeFrame != -1 || reply.Data.Length is <= 0 or > 32768 ||
+        else if (reply.Kind is not ("audio" or BackendPlaybackSession.ReviewAudio) ||
+                 reply.LocalFrame != -1 || reply.NativeFrame != -1 || reply.Data.Length is <= 0 or > BackendPlaybackSession.AudioChunkBytes ||
                  reply.Data.Length % (sizeof(float) * AudioTimeline.Channels) != 0 || reply.SampleOffset < 0 ||
                  reply.SampleOffset > reply.TotalSamples - reply.Data.Length / (sizeof(float) * AudioTimeline.Channels))
             throw new InvalidDataException("Invalid playback PCM chunk.");

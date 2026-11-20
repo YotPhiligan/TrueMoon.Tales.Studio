@@ -267,7 +267,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     {
         if (_backend is null || !_model.Idle || !_model.CanReload || _model.Stale || _model.Scene is not { Fingerprint: { } } scene) return;
         Overlays.Close();
-        _workingReview = new(_backend, scene, ShowWorkingReview, CloseWorkingReview, OpenReadinessIssue);
+        _workingReview = new(_backend, scene, _model.SplitFrame, ShowWorkingReview, CloseWorkingReview, OpenReadinessIssue);
         _page.SetContent(_workingReview);
     }
 

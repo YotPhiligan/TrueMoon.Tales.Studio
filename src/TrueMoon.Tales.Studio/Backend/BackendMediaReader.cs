@@ -65,15 +65,19 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
     internal async Task<BackendPlaybackSession> OpenReviewedAsync(BackendRenderedMontage review, FileStream file, string kind,
         int localFrame, CancellationToken token, CancellationToken stopping)
     {
-        if (kind is not ("audio" or "video") || localFrame < 0 || localFrame >= review.Frames || kind == "audio" && localFrame != 0)
+        if (kind is not ("audio" or "video" or BackendPlaybackSession.ReviewAudio) ||
+            localFrame < 0 || localFrame >= review.Frames || kind == "audio" && localFrame != 0)
             throw new ArgumentException("Invalid review starting frame or stream kind.");
         var info = await ReviewInfoAsync(review, file.Name, token).ConfigureAwait(false);
         var scene = review.Scene(review.FileStart);
         var samples = AudioTimeline.Sample(review.Start + review.Frames, review.Fps) - AudioTimeline.Sample(review.Start, review.Fps);
         var slice = new AudioSlice(review.Key, 0, review.FileStart / review.Fps, review.Frames / review.Fps, 0,
             checked((int)samples), 1, 1, Optional: true);
+        long? audioStart = kind == BackendPlaybackSession.ReviewAudio
+            ? review.Bounded ? BackendPlaybackSession.SampleOffset(scene, localFrame) : AudioTimeline.Sample(review.FileStart + localFrame, review.Fps)
+            : null;
         return new(decoder, scene, info, file.Name, [(slice, file.Name)], [file], kind, localFrame, review.Fingerprint,
-            stopping, () => BackendMediaResolver.CheckNoLinks(file.Name), review.FileStart);
+            stopping, () => BackendMediaResolver.CheckNoLinks(file.Name), review.FileStart, audioStart);
     }
 
     internal async Task<BackendMediaReply> ReadReviewedAsync(BackendRenderedMontage review, string path, int frame, CancellationToken token)

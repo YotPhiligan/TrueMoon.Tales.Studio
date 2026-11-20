@@ -10,6 +10,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 internal sealed class BackendPlaybackSession : IAsyncDisposable
 {
     internal const int AudioChunkBytes = 32768;
+    internal const string ReviewAudio = "review_audio";
     private readonly Channel<BackendPlaybackReply> _queue = Channel.CreateBounded<BackendPlaybackReply>(new BoundedChannelOptions(3)
     { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly CancellationTokenSource _stop;
@@ -27,10 +28,14 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
     internal Task Completion => _producer;
     internal void Cancel() { try { _stop.Cancel(); } catch (ObjectDisposedException) { } }
     internal void ValidatePaths() => _validatePaths();
+    internal static int SampleOffset(SceneSnapshot scene, int frame) =>
+        checked((int)(AudioTimeline.Sample((double)scene.Clip.StartFrame + frame, scene.Fps) -
+            AudioTimeline.Sample(scene.Clip.StartFrame, scene.Fps)));
 
     internal BackendPlaybackSession(BackendMediaDecoder decoder, SceneSnapshot scene, BackendVideoInfo video,
         string videoPath, IReadOnlyList<(AudioSlice Slice, string Path)> audio, List<FileStream> leases,
-        string kind, int localFrame, string fingerprint, CancellationToken stopping, Action validatePaths, int nativeOffset = 0)
+        string kind, int localFrame, string fingerprint, CancellationToken stopping, Action validatePaths, int nativeOffset = 0,
+        long? reviewAudioStart = null)
     {
         _leases = leases;
         _nativeOffset = nativeOffset;
@@ -42,9 +47,9 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
             SessionId = Guid.NewGuid().ToString("N"), Kind = kind, ClipId = scene.Clip.Id,
             Revision = scene.Revision, Fingerprint = fingerprint, Fps = scene.Fps, SourceFps = video.Fps,
             DurationFrames = scene.Clip.DurationFrames, StartFrame = localFrame,
-            TotalSamples = checked((int)(AudioTimeline.Sample((double)scene.Clip.StartFrame + scene.Clip.DurationFrames, scene.Fps) - AudioTimeline.Sample(scene.Clip.StartFrame, scene.Fps)))
+            TotalSamples = SampleOffset(scene, scene.Clip.DurationFrames)
         };
-        _producer = Task.Run(() => ProduceAsync(decoder, scene, video, videoPath, audio, _stop.Token));
+        _producer = Task.Run(() => ProduceAsync(decoder, scene, video, videoPath, audio, reviewAudioStart, _stop.Token));
     }
 
     internal BackendPlaybackReply Metadata(bool completed = false) => new()
@@ -52,7 +57,7 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
         SessionId = Id, Kind = _metadata.Kind, ClipId = _metadata.ClipId,
         Revision = Revision, Fingerprint = Fingerprint, Fps = _metadata.Fps, SourceFps = _metadata.SourceFps,
         DurationFrames = _metadata.DurationFrames, StartFrame = _metadata.StartFrame, TotalSamples = _metadata.TotalSamples,
-        Completed = completed, SampleOffset = completed && _metadata.Kind == "audio" ? _metadata.TotalSamples : 0
+        Completed = completed, SampleOffset = completed && _metadata.Kind != "video" ? _metadata.TotalSamples : 0
     };
 
     internal async Task<BackendPlaybackReply> ReadAsync(CancellationToken token)
@@ -71,12 +76,14 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
     }
 
     private async Task ProduceAsync(BackendMediaDecoder decoder, SceneSnapshot scene, BackendVideoInfo info,
-        string videoPath, IReadOnlyList<(AudioSlice Slice, string Path)> audio, CancellationToken token)
+        string videoPath, IReadOnlyList<(AudioSlice Slice, string Path)> audio, long? reviewAudioStart, CancellationToken token)
     {
         Exception? failure = null;
         try
         {
             if (_metadata.Kind == "video") await VideoAsync(decoder, scene, info, videoPath, token).ConfigureAwait(false);
+            else if (reviewAudioStart is { } start)
+                await ReviewedAudioAsync(decoder, videoPath, start, SampleOffset(scene, _metadata.StartFrame), token).ConfigureAwait(false);
             else await AudioAsync(decoder, audio, token).ConfigureAwait(false);
         }
         catch (Exception error) { failure = error; }
@@ -149,8 +156,23 @@ internal sealed class BackendPlaybackSession : IAsyncDisposable
             inputs + $"amix=inputs={count}:duration=first:dropout_transition=0:normalize=0,aeval=exprs='clip(val(0),-1,1)|clip(val(1),-1,1)',atrim=end_sample={_metadata.TotalSamples}[mix]");
         arguments.AddRange(["-filter_complex_threads", "1", "-filter_complex", string.Join(';', filters), "-map", "[mix]", "-vn", "-sn", "-dn",
             "-ar", "48000", "-ac", "2", "-threads", "1", "-f", "f32le", "pipe:1"]);
+        await ReadPcmAsync(decoder, arguments, 0, token).ConfigureAwait(false);
+    }
+
+    private Task ReviewedAudioAsync(BackendMediaDecoder decoder, string path, long fileStart, int offset, CancellationToken token)
+    {
+        var remaining = _metadata.TotalSamples - offset;
+        var filter = FormattableString.Invariant(
+            $"aresample=48000,aformat=sample_fmts=flt:channel_layouts=stereo,atrim=start_sample={fileStart}:end_sample={fileStart + remaining},asetpts=PTS-STARTPTS,apad,atrim=end_sample={remaining},aeval=exprs='clip(val(0),-1,1)|clip(val(1),-1,1)'");
+        string[] arguments = [.. BackendMediaDecoder.Input(path, audio: true),
+            "-map", "0:a:0", "-vn", "-sn", "-dn", "-af", filter, "-ar", "48000", "-ac", "2", "-threads", "1", "-f", "f32le", "pipe:1"];
+        return ReadPcmAsync(decoder, arguments, offset, token);
+    }
+
+    private async Task ReadPcmAsync(BackendMediaDecoder decoder, IEnumerable<string> arguments, int firstSample, CancellationToken token)
+    {
         await using var child = decoder.Stream(arguments, token);
-        for (var offset = 0; offset < _metadata.TotalSamples;)
+        for (var offset = firstSample; offset < _metadata.TotalSamples;)
         {
             var frames = Math.Min(AudioChunkBytes / 8, _metadata.TotalSamples - offset);
             var bytes = new byte[frames * 8];

@@ -260,6 +260,68 @@ public sealed class BackendPreviewMediaTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => media.PrepareAsync(Scene(), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task ReviewPcm_BoundsReadAheadAndStartsAtTheSeekSample()
+    {
+        var full = new BackendRenderedMontage(BackendRenderedMontage.Identifier("export-" + new string('a', 32), null),
+            7, 6000, 24, 12, new('a', 64)).Scene();
+        const int selected = 50;
+        const int firstSample = selected * 2000;
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new Client();
+        client.Read = (opened, index, _) =>
+        {
+            if (index == BufferedReviewAudio.BufferChunks + 1) blocked.TrySetResult();
+            var frameCount = BackendPlaybackSession.AudioChunkBytes / 8;
+            var samples = Enumerable.Range(0, frameCount * 2)
+                .Select(sample => (sample % 2 == 0 ? 1 : -1) * index / 16f).ToArray();
+            return Task.FromResult(Packet(opened, MemoryMarshal.AsBytes(samples.AsSpan()).ToArray(),
+                offset: firstSample + (index - 1) * frameCount));
+        };
+        await using var media = new BackendPreviewMedia(client);
+        using var pcm = media.BufferReview(full, selected, CancellationToken.None);
+        await blocked.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.True(pcm.Ready);
+        Assert.False(pcm.Completion.IsCompleted);
+        Assert.Equal(BufferedReviewAudio.BufferChunks + 1, client.ReadCalls);
+        Assert.Equal((BackendPlaybackSession.ReviewAudio, selected), (client.LastOpened!.Kind, client.LastOpened.StartFrame));
+        Assert.Equal((6000 - selected) * 2000, pcm.SampleFrames);
+        var bytes = new byte[BackendPlaybackSession.AudioChunkBytes + 8];
+        Assert.Equal(bytes.Length, pcm.Read(bytes));
+        Assert.Equal(1f / 16, BitConverter.ToSingle(bytes, 0));
+        Assert.Equal(-1f / 16, BitConverter.ToSingle(bytes, 4));
+        Assert.Equal(2f / 16, BitConverter.ToSingle(bytes, BackendPlaybackSession.AudioChunkBytes));
+
+        pcm.Dispose();
+        await pcm.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(0, pcm.Read(bytes));
+        Assert.Null(pcm.Error);
+        Assert.Equal(1, client.CloseCalls);
+        Assert.False(client.CloseTokenCancelled);
+    }
+
+    [Fact]
+    public async Task ReviewPcm_OneFrameRemainsPlayableAndEndsAtTheExactBoundary()
+    {
+        var full = new BackendRenderedMontage(BackendRenderedMontage.Identifier("export-" + new string('a', 32), 95),
+            95, 20, 29.97, 12, new('a', 64)).Scene();
+        var client = new Client();
+        var first = BackendPlaybackSession.SampleOffset(full, 19);
+        client.Read = (opened, i, _) => Task.FromResult(i == 1
+            ? Packet(opened, new byte[(opened.TotalSamples - first) * 8], offset: first)
+            : Packet(opened, offset: opened.TotalSamples, complete: true));
+        await using var media = new BackendPreviewMedia(client);
+        using var pcm = media.BufferReview(full, 19, CancellationToken.None);
+        await pcm.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(pcm.Ready);
+        Assert.Null(pcm.Error);
+        var bytes = new byte[32768];
+        Assert.Equal(pcm.SampleFrames * 8, pcm.Read(bytes));
+        Assert.Equal(0, pcm.Read(bytes));
+        Assert.Equal(1, client.CloseCalls);
+    }
+
     private sealed class Client : IBackendPlaybackClient
     {
         internal int OpenCalls, ReadCalls, CloseCalls;

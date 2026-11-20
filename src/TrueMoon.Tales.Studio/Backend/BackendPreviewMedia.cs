@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
+using NAudio.Wave;
 using TrueMoon.Tales.Studio.Editing;
 using TrueMoon.Tales.Studio.Media;
 using TrueMoon.Tales.Studio.Models;
@@ -8,11 +9,13 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 // The UI receives bounded media packets, never a local path or a decoder process.
 internal sealed class BackendPreviewMedia(IBackendPlaybackClient backend,
-    Func<PreviewAudio, int, IPreviewSound>? soundFactory = null) : IPreviewMedia, IDisposable, IAsyncDisposable
+    Func<PreviewAudio, int, IPreviewSound>? soundFactory = null,
+    Func<IWaveProvider, IPreviewSound>? reviewSoundFactory = null) : IPreviewMedia, IDisposable, IAsyncDisposable
 {
     private readonly IBackendPlaybackClient _backend = backend;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _lease = new(1, 1);
+    private readonly SemaphoreSlim _reviewAudioLease = new(1, 1);
     private readonly object _sync = new();
     private readonly HashSet<Task> _pending = [];
     private bool _disposed;
@@ -82,6 +85,21 @@ internal sealed class BackendPreviewMedia(IBackendPlaybackClient backend,
         if (localFrame < 0 || localFrame >= audio.Frames) throw new ArgumentOutOfRangeException(nameof(localFrame));
         return (soundFactory ?? PreviewSound.Create)(audio, localFrame);
     }
+
+    internal BufferedReviewAudio BufferReview(SceneSnapshot scene, int frame, CancellationToken token)
+    {
+        BackendConnection.ValidateScene(scene, BackendPlaybackSession.ReviewAudio, frame);
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var audio = new BufferedReviewAudio(_backend, _reviewAudioLease, scene, frame, token, _stopping.Token);
+            Remember(audio.Completion);
+            return audio;
+        }
+    }
+
+    internal IPreviewSound ReviewSound(BufferedReviewAudio audio) =>
+        (reviewSoundFactory ?? PreviewSound.CreateBuffered)(audio);
 
     private Task<T> Track<T>(Func<CancellationToken, Task<T>> create)
     {
