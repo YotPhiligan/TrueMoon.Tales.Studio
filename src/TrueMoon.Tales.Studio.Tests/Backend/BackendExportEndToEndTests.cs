@@ -21,6 +21,89 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 public sealed class BackendExportEndToEndTests
 {
     [BackendMediaFact]
+    public async Task EpisodeReadiness_FromTimeline_OpensTheSavedJoinAndRefreshesAfterRepair()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var store = files.Files.Files.Store();
+        var initial = await store.OpenAsync();
+        var montage = initial.Project.Montage;
+        await store.SaveAsync(initial, initial.Project with
+        {
+            Montage = montage with
+            {
+                Windows = [.. montage.Windows, new() { Id = "empty-window", StartFrame = 72, DurationFrames = 4320 - 72 }]
+            }
+        }, initial.Project.Revision, "episode-readiness-fixture");
+        await using var session = await files.OpenAsync(workspace: true);
+        var api = session.Connection;
+        var head = await api.AcquireWriterAsync(await api.OpenAsync());
+        var pair = Assert.Single(BackendSceneJoins.Pairs(head.Project));
+        var before = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var report = await api.CheckReadinessAsync(head.Project.Revision, head.Fingerprint, CancellationToken.None, episode: true);
+        Assert.Equal(new BackendEpisodeSummary(4320, 24, 3, 2, 1, 0, 0, 3), report.Episode);
+        Assert.Equal(("episode_voice_missing", null, null), Target(report.Issues[0]));
+        Assert.Equal(("episode_join_states_missing", pair.Right.Id, pair.EntryFrame), Target(report.Issues[1]));
+        Assert.Equal(("episode_window_without_video", "empty-window", 72), Target(report.Issues[2]));
+        var conflict = await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.CheckReadinessAsync(head.Project.Revision, initial.Fingerprint, CancellationToken.None, episode: true));
+        Assert.Equal("revision_conflict", conflict.Code);
+
+        using var host = Workspace(session);
+        Ready(host, session.App.Services.Resolve<SceneViewModel>()!);
+        host.Click(ButtonIn(host.Window.Timeline, "Проблемы"));
+        var panel = Assert.Single(RasterWindow<SceneView>.Walk(host.Window.Timeline).OfType<TimelineReadiness>());
+        host.PumpUntil(() => Contains(panel, "Проблем нет"));
+        host.Click(ButtonIn(panel, "Эпизод"));
+        host.PumpUntil(() => Contains(panel, "ошибок 0 · замечаний 3"));
+        Assert.True(Contains(panel, "180 с · Окна с видео 2/3"));
+        Assert.True(Contains(panel, "Описанные стыки 0/1 · Речь: 0"));
+        host.Capture("episode-readiness-before", new { head.Project.Revision, report.Episode });
+        files.AssertProject(before, history);
+
+        var replaced = api.EditScenarioAsync(new SaveMontageMarker(null, "Отметка приёмки", 14), head).GetAwaiter().GetResult();
+        ClickJoin();
+        var board = Board();
+        host.PumpUntil(() => Contains(board, "Сохранённый монтаж изменился"));
+        host.Click(ButtonIn(board, "К монтажу"));
+        host.PumpUntil(() => Contains(panel, $"рев. {replaced.Project.Revision}"));
+        ClickJoin();
+        board = Board();
+        host.PumpUntil(() => !board.NeedsFrame && Contains(board, "Кадры 35 / 36"));
+        Assert.True(Contains(board, "Оба состояния не заполнены"));
+        host.Capture("episode-readiness-join", new { pair.ExitFrame, pair.EntryFrame });
+        var ready = api.EditScenarioAsync(new SaveSceneJoin(pair.Left.Id, pair.Right.Id,
+            "Свет погас", "Горит лампа", "Зажигают лампу"), replaced).GetAwaiter().GetResult();
+        ready = api.EditScenarioAsync(new SaveMontageSound(null, pair.Right.Id, null, "Рассказчик", "voice", "video-b",
+            0, 0, 8, 0, .8, false, new("narrator", "Рассказчик", null, 0, "Запись проверки", "Переход", 0, 8, false)), ready)
+            .GetAwaiter().GetResult();
+        var final = File.ReadAllBytes(files.ProjectPath);
+        var finalHistory = files.History();
+        host.Click(ButtonIn(board, "К монтажу"));
+        host.Click(ButtonIn(panel, "Обновить"));
+        host.PumpUntil(() => Contains(panel, $"ошибок 0 · замечаний 1 · рев. {ready.Project.Revision}"));
+        Assert.True(Contains(panel, "Описанные стыки 1/1 · Речь: 1"));
+        Assert.DoesNotContain(RasterWindow<SceneView>.Walk(panel).OfType<Button>(), button => button.Value == "К стыку");
+        host.Click(ButtonIn(panel, "Монтаж"));
+        host.PumpUntil(() => Contains(panel, "Проблем нет"));
+        Assert.Empty(files.Requests());
+        files.AssertProject(final, finalHistory);
+
+        void ClickJoin()
+        {
+            var button = ButtonIn(panel, "К стыку");
+            for (var node = button.Parent; node is not null; node = node.Parent)
+                if (node is ScrollViewer scroll) { scroll.BringIntoView(button.Bounds); host.Update(); break; }
+            host.Click(button);
+        }
+        StoryboardWorkspace Board() => Assert.Single(RasterWindow<SceneView>.Walk(host.Window).OfType<StoryboardWorkspace>());
+        static bool Contains(Element root, string expected) => RasterWindow<SceneView>.Walk(root).OfType<Text>()
+            .Any(row => row.IsVisible && row.Value.Contains(expected, StringComparison.Ordinal));
+        static (string, string?, int?) Target(BackendReadinessIssue row) => (row.Reason, row.WindowId, row.Frame);
+    }
+
+    [BackendMediaFact]
     public async Task TimelineInterchange_FromRaster_PreservesCutsTracksEffectsAndReportsLosses()
     {
         using var files = new ExportFixture();

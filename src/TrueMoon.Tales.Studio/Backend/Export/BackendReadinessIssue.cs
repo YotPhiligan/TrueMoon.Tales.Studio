@@ -6,7 +6,8 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 // Identifiers refer to saved project entities. Filesystem paths never enter the diagnostic payload.
 internal sealed record BackendReadinessIssue(string Reason, long Revision, string? Fingerprint,
-    string? ClipId = null, string? AssetId = null, string? Track = null, string? TrackId = null, int? Frame = null)
+    string? ClipId = null, string? AssetId = null, string? Track = null, string? TrackId = null, int? Frame = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WindowId = null)
 {
     internal static readonly JsonSerializerOptions Json = new()
     {
@@ -26,7 +27,10 @@ internal sealed record BackendReadinessIssue(string Reason, long Revision, strin
         return issue is { Valid: true } ? issue : throw new InvalidDataException("Invalid export readiness issue.");
     }
 
+    internal bool EpisodeNote => Reason?.StartsWith("episode_", StringComparison.Ordinal) == true;
+
     internal bool Valid => Revision >= 0 && Frame is not < 0 && Identifier(ClipId) && Identifier(AssetId) && Identifier(TrackId) &&
+        Identifier(WindowId) && (WindowId is null || EpisodeNote) &&
         (Track is null) == (TrackId is null) && (Track is null or "music" or "sound_events") &&
         (Reason switch
         {
@@ -35,6 +39,10 @@ internal sealed record BackendReadinessIssue(string Reason, long Revision, strin
             "clip_take_missing" or "clip_timing" or "clip_source_range" => ClipId is not null && BackendConnection.IsHash(Fingerprint),
             "asset_missing" or "asset_access" or "asset_invalid" or "asset_tools" or "speech_source_changed" or "subtitle_review"
                 => AssetId is not null && BackendConnection.IsHash(Fingerprint),
+            "episode_duration" or "episode_voice_missing" or "episode_join_data_invalid"
+                => NoTarget && WindowId is null && Frame is null && BackendConnection.IsHash(Fingerprint),
+            "episode_window_without_video" or "episode_join_states_missing" or "episode_join_bridge_missing"
+                => NoTarget && WindowId is not null && Frame is not null && BackendConnection.IsHash(Fingerprint),
             _ => false
         });
 
@@ -44,7 +52,8 @@ internal sealed record BackendReadinessIssue(string Reason, long Revision, strin
         value.Length is > 0 and <= 256 && !value.Any(char.IsControl);
 }
 
-internal sealed record BackendReadinessReport(long Revision, string Fingerprint, int Total, BackendReadinessIssue[] Issues)
+internal sealed record BackendReadinessReport(long Revision, string Fingerprint, int Total, BackendReadinessIssue[] Issues,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] BackendEpisodeSummary? Episode = null)
 {
     internal const int MaxRows = 24;
 
@@ -59,12 +68,13 @@ internal sealed record BackendReadinessReport(long Revision, string Fingerprint,
         }
     }
 
-    internal static BackendReadinessReport Decode(string value, long revision, string fingerprint)
+    internal static BackendReadinessReport Decode(string value, long revision, string fingerprint, bool episode = false)
     {
         var report = JsonSerializer.Deserialize<BackendReadinessReport>(value, BackendReadinessIssue.Json);
         if (report is null || report.Revision != revision || !string.Equals(report.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase) ||
             report.Issues is null || report.Total < report.Issues.Length || report.Issues.Length > MaxRows ||
-            report.Issues.Any(row => row is not { Valid: true } || !row.Matches(revision, fingerprint)))
+            episode != (report.Episode is not null) || report.Episode is { } summary && (!summary.Valid || summary.Notes > report.Total) ||
+            report.Issues.Any(row => row is not { Valid: true } || !row.Matches(revision, fingerprint) || !episode && row.EpisodeNote))
             throw new InvalidDataException("Invalid readiness report.");
         return report;
     }

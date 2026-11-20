@@ -37,7 +37,7 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
     }
 
     internal static async Task<BackendReadinessReport> ReadinessAsync(ProjectContract project, string fingerprint,
-        BackendOptions options, CancellationToken token)
+        BackendOptions options, CancellationToken token, bool episode = false)
     {
         List<BackendReadinessIssue> issues = [];
         try
@@ -51,8 +51,9 @@ internal sealed record BackendExportPlan(byte[] Request, int Frames, double Fps,
             KeyNotFoundException or FormatException or ScenarioEditException or ArgumentException or OverflowException)
         { issues.Add(new("montage_invalid", project.Revision, fingerprint)); }
         token.ThrowIfCancellationRequested();
+        var summary = episode ? BackendEpisodeReadiness.Collect(project, fingerprint, issues) : null;
         return new(project.Revision, fingerprint, issues.Count,
-            issues.OrderBy(issue => issue.Frame ?? -1).Where(issue => issue.Valid).Take(BackendReadinessReport.MaxRows).ToArray());
+            issues.OrderBy(issue => issue.Frame ?? -1).Where(issue => issue.Valid).Take(BackendReadinessReport.MaxRows).ToArray(), summary);
     }
 
     private static async Task<BackendExportPlan?> CreateCoreAsync(ProjectContract project, string fingerprint, string profile,

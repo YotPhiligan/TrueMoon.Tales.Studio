@@ -15,6 +15,7 @@ internal sealed partial class StoryboardWorkspace
     private readonly List<(Join Choice, Button Button)> _joinChoices = [];
     private Button _editJoin = null!, _saveJoin = null!, _cancelJoin = null!;
     private Join? _selectedJoin;
+    private BackendReadinessIssue? _initialJoin;
     private bool _joinMode, _comparePlans, _joinDraft, _joinStale;
     private float _planListWidth, _joinListWidth = 270;
     private VStack _bridgeFields = null!;
@@ -76,6 +77,9 @@ internal sealed partial class StoryboardWorkspace
     private void RefreshJoins(OpenedBackendProject snapshot, StoryboardShot[] shots)
     {
         var previous = _selectedJoin?.Key;
+        var initial = _initialJoin;
+        _initialJoin = null;
+        var initialCurrent = initial?.Matches(snapshot.Project.Revision, snapshot.Fingerprint) == true;
         _snapshot = snapshot;
         _joinStale = false;
         foreach (var row in _joinRows.Items.ToArray()) { _joinRows.Items.Remove(row); row.Dispose(); }
@@ -89,7 +93,7 @@ internal sealed partial class StoryboardWorkspace
             button.AccessibleName = label;
             _joinRows.Add(button);
             _joinChoices.Add((join, button));
-            if (previous == join.Key) retained = join;
+            if (previous == join.Key || initialCurrent && initial!.WindowId == join.Key.Entry.WindowId) retained = join;
         }
         JoinCount();
         if (retained is not null)
@@ -107,7 +111,9 @@ internal sealed partial class StoryboardWorkspace
         }
         _selectedJoin = null;
         _joinDetails.IsVisible = false;
-        Show(_joinChoices.Count == 0
+        if (initial is not null && retained is null)
+            Show("Сохранённый монтаж изменился. Выберите актуальный стык.", error: true);
+        else Show(_joinChoices.Count == 0
             ? _comparePlans ? "На шкале нет соседних планов внутри сцены." : "На шкале нет соседних сцен."
             : "Выберите стык.");
     }

@@ -10,12 +10,14 @@ internal sealed class TimelineReadiness : Border
     private readonly Action<BackendReadinessIssue, bool> _navigate;
     private readonly CancellationTokenSource _closing = new();
     private readonly Text _status = new();
+    private readonly Text _overview = new() { IsVisible = false }, _counts = new() { IsVisible = false };
     private readonly VStack _rows = VStack.Create().Configure(stack => stack.Spacing = 8);
-    private readonly Button _refresh;
+    private readonly Button _refresh, _mode;
     private readonly List<Button> _links = [];
     private (long Revision, string Fingerprint)? _requested;
     private Task<BackendReadinessReport>? _pending;
     private BackendReadinessReport? _report;
+    private bool _episode;
     private bool _stopped;
 
     internal TimelineReadiness(SceneViewModel model, BackendConnection backend, Action<BackendReadinessIssue, bool> navigate,
@@ -33,8 +35,19 @@ internal sealed class TimelineReadiness : Border
             _model.Open();
             refreshWindow();
         });
-        var top = HStack.Create().Configure(row => row.Spacing = 8).WithChildren(_status, _refresh);
-        SetContent(ScrollViewer.Create().Content(VStack.Create().Configure(stack => stack.Spacing = 6).WithChildren(top, _rows)));
+        _mode = Button.Simple("Эпизод").WithRole(SceneView.CommandRole);
+        _mode.OnClick(() =>
+        {
+            if (!CanUseSnapshot || NeedsFrame) return;
+            _episode = !_episode;
+            _mode.Value = _episode ? "Монтаж" : "Эпизод";
+            InvalidateReport();
+            refreshWindow();
+        });
+        var top = HStack.Create().Configure(row => row.Spacing = 8).WithChildren(_mode, _refresh);
+        var body = ScrollViewer.Create().Content(VStack.Create().Configure(stack => stack.Spacing = 6)
+            .WithChildren(_status, _overview, _counts, _rows));
+        SetContent(new ReadinessLayout(top, body));
     }
 
     internal bool NeedsFrame => _pending is not null;
@@ -59,13 +72,13 @@ internal sealed class TimelineReadiness : Border
     {
         var current = Snapshot;
         if (_requested is not null && _requested != current) InvalidateReport();
-        _refresh.IsEnabled = active && CanUseSnapshot && !NeedsFrame;
+        _refresh.IsEnabled = _mode.IsEnabled = active && CanUseSnapshot && !NeedsFrame;
         foreach (var link in _links) link.IsEnabled = active && CanUseSnapshot;
         if (!active || !IsVisible || !CanUseSnapshot || NeedsFrame || current is not { } baseline || _requested == baseline) return;
         _requested = baseline;
-        Show("Проверяю монтаж…");
-        _pending = _backend.CheckReadinessAsync(baseline.Revision, baseline.Fingerprint, _closing.Token);
-        _refresh.IsEnabled = false;
+        Show(_episode ? "Проверяю эпизод…" : "Проверяю монтаж…");
+        _pending = _backend.CheckReadinessAsync(baseline.Revision, baseline.Fingerprint, _closing.Token, _episode);
+        _refresh.IsEnabled = _mode.IsEnabled = false;
     }
 
     internal bool Poll()
@@ -93,7 +106,15 @@ internal sealed class TimelineReadiness : Border
     {
         ClearReport();
         _report = report;
-        Show(report.Total switch
+        if (report.Episode is { } episode)
+        {
+            var displayed = report.Total > report.Issues.Length ? $" · показано {report.Issues.Length} из {report.Total}" : "";
+            Show($"Эпизод · ошибок {report.Total - episode.Notes} · замечаний {episode.Notes}{displayed} · рев. {report.Revision}");
+            _overview.Value = $"{episode.Frames / episode.Fps:0.#} с · Окна с видео {episode.WindowsWithVideo}/{episode.Windows}";
+            _counts.Value = $"Описанные стыки {episode.DocumentedJoins}/{episode.Joins} · Речь: {episode.VoiceEvents}";
+            _overview.IsVisible = _counts.IsVisible = true;
+        }
+        else Show(report.Total switch
         {
             0 => $"Проблем нет · рев. {report.Revision}",
             _ when report.Total > report.Issues.Length => $"Показано {report.Issues.Length} из {report.Total} · рев. {report.Revision}",
@@ -106,7 +127,8 @@ internal sealed class TimelineReadiness : Border
             {
                 "music" => "Музыка",
                 "sound_events" => "Звуковая дорожка",
-                _ => choice?.Title ?? (issue.ClipId is not null ? "Клип" : "Монтаж")
+                _ => choice?.Title ?? (issue.EpisodeNote ? issue.WindowId is not null ? "Сцена" : "Эпизод" :
+                    issue.ClipId is not null ? "Клип" : "Монтаж")
             };
             var position = issue.Frame is { } frame ? $"Кадр {frame} · {name}" : name;
             var description = issue.Reason switch
@@ -123,9 +145,10 @@ internal sealed class TimelineReadiness : Border
                 .WithChildren(Text.Plain(position).WithRole(SceneView.CaptionRole), Text.Plain(description));
             row.AccessibleName = position;
             var actions = HStack.Create().Configure(stack => stack.Spacing = 6);
+            if (issue.Reason is "episode_join_states_missing" or "episode_join_bridge_missing") actions.Add(Link("К стыку", issue, asset: false));
             if (issue.ClipId is not null) actions.Add(Link("К клипу", issue, asset: false));
             if (issue.AssetId is not null) actions.Add(Link("К ассету", issue, asset: true));
-            if (issue.ClipId is not null || issue.AssetId is not null) row.Add(actions);
+            if (actions.Items.Count > 0) row.Add(actions);
             _rows.Add(row);
         }
     }
@@ -143,6 +166,7 @@ internal sealed class TimelineReadiness : Border
     private void ClearReport()
     {
         _report = null; _links.Clear();
+        _overview.IsVisible = _counts.IsVisible = false;
         foreach (var row in _rows.Items.ToArray()) { _rows.Items.Remove(row); row.Dispose(); }
     }
 
@@ -163,5 +187,29 @@ internal sealed class TimelineReadiness : Border
     {
         Stop();
         base.Dispose();
+    }
+
+    private sealed class ReadinessLayout : ElementList
+    {
+        private const float HeaderHeight = 36;
+        private readonly Element _header, _body;
+
+        internal ReadinessLayout(Element header, Element body)
+        { _header = header; _body = body; Add(header); Add(body); }
+
+        protected override Size MeasureCore(Size available, ITextLayoutService text)
+        {
+            var top = Math.Min(HeaderHeight, available.Height);
+            _header.Measure(new(available.Width, top), text);
+            _body.Measure(new(available.Width, available.Height - top), text);
+            return available;
+        }
+
+        protected override void ArrangeCore(Rect area)
+        {
+            var top = Math.Min(HeaderHeight, area.Height);
+            _header.Arrange(new(area.X, area.Y, area.Width, top));
+            _body.Arrange(new(area.X, area.Y + top, area.Width, area.Height - top));
+        }
     }
 }

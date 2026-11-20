@@ -27,7 +27,8 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
     private StoryboardShot? _selected;
     private Task<Action>? _pending;
 
-    internal StoryboardWorkspace(BackendConnection backend, Action<StoryboardShot, OpenedBackendProject, bool> navigate, Action close)
+    internal StoryboardWorkspace(BackendConnection backend, Action<StoryboardShot, OpenedBackendProject, bool> navigate, Action close,
+        BackendReadinessIssue? join = null)
     {
         _backend = backend;
         _navigate = navigate;
@@ -57,6 +58,11 @@ internal sealed partial class StoryboardWorkspace : Border, IUiFrameParticipant
             .Content(Stack(_status, _planDetails, _joinDetails, _noteDetails))));
         var commands = Row(_joinToggle, _planJoinToggle, _noteToggle, _reload, _back);
         SetContent(new PreviewLayout(new StudioHeading(heading, commands, fitActions: true), _split, new Text()));
+        if (join is not null)
+        {
+            SetJoinMode(enabled: true, plans: false);
+            _initialJoin = join;
+        }
         Reload();
     }
 

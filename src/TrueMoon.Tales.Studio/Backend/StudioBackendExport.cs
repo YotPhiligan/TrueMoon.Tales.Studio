@@ -28,11 +28,11 @@ internal sealed partial class StudioBackendService
             token => _exports.CheckAsync(profile, ct => ExportBaselineAsync(expectedRevision, fingerprint, ct), token), cancellationToken);
 
     public Task<BackendExportReply> CheckReadinessAsync(string sessionKey, long expectedRevision, string fingerprint,
-        CancellationToken cancellationToken = default) =>
+        bool episode, CancellationToken cancellationToken = default) =>
         ExecuteExportAsync(sessionKey, write: false, async token =>
         {
             var before = await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
-            var report = await BackendExportPlan.ReadinessAsync(before.Project, before.Fingerprint, options, token).ConfigureAwait(false);
+            var report = await BackendExportPlan.ReadinessAsync(before.Project, before.Fingerprint, options, token, episode).ConfigureAwait(false);
             await ExportBaselineAsync(expectedRevision, fingerprint, token).ConfigureAwait(false);
             return new() { JobJson = report.Encode() };
         }, cancellationToken);

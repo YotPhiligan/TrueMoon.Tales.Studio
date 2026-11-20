@@ -19,6 +19,12 @@ internal static class ReadinessMessage
         "title_font" => "Шрифт титра недоступен.",
         "speech_source_changed" => "Запись отличается от сохранённого SHA. Верните исходный файл или добавьте версию.",
         "subtitle_review" => "Сверьте субтитр после изменения записи или тайминга речи.",
+        "episode_duration" => "Хронометраж вне ориентира 3–5 минут.",
+        "episode_window_without_video" => "Нет клипа с выбранным видеодублем.",
+        "episode_join_states_missing" => "Заполните вход и выход сцен.",
+        "episode_join_bridge_missing" => "Опишите связку между сценами.",
+        "episode_join_data_invalid" => "Сохранённые записи о стыках не удалось прочитать.",
+        "episode_voice_missing" => "На шкале нет включённой версии речи.",
         _ => "Проверьте материал сохранённого монтажа."
     };
 }

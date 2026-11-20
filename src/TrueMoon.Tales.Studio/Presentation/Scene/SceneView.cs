@@ -91,7 +91,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             navigation.Add(_scenarioButton);
             if (backend is not null)
             {
-                _storyboardButton = Button.Simple("Раскадровка").WithRole(CommandRole).OnClick(OpenStoryboard);
+                _storyboardButton = Button.Simple("Раскадровка").WithRole(CommandRole).OnClick(() => OpenStoryboard());
                 navigation.Add(_storyboardButton);
             }
         }
@@ -191,12 +191,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Refresh();
     }
 
-    private void OpenStoryboard()
+    private void OpenStoryboard(BackendReadinessIssue? join = null)
     {
         if (_backend is null || !_model.ProjectReady || !_model.CanReload || _storyboard is not null) return;
         _model.PausePlayback();
         Overlays.Close();
-        _storyboard = new(_backend, NavigateStoryboard, () => CloseStoryboard(refreshMontage: true));
+        _storyboard = new(_backend, NavigateStoryboard, () => CloseStoryboard(refreshMontage: true), join);
         _page.SetContent(_storyboard);
     }
 
@@ -312,7 +312,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _workingReview is { CanClose: false }) return;
         if (_workingReview is not null) RemoveWorkingReview();
         Overlays.Close();
-        if (!asset && issue.ClipId is { } clip)
+        if (!asset && issue.Reason is "episode_join_states_missing" or "episode_join_bridge_missing") OpenStoryboard(issue);
+        else if (!asset && issue.ClipId is { } clip)
         {
             _panels.Timeline = true;
             _model.SelectClip(clip, issue);
