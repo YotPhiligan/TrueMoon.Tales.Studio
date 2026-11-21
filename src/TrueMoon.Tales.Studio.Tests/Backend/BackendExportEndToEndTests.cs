@@ -2074,9 +2074,9 @@ public sealed class BackendExportEndToEndTests
         var cancelledDir = Path.Combine(jobs, cancelled.Id, "Run");
         Assert.Equal("running", Run(cancelled, baseline, "launch").State);
         var cancelledScratch = Scratch(baseline.Identity.ProcessId);
-        Eventually(() => File.Exists(Path.Combine(cancelledScratch, "FixtureDriver.pid")), cancelledScratch).GetAwaiter().GetResult();
-        using var stoppedDriver = OwnerProcess(cancelledScratch, "FixtureDriver.pid");
-        using var stoppedServer = OwnerProcess(cancelledScratch, "server.pid");
+        Eventually(() => File.Exists(Path.Combine(cancelledScratch, "Submission.json")), cancelledScratch).GetAwaiter().GetResult();
+        using var stoppedWorker = OwnerProcess(cancelledScratch, "worker.pid", exe);
+        using var stoppedServer = OwnerProcess(cancelledScratch, "server.pid", Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!);
         Assert.All(targets, row => Assert.Equal(row.Sha, Hash(File.ReadAllBytes(Path.Combine(cancelledScratch, "input",
             Path.GetFileName(row.Target).Replace(receipt.Id, cancelled.Id, StringComparison.Ordinal)))), ignoreCase: true));
         Assert.Equal("transfer_run_busy", RejectRun(receipt, baseline, "launch"));
@@ -2084,8 +2084,8 @@ public sealed class BackendExportEndToEndTests
         Click("Открыть задание");
         Click("Остановить генерацию");
         Assert.Contains("Запуск остановлен", scenario.Status);
-        Task.WhenAll(stoppedDriver.WaitForExitAsync(), stoppedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
-        Assert.True(stoppedDriver.HasExited && stoppedServer.HasExited);
+        Task.WhenAll(stoppedWorker.WaitForExitAsync(), stoppedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+        Assert.True(stoppedWorker.HasExited && stoppedServer.HasExited);
         Assert.Equal("transfer_already_launched", RejectRun(cancelled, baseline, "launch"));
         Assert.False(File.Exists(Path.Combine(cancelledDir, "Completed.json")));
         Assert.False(Directory.Exists(cancelledScratch));
@@ -2098,9 +2098,7 @@ public sealed class BackendExportEndToEndTests
         {
             Run(badEnvironment, baseline, "launch");
             Eventually(() => Run(badEnvironment, baseline, "status").State == "failed", badRun).GetAwaiter().GetResult();
-            Assert.Empty(Directory.GetFiles(badRun, "*.log"));
-            Assert.False(File.Exists(Path.Combine(badRun, "server.pid")));
-            Assert.False(File.Exists(Path.Combine(badRun, "Submission.claim")));
+            Assert.Equal(new[] { cancelled.Id }, Submissions());
         }
         finally { File.SetLastWriteTimeUtc(model, modelStamp); }
 
@@ -2123,7 +2121,12 @@ public sealed class BackendExportEndToEndTests
         Assert.Empty(Directory.GetDirectories(StudioReviewSession.FullTransferRoot, $"review-{baseline.Identity.ProcessId:x8}-*"));
         Assert.Equal(markerBytes, File.ReadAllBytes(marker));
         Assert.Equal(previewBytes, File.ReadAllBytes(buildPath));
+        Assert.Equal(new[] { cancelled.Id, receipt.Id }, Submissions());
         host.Capture("full-transfer-run-completed", new { receipt.Id, outputHash });
+
+        var lostReply = AssertFailedAfterSubmission('f', 3);
+        var badOutput = AssertFailedAfterSubmission('0', 4);
+        var badAudio = AssertFailedAfterSubmission('1', 5);
 
         var retry = StageOther('e', 2, registered);
         var retryFile = Path.Combine(projectDirectory, "video", $"FullTransfer.{retry.Id}.mp4");
@@ -2139,16 +2142,16 @@ public sealed class BackendExportEndToEndTests
         var interrupted = StageOther('d', 1, registered);
         Run(interrupted, registered, "launch");
         var interruptedScratch = Scratch(registered.Identity.ProcessId, retryScratch);
-        Eventually(() => File.Exists(Path.Combine(interruptedScratch, "FixtureDriver.pid")), interruptedScratch).GetAwaiter().GetResult();
-        using var interruptedDriver = OwnerProcess(interruptedScratch, "FixtureDriver.pid");
-        using var interruptedServer = OwnerProcess(interruptedScratch, "server.pid");
+        Eventually(() => File.Exists(Path.Combine(interruptedScratch, "Submission.json")), interruptedScratch).GetAwaiter().GetResult();
+        using var interruptedWorker = OwnerProcess(interruptedScratch, "worker.pid", exe);
+        using var interruptedServer = OwnerProcess(interruptedScratch, "server.pid", Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!);
         using (var backend = System.Diagnostics.Process.GetProcessById(baseline.Identity.ProcessId))
         {
             Assert.Equal(exe, backend.MainModule!.FileName, ignoreCase: true);
             backend.Kill();
             backend.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
         }
-        Task.WhenAll(interruptedDriver.WaitForExitAsync(), interruptedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
+        Task.WhenAll(interruptedWorker.WaitForExitAsync(), interruptedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
         var reopened = files.OpenAsync(workspace: true, executable: exe).GetAwaiter().GetResult();
         try { VerifyRecoveryAndCollect(reopened); }
         finally { reopened.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
@@ -2161,6 +2164,7 @@ public sealed class BackendExportEndToEndTests
                 current, CancellationToken.None).GetAwaiter().GetResult().State);
             Assert.Equal("transfer_already_launched", Assert.Throws<BackendCommandException>(() =>
                 connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "launch", current, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            Assert.Equal(new[] { cancelled.Id, receipt.Id, lostReply.Id, badOutput.Id, badAudio.Id, retry.Id, interrupted.Id }, Submissions());
             Assert.False(Directory.Exists(interruptedScratch));
             Assert.Equal(completed, connection.FullTransferRunAsync(receipt.Id, receipt.RequestSha256, "status", current, CancellationToken.None).GetAwaiter().GetResult());
             Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
@@ -2255,6 +2259,20 @@ public sealed class BackendExportEndToEndTests
                 head, CancellationToken.None).GetAwaiter().GetResult();
             return api.FullTransferJobAsync(second.Id, second.RequestSha256, head, CancellationToken.None).GetAwaiter().GetResult();
         }
+        string[] Submissions() => File.ReadAllLines(Path.Combine(files.ComfyRoot, "FixtureSubmissions.txt"));
+        FullTransferReceipt AssertFailedAfterSubmission(char key, ulong seed)
+        {
+            var failed = StageOther(key, seed, registered);
+            var run = Path.Combine(jobs, failed.Id, "Run");
+            var count = Submissions().Length;
+            Assert.Equal("running", Run(failed, registered, "launch").State);
+            Eventually(() => Run(failed, registered, "status").State == "failed", run).GetAwaiter().GetResult();
+            Assert.Equal("transfer_already_launched", RejectRun(failed, registered, "launch"));
+            Assert.Equal(new[] { failed.Id }, Submissions()[count..]);
+            Assert.False(File.Exists(Path.Combine(projectDirectory, "video", $"FullTransfer.{failed.Id}.mp4")));
+            Assert.Equal(registered.Fingerprint, api.OpenAsync().GetAwaiter().GetResult().Fingerprint);
+            return failed;
+        }
         static string Scratch(int pid, string? earlier = null) => Assert.Single(
             Directory.GetDirectories(StudioReviewSession.FullTransferRoot, $"review-{pid:x8}-*"), path => path != earlier);
         static async Task Eventually(Func<bool> condition, string directory)
@@ -2270,11 +2288,11 @@ public sealed class BackendExportEndToEndTests
                 await Task.Delay(50);
             }
         }
-        static System.Diagnostics.Process OwnerProcess(string directory, string file)
+        static System.Diagnostics.Process OwnerProcess(string directory, string file, string executable)
         {
             var process = System.Diagnostics.Process.GetProcessById(int.Parse(File.ReadAllText(Path.Combine(directory, file)),
                 System.Globalization.CultureInfo.InvariantCulture));
-            Assert.Equal(Path.GetFullPath(Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!), process.MainModule!.FileName, ignoreCase: true);
+            Assert.Equal(Path.GetFullPath(executable), process.MainModule!.FileName, ignoreCase: true);
             return process;
         }
 
@@ -3853,8 +3871,13 @@ public sealed class BackendExportEndToEndTests
             await BackendTrimFixture.RunAsync(Ffmpeg,
                 ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=purple:s=1280x736",
                  "-frames:v", "1", "-threads", "1", "-n", Path.Combine(ComfyRoot, "Fixture.png")], 2048);
-            // Keep the packaged orchestration, ownership, preflight hashes and collector.
-            // Only the native Comfy schema/HTTP/execution processes are simulated in this copy.
+            await BackendTrimFixture.RunAsync(Ffmpeg,
+                ["-nostdin", "-v", "error", "-i", Path.Combine(ComfyRoot, "Fixture.mp4"), "-f", "lavfi",
+                 "-i", "sine=frequency=440:duration=3", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                 "-shortest", "-n", Path.Combine(ComfyRoot, "FixtureAudio.mp4")], 2048);
+            // The Studio worker is real. Only the Python boundary to ComfyUI is replaced.
+            foreach (var name in new[] { "ManagedRun.py", "driver.py", "collect.py" })
+                File.WriteAllText(Path.Combine(helpers, name), "raise SystemExit('Legacy runner must never execute.')\n");
             File.WriteAllText(Path.Combine(helpers, "validate.py"), """
                 import os
                 from pathlib import Path
@@ -3865,49 +3888,76 @@ public sealed class BackendExportEndToEndTests
                 verify_job(Path(os.environ["TMT_OMNI2_JOB"]))
                 """);
             File.WriteAllText(Path.Combine(helpers, "server.py"), """
+                import json
                 import os
                 from http.server import BaseHTTPRequestHandler, HTTPServer
-
-                class Handler(BaseHTTPRequestHandler):
-                    def do_GET(self):
-                        if self.headers.get("X-Studio-Owner") != os.environ["TMT_OMNI2_OWNER"]:
-                            self.send_error(403)
-                            return
-                        self.send_response(200)
-                        self.end_headers()
-                        self.wfile.write(b"{}")
-
-                HTTPServer(("127.0.0.1", int(os.environ["TMT_OMNI2_PORT"])), Handler).serve_forever()
-                """);
-            File.WriteAllText(Path.Combine(helpers, "driver.py"), """
-                import os
                 from pathlib import Path
                 import shutil
                 import sys
-                import time
+                import uuid
                 sys.path.insert(0, str(Path(__file__).resolve().parent))
                 from common import atomic_write, read, verify_job
 
                 job = Path(os.environ["TMT_OMNI2_JOB"])
-                verify_job(job)
-                (job / "Submission.claim").open("x").close()
-                atomic_write(job / "Submission.json", {"submissions": 1})
-                (job / "FixtureDriver.pending").write_text(str(os.getpid()), encoding="ascii")
-                (job / "FixtureDriver.pending").rename(job / "FixtureDriver.pid")
-                if read(job / "Job.json")["seed"] == 1:
-                    time.sleep(60)
-                    raise RuntimeError("Ownership test did not stop the driver")
-                output = job / "output"
-                output.mkdir()
-                shutil.copyfile("Fixture.mp4", output / "Final.mp4")
-                shutil.copyfile("Fixture.png", output / "Last.png")
-                atomic_write(job / "History.json", {
-                    "status": {"status_str": "success", "messages": [
-                        ["execution_start", {"timestamp": 0}], ["execution_success", {"timestamp": 1000}]]},
-                    "outputs": {"92": {"images": [{"filename": "Final.mp4", "subfolder": ""}]},
-                                "202": {"images": [{"filename": "Last.png", "subfolder": ""}]}}})
-                atomic_write(job / "Runtime.json", {"h3_forwards": [{"output_finite": [True]}], "sage_success": 1, "sdpa_calls": 0})
-                atomic_write(job / "Telemetry.summary.json", {"process_rss_peak_bytes": 1024, "device_gpu_peak_MiB": 0})
+                build = verify_job(job)
+                seed = read(job / "Job.json")["seed"]
+                prompt_id = str(uuid.uuid4())
+                history = {}
+
+                class Handler(BaseHTTPRequestHandler):
+                    def owned(self):
+                        if self.headers.get("X-Studio-Owner") != os.environ["TMT_OMNI2_OWNER"]:
+                            self.send_error(403)
+                            return False
+                        return True
+
+                    def reply(self, payload):
+                        data = json.dumps(payload).encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+
+                    def do_GET(self):
+                        if not self.owned():
+                            return
+                        if self.path == "/system_stats":
+                            self.reply({})
+                        elif self.path == "/queue":
+                            self.reply({"queue_running": [], "queue_pending": []})
+                        elif self.path == "/history/" + prompt_id:
+                            self.reply(history)
+                        else:
+                            self.send_error(404)
+
+                    def do_POST(self):
+                        if not self.owned():
+                            return
+                        assert self.path == "/prompt"
+                        with open("FixtureSubmissions.txt", "a", encoding="ascii") as log:
+                            log.write(build["id"] + "\n")
+                        payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                        assert payload["prompt"] == read(job / "Prepared.api.json")
+                        assert payload["extra_data"]["extra_pnginfo"]["workflow"] == read(job / "Workflow.ui.json")
+                        assert payload["client_id"] == "studio-" + build["id"]
+                        (job / "Submission.claim").open("x").close()
+                        atomic_write(job / "Submission.json", {"submissions": 1})
+                        if seed == 3:  # The server accepted the submission and lost the reply.
+                            return
+                        if seed != 1:  # Seed 1 leaves the job in progress for cancellation/crash.
+                            output = job / "output"
+                            output.mkdir()
+                            shutil.copyfile("FixtureAudio.mp4" if seed == 5 else "Fixture.mp4", output / "Final.mp4")
+                            shutil.copyfile("Fixture.png", output / "Last.png")
+                            history[prompt_id] = {
+                                "status": {"status_str": "success"},
+                                "outputs": {"92": {"images": [{"filename": "Final.mp4", "subfolder": ".." if seed == 4 else ""}]},
+                                            "202": {"images": [{"filename": "Last.png", "subfolder": ""}]}}}
+                            atomic_write(job / "Runtime.json", {"h3_forwards": [{"output_finite": [True]}], "sage_success": 1, "sdpa_calls": 0})
+                        self.reply({"prompt_id": prompt_id})
+
+                HTTPServer(("127.0.0.1", int(os.environ["TMT_OMNI2_PORT"])), Handler).serve_forever()
                 """);
             return Path.Combine(isolated, Path.GetFileName(source));
         }

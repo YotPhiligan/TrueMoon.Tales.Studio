@@ -47,6 +47,7 @@ public sealed class ProjectPickerTests
             var stale = Path.Combine(files.VideoRoot, "stale");
             files.Registry(new { id = "outside", root = "Old/outside" }, new { id = "ready", root = "@projects/ready" },
                 new { id = "stale", root = stale }, new { id = "bad", root = 42 },
+                new { id = "linked-target", root = linked },
                 new { id = "protected", root = linkedTarget }, new { id = "wrong-id", root = "@projects/ready" });
             files.Catalog.Remember(new("Исчезнувший проект", stale, ProjectAvailability.Ready, stale, "stale"));
             var before = files.Snapshot([ready, schema1, duplicate, denied, missingClip, pending, unsupported, aliased, linkedTarget]);
@@ -78,6 +79,30 @@ public sealed class ProjectPickerTests
             ProjectEntry At(string path) => Assert.Single(listing.Items, row => row.Location == path && row.Availability != ProjectAvailability.IdentityMismatch);
         }
         finally { Directory.Delete(linked); }
+    }
+
+    [Fact]
+    public async Task Catalog_AutomaticDiscoveryRequiresAProjectFile()
+    {
+        using var files = new PickerFixture(canCreate: true);
+        foreach (var name in new[] { ".git", "Archives", "ChapterAdaptations" })
+            Directory.CreateDirectory(Path.Combine(files.Projects, name));
+        Directory.CreateDirectory(Path.Combine(files.Projects, "Archives", "Project.studio"));
+        File.WriteAllText(Path.Combine(files.Projects, "ChapterAdaptations", ".Studio.project.transaction.json"), "{}");
+
+        var standard = await files.ProjectAsync("standard");
+        File.Move(PickerFixture.FileAt(standard), Path.Combine(standard, "Project.studio"));
+        var named = await files.ProjectAsync("named");
+        File.Move(PickerFixture.FileAt(named), Path.Combine(named, "Named.studio"));
+        await files.ProjectAsync("legacy-root", migrate: false);
+        await files.ProjectAsync("legacy-production", migrate: false, legacyLayout: true);
+
+        var listing = await files.Catalog.ReadAsync(CancellationToken.None);
+
+        Assert.Empty(listing.Notices);
+        Assert.Equal(new[] { "legacy-production", "legacy-root", "named", "standard" },
+            listing.Items.Select(item => item.Id).Order(StringComparer.Ordinal));
+        Assert.All(listing.Items, item => Assert.True(item.CanOpen, item.Details));
     }
 
     [Fact]
@@ -173,10 +198,12 @@ public sealed class ProjectPickerTests
     }
 
     [Theory]
-    [InlineData("schema1", false, true)]
-    [InlineData("denied", false, false)]
-    [InlineData("denied", true, false)]
-    public async Task Picker_OpensReadableProjectWithoutWriter(string id, bool migrated, bool canMigrate)
+    [InlineData("schema1", false, true, false)]
+    [InlineData("denied", false, false, false)]
+    [InlineData("denied", true, false, false)]
+    [InlineData("denied", false, true, true)]
+    [InlineData("schema1", false, false, true)]
+    public async Task Picker_OpensReadableProjectWithoutWriter(string id, bool migrated, bool canMigrate, bool changeGrantAfterSelection)
     {
         using var files = new PickerFixture();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -189,13 +216,22 @@ public sealed class ProjectPickerTests
             var row = Assert.Single(host.Window.Rows);
             host.Click(row.Button);
             Assert.True(host.Window.OpenButton.IsVisible && host.Window.OpenButton.IsEnabled);
-            Assert.Equal(canMigrate, host.Window.MaintenanceButton.IsVisible && host.Window.MaintenanceButton.IsEnabled);
+            Assert.Equal(!migrated, host.Window.MaintenanceButton.IsVisible);
+            Assert.Equal(id == "schema1", host.Window.MaintenanceButton.IsEnabled);
             Assert.Contains("Только чтение", row.Button.AccessibleName);
             host.Capture("available-for-reading", new { row.Entry.Schema, canMigrate });
             host.Click(host.Window.OpenButton);
         }
 
         var selected = Assert.IsType<ProjectEntry>(selection);
+        if (changeGrantAfterSelection)
+        {
+            var profile = JsonNode.Parse(File.ReadAllBytes(files.Catalog.ConfigPath))!;
+            var grants = profile["project_write_roots"]!.AsArray();
+            if (canMigrate) grants.Add(path);
+            else grants.Remove(grants.Single(root => (string?)root == path));
+            File.WriteAllText(files.Catalog.ConfigPath, profile.ToJsonString());
+        }
         var opened = false;
         var error = await ProjectPickerApplication.OpenSelectedAsync(files.Catalog, selected, deadline.Token, app =>
         {
@@ -207,8 +243,9 @@ public sealed class ProjectPickerTests
             Assert.Equal(selected.Name, window.ProjectTitle.Value);
             Assert.Contains($"схема {(migrated ? 2 : 1)}", window.RevisionText.Value);
             Assert.Contains("только чтение", window.StatusText.Value);
-            Assert.Equal(canMigrate, window.UpgradeButton.IsVisible);
-            if (!migrated && !canMigrate) Assert.Contains("нужен доступ на запись", window.UpgradeStatus);
+            Assert.Equal(!migrated, window.UpgradeButton.IsVisible);
+            Assert.Equal(canMigrate, window.UpgradeButton.IsEnabled);
+            if (!migrated && !canMigrate) Assert.Contains("project_write_roots", window.UpgradeStatus);
             Assert.False(File.Exists(Path.Combine(path, ".Studio.project.writer.lock")));
             view.Capture("read-only", new { selected.Id, selected.Revision });
             opened = true;
@@ -542,8 +579,10 @@ public sealed class ProjectPickerTests
         finally { Directory.Delete(files.State); }
     }
 
-    [Fact]
-    public async Task Workspace_UsesOneFrameAcrossPreviewMigrationEditorAndProjectList()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Workspace_UsesOneFrameAcrossPreviewMigrationEditorAndProjectList(bool openByFolder)
     {
         using var files = new PickerFixture();
         var legacy = await files.ProjectAsync("schema1", migrate: false);
@@ -557,7 +596,16 @@ public sealed class ProjectPickerTests
         host.Resize(1176, 742, 1);
         try
         {
-            Select("schema1");
+            if (openByFolder)
+            {
+                host.PumpUntil(() => workspace.Child is ProjectPickerView { OpenExistingButton.IsEnabled: true });
+                var picker = Assert.IsType<ProjectPickerView>(workspace.Child);
+                host.Click(picker.OpenExistingButton);
+                host.PumpUntil(() => picker.FolderInput.IsFocused);
+                host.Input(new(InputKind.Text, Text: legacy));
+                host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
+            }
+            else Select("schema1");
             host.PumpUntil(() => workspace.Child is ProjectPreviewView { UpgradeButton.IsEnabled: true, UpgradeButton.IsVisible: true },
                 TimeSpan.FromSeconds(20));
             var preview = Assert.IsType<ProjectPreviewView>(workspace.Child);
@@ -878,7 +926,7 @@ public sealed class ProjectPickerTests
         var journal = Path.Combine(pending, ".Studio.project.transaction.json");
         var originalJournal = File.ReadAllBytes(journal);
         var selection = await Get("pending", ProjectAvailability.RecoveryRequired);
-        var guarded = await files.Catalog.PrepareAsync(selection, deadline.Token, maintenance: true);
+        var (guarded, _) = await files.Catalog.PrepareAsync(selection, deadline.Token, maintenance: true);
         File.AppendAllText(journal, " ");
         var conflict = await Assert.ThrowsAsync<BackendCommandException>(() =>
             BackendProjectMaintenance.ApplyAsync(guarded with { ExecutablePath = BackendWriteFixture.Executable() }, deadline.Token));

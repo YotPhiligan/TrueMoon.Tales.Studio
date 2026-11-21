@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text.Json;
 using TrueMoon.Tales.Studio.Backend.Export;
 
@@ -13,22 +12,21 @@ internal sealed class BackendFullTransferRuns : IDisposable
     private Active? _active;
     internal bool Busy => _active is { Completion.IsCompleted: false };
 
-    internal async Task<FullTransferRunState> LaunchAsync(BackendFullTransfer.RunJob job, BackendFullTransferWorker worker,
+    internal async Task<FullTransferRunState> LaunchAsync(BackendFullTransfer.RunJob job, BackendOptions options,
         Func<string, Task> stage, Func<CancellationToken, Task<string?>> register, CancellationToken token)
     {
         if (_active is { Completion.IsCompleted: false }) throw new ScenarioEditException("transfer_run_busy");
         Reap();
-        var script = worker.Script;
-        BackendMediaResolver.CheckNoLinks(script);
+        var worker = BackendFullTransferWorker.Read(options);
         var scratch = new StudioReviewSession(StudioReviewSession.FullTransferRoot);
         try
         {
             scratch.Open();
             await stage(Path.Combine(scratch.DirectoryPath, "input")).ConfigureAwait(false);
-            var buildSha = await BackendFullTransfer.FreezeRunAsync(job, worker, script, scratch.DirectoryPath, token).ConfigureAwait(false);
+            var buildSha = await BackendFullTransfer.FreezeRunAsync(job, worker, scratch.DirectoryPath, token).ConfigureAwait(false);
             // The durable claim survives the scratch directory.
             var stop = new CancellationTokenSource();
-            _active = new(job, stop, RunAsync(job, worker, script, buildSha, scratch, register, stop.Token));
+            _active = new(job, stop, RunAsync(job, options, buildSha, scratch, register, stop.Token));
         }
         catch { scratch.Dispose(); throw; }
         return Read(job);
@@ -85,7 +83,7 @@ internal sealed class BackendFullTransferRuns : IDisposable
             ?? throw new ScenarioEditException("transfer_damaged");
     }
 
-    private static async Task<End> RunAsync(BackendFullTransfer.RunJob job, BackendFullTransferWorker worker, string script,
+    private static async Task<End> RunAsync(BackendFullTransfer.RunJob job, BackendOptions options,
         string buildSha, StudioReviewSession scratch, Func<CancellationToken, Task<string?>> register, CancellationToken stop)
     {
         using var workspace = scratch;
@@ -94,41 +92,16 @@ internal sealed class BackendFullTransferRuns : IDisposable
         deadline.CancelAfter(TimeSpan.FromSeconds(725));
         try
         {
-            var start = new ProcessStartInfo(worker.Python)
+            var code = await BackendFullTransferWorker.StartAsync(options, scratch.DirectoryPath, job.Directory, buildSha, deadline.Token)
+                .ConfigureAwait(false);
+            if (code == 0)
             {
-                WorkingDirectory = Path.GetDirectoryName(script)!, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardInput = true
-            };
-            foreach (var argument in new[] { "-I", "-B", script, scratch.DirectoryPath, worker.ComfyRoot, buildSha, job.Directory })
-                start.ArgumentList.Add(argument);
-            start.Environment["TMT_COMFY_ROOT"] = worker.ComfyRoot;
-            using var process = Process.Start(start) ?? throw new IOException("The Full Transfer worker did not start.");
-            try
-            {
-                await process.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
-                if (process.ExitCode == 0)
-                {
-                    await BackendFullTransfer.PublishOutputAsync(job, scratch.DirectoryPath, deadline.Token).ConfigureAwait(false);
-                    // A confirmed result is recoverable if writer admission is interrupted.
-                    end = new(buildSha, "completed", "registration_pending");
-                    end = end with { Detail = await register(deadline.Token).ConfigureAwait(false) };
-                }
-                else if (process.ExitCode == 3) end = new(buildSha, "timed_out", null);
+                await BackendFullTransfer.PublishOutputAsync(job, scratch.DirectoryPath, deadline.Token).ConfigureAwait(false);
+                // A confirmed result is recoverable if writer admission is interrupted.
+                end = new(buildSha, "completed", "registration_pending");
+                end = end with { Detail = await register(deadline.Token).ConfigureAwait(false) };
             }
-            finally
-            {
-                if (!process.HasExited)
-                {
-                    process.StandardInput.Dispose();
-                    try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false); }
-                    catch (TimeoutException)
-                    {
-                        try { process.Kill(entireProcessTree: true); }
-                        catch (InvalidOperationException) when (process.HasExited) { }
-                        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
-                    }
-                }
-            }
+            else if (code == 3) end = new(buildSha, "timed_out", null);
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { if (end.State != "completed") end = new(buildSha, "cancelled", null); }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested) { if (end.State != "completed") end = new(buildSha, "timed_out", null); }

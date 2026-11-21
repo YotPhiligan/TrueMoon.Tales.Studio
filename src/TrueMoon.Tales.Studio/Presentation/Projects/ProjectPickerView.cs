@@ -257,13 +257,14 @@ internal sealed class ProjectPickerView : View, IUiFrameParticipant, IUiInputObs
         };
         OpenButton.IsEnabled = _selected?.CanOpen == true && _loading is null;
         var canMaintain = _selected?.CanMaintain == true;
+        var hasLegacyFormat = _selected is { CanOpen: true, Schema: 1 };
         var browsing = !_form.IsVisible;
         _browseActions.IsVisible = browsing;
         _formActions.IsVisible = !browsing;
         OpenButton.IsVisible = browsing && (!canMaintain || _selected?.CanOpen == true);
-        MaintenanceButton.IsVisible = browsing && canMaintain;
+        MaintenanceButton.IsVisible = browsing && (canMaintain || hasLegacyFormat);
         MaintenanceButton.IsEnabled = canMaintain && _loading is null;
-        MaintenanceButton.Value = _selected?.Availability == ProjectAvailability.MigrationRequired ? "Миграция…" : "Восстановление…";
+        MaintenanceButton.Value = hasLegacyFormat ? "Обновить формат…" : "Восстановление…";
         NewButton.IsEnabled = browsing && _loading is null;
         OpenExistingButton.IsEnabled = (browsing || _mode == FormMode.Create) && _loading is null && _changing is null;
         ProjectsFolderButton.IsEnabled = browsing && _loading is null && _canChangeProjectsRoot;

@@ -14,6 +14,9 @@ internal sealed record ProjectEntry(string Name, string Location, ProjectAvailab
     string? Directory = null, string? Id = null, int? Schema = null, long? Revision = null,
     string? Fingerprint = null, bool Recent = false, string? ProjectFileName = null)
 {
+    internal const string FormatWriteDenied =
+        "Для обновления формата нужен доступ на запись. Проверьте project_write_roots в настройках Studio.";
+
     internal bool OpensReadOnly => Availability == ProjectAvailability.MigrationRequired ||
         Availability == ProjectAvailability.WriteDenied && Schema is 1 or 2;
     internal bool CanOpen => OpensReadOnly || Availability is ProjectAvailability.Ready or ProjectAvailability.NoClip;
@@ -27,7 +30,7 @@ internal sealed record ProjectEntry(string Name, string Location, ProjectAvailab
         ProjectAvailability.RecoveryRequired => "Обнаружена незавершённая запись. Требуется восстановление.",
         ProjectAvailability.DuplicateLocation => "Найдено несколько файлов проекта. Оставьте один файл.",
         ProjectAvailability.AccessDenied => "Путь запрещён или содержит ссылку",
-        ProjectAvailability.WriteDenied when Schema == 1 => "Только чтение. Для миграции настройте project_write_roots.",
+        ProjectAvailability.WriteDenied when Schema == 1 => "Только чтение. " + FormatWriteDenied,
         ProjectAvailability.WriteDenied when OpensReadOnly => "Только чтение. Для редактирования настройте project_write_roots.",
         ProjectAvailability.WriteDenied => "Операция требует разрешения в project_write_roots.",
         ProjectAvailability.NoClip => "Доступен пустой таймлайн",
@@ -69,22 +72,24 @@ internal sealed partial class ProjectCatalog(string configPath)
 
         if (access.ProjectsRoot is { } root)
             foreach (var directory in ReadSource("Каталог проектов", () => Directories(access, root), notices))
-                await AddAsync(directory, Path.GetFileName(directory), null).ConfigureAwait(false);
+                await AddAsync(directory, Path.GetFileName(directory), null, discovered: true).ConfigureAwait(false);
 
         var ordered = entries.OrderByDescending(item => item.Recent)
             .ThenBy(item => item.Recent ? "" : item.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
         return new(ordered, notices.ToArray(), access.ProjectsRoot);
 
-        async Task AddAsync(string reference, string name, string? id, bool recent = false)
+        async Task AddAsync(string reference, string name, string? id, bool recent = false, bool discovered = false)
         {
             token.ThrowIfCancellationRequested();
-            var item = await InspectAsync(access, resolver, reference, name, id, token).ConfigureAwait(false);
+            var item = await InspectAsync(access, resolver, reference, name, id, token, discovered: discovered).ConfigureAwait(false);
+            if (discovered && item.Availability == ProjectAvailability.Missing) return;
             if (item.Directory is null || item.Availability == ProjectAvailability.IdentityMismatch || known.Add(item.Directory))
                 entries.Add(item with { Recent = recent });
         }
     }
 
-    internal async Task<BackendOptions> PrepareAsync(ProjectEntry selected, CancellationToken token, bool maintenance = false)
+    internal async Task<(BackendOptions Options, ProjectEntry Entry)> PrepareAsync(ProjectEntry selected, CancellationToken token,
+        bool maintenance = false)
     {
         if (!(maintenance ? selected.CanMaintain : selected.CanOpen) || selected.Directory is null)
             throw new InvalidDataException(selected.Details);
@@ -100,7 +105,7 @@ internal sealed partial class ProjectCatalog(string configPath)
             throw new InvalidDataException("Расположение проекта изменилось. Обновите список.");
         selected.VerifySelection(current.Id, current.Fingerprint!);
         var readOnly = !maintenance && current.OpensReadOnly;
-        return BackendOptions.Create(current.Directory!, ConfigPath) with
+        var options = BackendOptions.Create(current.Directory!, ConfigPath) with
         {
             Action = current.Availability switch
             {
@@ -113,6 +118,7 @@ internal sealed partial class ProjectCatalog(string configPath)
             WriteEnabled = !readOnly, InitialFingerprint = current.Fingerprint,
             RecoveryFingerprint = current.Availability == ProjectAvailability.RecoveryRequired ? current.Fingerprint : null
         };
+        return (options, current);
     }
 
     internal async Task<ProjectEntry> InspectFolderAsync(string folder, CancellationToken token)
@@ -137,9 +143,11 @@ internal sealed partial class ProjectCatalog(string configPath)
         new(BackendOptions.Create(access.ProjectsRoot ?? Path.GetDirectoryName(ConfigPath)!, ConfigPath), access.Settings);
 
     private static async Task<ProjectEntry> InspectAsync(BackendProjectAccess access, BackendMediaResolver resolver,
-        string reference, string name, string? expectedId, CancellationToken token, bool fileOrFolder = false)
+        string reference, string name, string? expectedId, CancellationToken token, bool fileOrFolder = false,
+        bool discovered = false)
     {
         var entry = new ProjectEntry(name, reference, ProjectAvailability.Invalid);
+        var needsProjectFile = discovered;
         try
         {
             var path = resolver.ResolveReference(reference);
@@ -147,6 +155,8 @@ internal sealed partial class ProjectCatalog(string configPath)
             var directory = storage.ProjectDirectory;
             entry = entry with { Location = directory, Directory = directory, ProjectFileName = storage.ProjectFileName };
             var store = new ProjectStore(storage);
+            if (needsProjectFile && !store.HasProjectFile()) return entry with { Availability = ProjectAvailability.Missing };
+            needsProjectFile = false;
             ProjectFileDocument document;
             try { document = await store.OpenAsync(token).ConfigureAwait(false); }
             catch (ProjectRecoveryRequiredException)
@@ -182,6 +192,7 @@ internal sealed partial class ProjectCatalog(string configPath)
         }
         catch (Exception error) when (IsDataError(error))
         {
+            if (needsProjectFile) return entry with { Availability = ProjectAvailability.Missing };
             var state = error switch
             {
                 ProjectRecoveryRequiredException => ProjectAvailability.RecoveryRequired,

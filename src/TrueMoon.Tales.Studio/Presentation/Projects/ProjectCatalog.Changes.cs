@@ -93,7 +93,7 @@ internal sealed partial class ProjectCatalog
 
     internal async Task<ProjectEntry> MaintainAsync(ProjectEntry selected, CancellationToken token, string? executablePath = null)
     {
-        var options = await PrepareAsync(selected, token, maintenance: true).ConfigureAwait(false);
+        var (options, _) = await PrepareAsync(selected, token, maintenance: true).ConfigureAwait(false);
         var snapshot = await BackendProjectMaintenance.ApplyAsync(options with { ExecutablePath = executablePath }, token).ConfigureAwait(false);
         if (snapshot.Project.Id != selected.Id) throw new InvalidDataException("ID проекта изменился. Обновите список.");
         var access = new BackendProjectAccess(ConfigPath);

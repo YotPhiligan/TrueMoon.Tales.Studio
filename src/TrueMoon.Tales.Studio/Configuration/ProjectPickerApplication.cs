@@ -73,8 +73,7 @@ internal static class ProjectPickerApplication
         {
             while (true)
             {
-                var entry = current;
-                var options = await catalog.PrepareAsync(entry, token).ConfigureAwait(false);
+                var (options, entry) = await catalog.PrepareAsync(current, token).ConfigureAwait(false);
                 handoff = entry.Availability == ProjectAvailability.MigrationRequired
                     ? new(TaskCreationOptions.RunContinuationsAsynchronously) : null;
                 ProjectFormatUpgrade? upgrade = null;

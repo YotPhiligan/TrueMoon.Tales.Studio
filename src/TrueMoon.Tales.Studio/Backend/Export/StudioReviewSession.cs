@@ -80,7 +80,7 @@ internal sealed class StudioReviewSession(string root) : IDisposable
         { Console.Error.WriteLine("Studio Full Transfer: could not remove recovered temporary files."); }
     }
 
-    private static bool ValidName(string name) =>
+    internal static bool ValidName(string name) =>
         name.Length == Prefix.Length + 8 + 1 + 32 && name.StartsWith(Prefix, StringComparison.Ordinal) &&
         name[Prefix.Length + 8] == '-' && name.AsSpan(Prefix.Length, 8).IndexOfAnyExcept("0123456789abcdef") < 0 &&
         name.AsSpan(Prefix.Length + 9).IndexOfAnyExcept("0123456789abcdef") < 0;

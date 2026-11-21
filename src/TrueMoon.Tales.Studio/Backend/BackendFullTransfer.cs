@@ -123,7 +123,8 @@ internal static partial class BackendFullTransfer
             bool hasAudio;
             try
             {
-                hasAudio = await BackendMediaReader.Decoder(options).CheckTransferMotionAsync(motion.Path, draft, token).ConfigureAwait(false);
+                hasAudio = await BackendMediaReader.Decoder(options)
+                    .CheckTransferVideoAsync(motion.Path, draft.Frames, draft.Width, draft.Height, token).ConfigureAwait(false);
             }
             catch (InvalidDataException) { throw new ScenarioEditException("transfer_timing"); }
             await confirmBaseline(token).ConfigureAwait(false);

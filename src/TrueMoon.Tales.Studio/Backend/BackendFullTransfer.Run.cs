@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TrueMoon.Tales.Studio.Backend.Export;
@@ -32,7 +33,7 @@ internal static partial class BackendFullTransfer
         return new(id, paths, path, request, receipt, staged);
     }
 
-    internal static async Task<string> FreezeRunAsync(RunJob job, BackendFullTransferWorker worker, string runner,
+    internal static async Task<string> FreezeRunAsync(RunJob job, BackendFullTransferWorker worker,
         string scratch, CancellationToken token)
     {
         if (!job.Staged) throw new ScenarioEditException("transfer_not_staged");
@@ -56,7 +57,7 @@ internal static partial class BackendFullTransfer
         var runBuild = JsonSerializer.SerializeToUtf8Bytes(manifest);
         var buildSha = Hash(runBuild);
         var intent = new Intent(1, job.Receipt.RequestSha256, Hash(staged), buildSha,
-            Hash(ReadFile(Path.GetDirectoryName(runner)!, Path.GetFileName(runner))), DateTimeOffset.UtcNow, Path.GetFileName(scratch));
+            RunnerHash(), DateTimeOffset.UtcNow, Path.GetFileName(scratch));
         var pending = Path.Combine(job.Directory, $".Run-{Guid.NewGuid():N}.pending");
         CheckJobWrite(job.Project, pending);
         Directory.CreateDirectory(pending);
@@ -97,6 +98,51 @@ internal static partial class BackendFullTransfer
             intent.BuildSha256 != Hash(ReadFile(job.Run, "Build.json")) || !BackendConnection.IsHash(intent.RunnerSha256))
             throw Damaged();
         return intent.BuildSha256;
+    }
+
+    private static string RunnerHash()
+    {
+        using var assembly = File.OpenRead(typeof(BackendFullTransferWorker).Assembly.Location);
+        return Convert.ToHexString(SHA256.HashData(assembly));
+    }
+
+    internal static JsonElement ConfirmWorkerBuild(string scratch, string job, string expected, string comfyRoot)
+    {
+        var launch = ReadFile(scratch, "Launch.json");
+        var run = Path.Combine(job, "Run");
+        var intent = JsonSerializer.Deserialize<Intent>(launch, FormJson);
+        var build = ReadFile(scratch, "Build.json");
+        if (intent is not { Version: 1 } || intent.Scratch != Path.GetFileName(scratch) ||
+            !launch.AsSpan().SequenceEqual(ReadFile(run, "Launch.json")) || intent.BuildSha256 != expected ||
+            expected != Hash(build) || expected != Hash(ReadFile(run, "Build.json")) ||
+            intent.RequestSha256 != Hash(ReadFile(job, "Request.json")) ||
+            intent.StagedSha256 != Hash(ReadFile(job, "Staged.json")) || intent.RunnerSha256 != RunnerHash()) throw Damaged();
+        using var document = JsonDocument.Parse(build);
+        var root = document.RootElement;
+        if (root.GetProperty("version").GetInt32() != 2 || root.GetProperty("profile").GetString() != "full-transfer" ||
+            root.GetProperty("id").GetString() != Path.GetFileName(job) || !root.GetProperty("staged").GetBoolean() ||
+            root.GetProperty("generation_executed").GetBoolean()) throw Damaged();
+        var files = root.GetProperty("file_hashes");
+        foreach (var name in PreviewFiles)
+            if (!string.Equals(Hash(ReadFile(scratch, name)), files.GetProperty(name).GetString(), StringComparison.OrdinalIgnoreCase))
+                throw Damaged();
+        using var settings = JsonDocument.Parse(ReadFile(scratch, "Job.json"));
+        if (!string.Equals(settings.RootElement.GetProperty("runtime").GetProperty("comfy_root").GetString(), comfyRoot, PathComparison))
+            throw Damaged();
+        var models = root.GetProperty("model_files");
+        if (models.GetArrayLength() != 4) throw Damaged();
+        var modelsRoot = Path.Combine(comfyRoot, "models") + Path.DirectorySeparatorChar;
+        foreach (var row in models.EnumerateArray())
+        {
+            var path = row.GetProperty("path").GetString()!;
+            if (!Path.IsPathFullyQualified(path) || !Path.GetFullPath(path).StartsWith(modelsRoot, PathComparison)) throw Damaged();
+            BackendMediaResolver.CheckNoLinks(path);
+        }
+        var helpers = root.GetProperty("implementation_hashes");
+        foreach (var name in new[] { "common.py", "validate.py", "server.py" })
+            if (!string.Equals(Hash(ReadFile(BackendFullTransferWorker.DirectoryPath, name)), helpers.GetProperty(name).GetString(), StringComparison.OrdinalIgnoreCase))
+                throw Damaged();
+        return root.Clone();
     }
 
     internal static bool HasPublishedOutput(RunJob job) => File.Exists(Path.Combine(job.Run, "Publication.json")) && File.Exists(PublishedPath(job));

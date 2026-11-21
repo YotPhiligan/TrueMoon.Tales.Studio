@@ -45,7 +45,7 @@ internal sealed partial class StudioBackendService
                 throw new ScenarioEditException("transfer_take_removed");
             if (operation == "launch" && Path.Exists(job.Run)) throw new ScenarioEditException("transfer_already_launched");
             var state = operation == "launch"
-                ? await _transfers.LaunchAsync(job, BackendFullTransferWorker.Read(options),
+                ? await _transfers.LaunchAsync(job, options,
                     async scratch => await BackendFullTransfer.OpenOrStageAsync(options, baseline, jobId, requestSha,
                         async ct => { await ObserveAsync(expectedRevision, fingerprint, ct).ConfigureAwait(false); }, token,
                         forLaunch: true, scratchInput: scratch).ConfigureAwait(false),

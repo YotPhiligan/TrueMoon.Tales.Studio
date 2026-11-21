@@ -22,27 +22,33 @@ internal static class BackendExportWorker
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(310));
-        deadline.Token.ThrowIfCancellationRequested();
-        using var process = Process.Start(start) ?? throw new IOException("CPU export worker did not start.");
+        if (await RunOwnedAsync(start, jobDirectory, deadline.Token).ConfigureAwait(false) != 0)
+            throw new IOException("CPU export worker failed. See its job log.");
+    }
+
+    internal static async Task<int> RunOwnedAsync(ProcessStartInfo start, string jobDirectory, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        using var process = Process.Start(start) ?? throw new IOException("The Studio worker did not start.");
         var errors = CaptureDiagnosticsAsync(process.StandardError.BaseStream, jobDirectory);
         Task? output = null;
         SafeFileHandle? processJob = null;
         try
         {
             if (OperatingSystem.IsWindows()) processJob = WindowsExportJob.Attach(process);
-            using (var readyDeadline = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token))
+            using (var readyDeadline = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
                 readyDeadline.CancelAfter(TimeSpan.FromSeconds(8));
                 var ready = new byte[6];
                 await process.StandardOutput.BaseStream.ReadExactlyAsync(ready, readyDeadline.Token).ConfigureAwait(false);
                 if (!ready.AsSpan().SequenceEqual("READY\n"u8))
-                    throw new IOException("Invalid export worker readiness message.");
+                    throw new IOException("Invalid Studio worker readiness message.");
                 await process.StandardInput.BaseStream.WriteAsync("S"u8.ToArray(), readyDeadline.Token).ConfigureAwait(false);
                 await process.StandardInput.BaseStream.FlushAsync(readyDeadline.Token).ConfigureAwait(false);
                 output = process.StandardOutput.BaseStream.CopyToAsync(Stream.Null);
             }
-            await process.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
-            if (process.ExitCode != 0) throw new IOException("CPU export worker failed. See its job log.");
+            await process.WaitForExitAsync(token).ConfigureAwait(false);
+            return process.ExitCode;
         }
         finally
         {
@@ -79,19 +85,7 @@ internal static class BackendExportWorker
             using var worker = Lock(directory, "Worker.lock");
             using var input = Console.OpenStandardInput();
             using var output = Console.OpenStandardOutput();
-            await output.WriteAsync("READY\n"u8.ToArray(), stop.Token).ConfigureAwait(false);
-            await output.FlushAsync(stop.Token).ConfigureAwait(false);
-            if (input.ReadByte() != 'S') return 2;
-            // The backend owns the pipe. EOF cancels all rendering even after a hard backend exit.
-            _ = Task.Run(() =>
-            {
-                try { input.ReadByte(); }
-                catch (IOException) { }
-                catch (ObjectDisposedException) { return; }
-                if (!stop.IsCancellationRequested)
-                    try { stop.Cancel(); }
-                    catch (ObjectDisposedException) { }
-            });
+            if (!await WaitForOwnerAsync(input, output, stop).ConfigureAwait(false)) return 2;
             var settings = await WorkspaceProfile.ReadAsync(configPath, stop.Token).ConfigureAwait(false);
             string Tool(string? path, string fallback) => path is null ? fallback : WorkspaceProfile.ResolvePath(path, configPath);
             await BackendCpuRenderer.RenderAsync(directory, sha, Tool(settings.FfmpegExecutable, "ffmpeg"),
@@ -106,19 +100,38 @@ internal static class BackendExportWorker
             return 1;
         }
 
-        static FileStream Lock(string directory, string name)
+    }
+
+    internal static FileStream Lock(string directory, string name)
+    {
+        var path = Path.Combine(directory, name);
+        BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
+        var file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+        try
         {
-            var path = Path.Combine(directory, name);
-            BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
-            var file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
-            try
-            {
-                if (OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException();
-                file.Lock(0, 1);
-                return file;
-            }
-            catch { file.Dispose(); throw; }
+            if (OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException();
+            file.Lock(0, 1);
+            return file;
         }
+        catch { file.Dispose(); throw; }
+    }
+
+    internal static async Task<bool> WaitForOwnerAsync(Stream input, Stream output, CancellationTokenSource stop)
+    {
+        await output.WriteAsync("READY\n"u8.ToArray(), stop.Token).ConfigureAwait(false);
+        await output.FlushAsync(stop.Token).ConfigureAwait(false);
+        if (input.ReadByte() != 'S') return false;
+        // The backend owns the pipe. EOF also stops work after a hard backend exit.
+        _ = Task.Run(() =>
+        {
+            try { input.ReadByte(); }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { return; }
+            if (!stop.IsCancellationRequested)
+                try { stop.Cancel(); }
+                catch (ObjectDisposedException) { }
+        });
+        return true;
     }
 
     private static async Task CaptureDiagnosticsAsync(Stream input, string jobDirectory)

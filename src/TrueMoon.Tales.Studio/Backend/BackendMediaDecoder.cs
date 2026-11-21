@@ -144,7 +144,7 @@ internal sealed partial class BackendMediaDecoder(string ffmpegExecutable, strin
         return streams.GetArrayLength() == 1 && streams[0].GetProperty("codec_type").GetString() == "audio";
     }
 
-    internal async Task<bool> CheckTransferMotionAsync(string path, TakeVideoSnapshot draft, CancellationToken token)
+    internal async Task<bool> CheckTransferVideoAsync(string path, int expectedFrames, int width, int height, CancellationToken token)
     {
         // Decode timestamps through the existing bounded local FFprobe runner.
         var arguments = new List<string> { "-v", "error", "-threads", "1", "-max_alloc", "67108864" };
@@ -154,10 +154,10 @@ internal sealed partial class BackendMediaDecoder(string ffmpegExecutable, strin
         using var document = JsonDocument.Parse(await RunAsync(ffprobeExecutable, arguments, MaxProbeBytes, token).ConfigureAwait(false));
         var streams = document.RootElement.GetProperty("streams");
         var frames = document.RootElement.GetProperty("frames");
-        if (streams.GetArrayLength() != 1 || frames.GetArrayLength() != draft.Frames ||
+        if (streams.GetArrayLength() != 1 || frames.GetArrayLength() != expectedFrames ||
             Rate(streams[0].GetProperty("avg_frame_rate").GetString()) != 24 ||
-            streams[0].GetProperty("width").GetInt32() != draft.Width || streams[0].GetProperty("height").GetInt32() != draft.Height)
-            throw new InvalidDataException("The motion reference must have exactly one matching 24 fps video stream.");
+            streams[0].GetProperty("width").GetInt32() != width || streams[0].GetProperty("height").GetInt32() != height)
+            throw new InvalidDataException("Full Transfer requires exactly one matching 24 fps video stream.");
         double? previous = null;
         foreach (var frame in frames.EnumerateArray())
         {

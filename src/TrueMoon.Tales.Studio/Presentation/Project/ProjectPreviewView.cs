@@ -45,15 +45,17 @@ internal sealed class ProjectPreviewView : View<ProjectViewModel>, IUiFrameParti
         _reload = new Button("Перечитать проект");
         _reload.Click += () => { ShowUpgradeStatus(""); model.Reload(); Refresh(); };
         UpgradeButton.Click += AskUpgrade;
+        UpgradeButton.Tone = ControlTone.Accent;
         ConfirmUpgradeButton.Click += ConfirmUpgrade;
         CancelUpgradeButton.Click += CancelUpgrade;
         ConfirmUpgradeButton.Tone = ControlTone.Accent;
         _upgradePath = new Text(upgrade?.Location ?? "") { FontSize = 13, AccessibleName = upgrade?.Location ?? "" };
         _confirmation = VStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(_upgradePath, _upgradeDetails,
             HStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(ConfirmUpgradeButton, CancelUpgradeButton));
-        var fields = VStack.Create().Configure(stack => stack.Spacing = 16).WithChildren(_name, _revision, _summary, _reload);
-        if (returnToProjects is not null) fields.WithChildren(Button.Simple("К проектам").OnClick(returnToProjects));
+        var fields = VStack.Create().Configure(stack => stack.Spacing = 16).WithChildren(_name, _revision, _summary);
         if (upgrade is not null) fields.WithChildren(UpgradeButton, _confirmation, _upgradeStatus);
+        fields.WithChildren(_reload);
+        if (returnToProjects is not null) fields.WithChildren(Button.Simple("К проектам").OnClick(returnToProjects));
         fields.WithChildren(Text.Plain("Сценарные сегменты"), ScrollViewer.Create().Content(_segments), _status);
         Content(model, _ => Border.Create().Configure(border => border.Padding = new Thickness(24)).Content(fields));
         this.WithViewStyle(style);
@@ -142,9 +144,9 @@ internal sealed class ProjectPreviewView : View<ProjectViewModel>, IUiFrameParti
     private void UpdateUpgradeControls()
     {
         _reload.IsEnabled = !_model.Loading && _confirmedSnapshot is null && _upgrading is null && !_upgraded;
-        UpgradeButton.IsVisible = _upgrade?.Apply is not null && _model.Opened?.SchemaVersion == 1 &&
+        UpgradeButton.IsVisible = _upgrade is not null && _model.Opened?.SchemaVersion == 1 &&
             _confirmedSnapshot is null && _upgrading is null && !_upgraded;
-        UpgradeButton.IsEnabled = !_model.Loading && !_model.Failed;
+        UpgradeButton.IsEnabled = UpgradeButton.IsVisible && _upgrade?.Apply is not null && !_model.Loading && !_model.Failed;
         _confirmation.IsVisible = _confirmedSnapshot is not null;
     }
 
@@ -160,7 +162,7 @@ internal sealed class ProjectPreviewView : View<ProjectViewModel>, IUiFrameParti
         _status.Value = _model.Status;
         UpdateUpgradeControls();
         if (_upgrade is { Apply: null } && _model.Opened?.SchemaVersion == 1)
-            ShowUpgradeStatus("Для обновления формата нужен доступ на запись к проекту.");
+            ShowUpgradeStatus(ProjectEntry.FormatWriteDenied);
         if (_model.Opened is not { } opened) return;
         var project = opened.Project;
         _name.Value = project.Name;
