@@ -51,6 +51,7 @@ internal sealed class BackendMediaResolver
         if (codeRoot is not null) AddReserved("studio", codeRoot);
         foreach (var root in _mounts.Values) AddRoot(root);
         foreach (var root in new[] { config.AmvRoot, config.ProjectsRoot }.OfType<string>()) AddRoot(ConfigPath(root));
+        AddReserved("project", _projectDirectory);
         if (_legacyEnabled && _legacy is not null) _roots.Add(_legacy);
         if (_roots.Count == 0) throw new InvalidDataException("No media read roots are configured.");
 

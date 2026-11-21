@@ -23,8 +23,8 @@ public sealed class RasterProjectWindowTests
         var reader = new Reader();
         using var app = App.Builder(_ => { }).Setup(context => context.UseProjectBackend(files.Options, false).UseProjectWindow()
             .Services(r => r.Singleton<IBackendProjectReader>(_ => reader))).Build();
-        var view = app.Services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
-        using var host = new RasterWindow<ProjectWindow>(view, "project", 1000, 720, scale);
+        var view = app.Services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+        using var host = new RasterWindow<ProjectPreviewView>(view, "project", 1000, 720, scale);
         host.Update();
         Assert.False(view.ReloadButton.IsEnabled);
         Assert.Equal("Открытие проекта…", view.ProjectTitle.Value);

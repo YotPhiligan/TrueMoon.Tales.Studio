@@ -12,6 +12,8 @@ internal sealed class BackendExportJobs : IDisposable
     internal const long MaxArtifactSize = 1024L * 1024 * 1024;
 
     private readonly Lazy<BackendExportStorage> _storage;
+    private readonly StudioReviewSession _reviewSession;
+    private readonly BackendExportStorage _reviewStorage;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<ProjectFileDocument, string, string, BackendReviewRange?, bool, bool, CancellationToken, Task<BackendExportPlan>> _plan;
@@ -19,18 +21,21 @@ internal sealed class BackendExportJobs : IDisposable
     private ActiveJob? _active;
     private string? _workingId;
     private int _disposed;
+    internal bool HasActiveJob => Volatile.Read(ref _active) is not null;
 
     internal BackendExportJobs(BackendOptions options,
         Func<ProjectFileDocument, string, string, CancellationToken, Task<BackendExportPlan>>? plan = null,
-        Func<string, string, CancellationToken, Task>? run = null, BackendProxyStore? proxies = null)
+        Func<string, string, CancellationToken, Task>? run = null, BackendProxyStore? proxies = null, string? reviewRoot = null)
     {
         _storage = new(() => new BackendExportStorage(options));
+        _reviewSession = new(reviewRoot ?? StudioReviewSession.DefaultRoot);
+        _reviewStorage = new(_reviewSession);
         _plan = (document, profile, directory, range, animatic, working, token) => range is null && !animatic && plan is not null
             ? plan(document, profile, directory, token)
             : BackendExportPlan.CreateAsync(document.Project, document.Fingerprint, profile, directory,
                 new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range, animatic,
                 proxies: working && !animatic ? proxies : null);
-        _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options.ConfigPath, directory, sha, token));
+        _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options.ConfigPath, directory, sha, _storage.Value.WorkerScope, token));
     }
 
     internal async Task<BackendExportReply> StartAsync(string clientKey, string profile, long expectedRevision, string fingerprint,
@@ -48,13 +53,13 @@ internal sealed class BackendExportJobs : IDisposable
         try
         {
             ObjectDisposedException.ThrowIf(_disposed != 0, this);
-            var storage = _storage.Value;
+            var storage = working ? _reviewStorage : _storage.Value;
             var directory = storage.JobDirectory(id, working);
             if (working && Directory.Exists(directory) && _workingId != id) throw new BackendExportException("export_conflict");
             if (Directory.Exists(directory)) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range, animatic);
             if (_active is not null) throw new BackendExportException("export_busy");
 
-            FileStream? slot = storage.AcquireSlot();
+            FileStream? slot = _storage.Value.AcquireSlot();
             try
             {
                 if (Directory.Exists(storage.Check(directory))) return Existing(storage, directory, id, profile, expectedRevision, fingerprint, range, animatic);
@@ -67,7 +72,11 @@ internal sealed class BackendExportJobs : IDisposable
                     baseline.Fingerprint, profile, 1, "running", Hash(plan.Request), plan.Frames, plan.Fps, RangeStart: range?.Start,
                     Animatic: animatic);
                 scope.Token.ThrowIfCancellationRequested();
-                if (working && _workingId is { } old) storage.DropWorking(old);
+                if (working)
+                {
+                    _reviewSession.Open();
+                    if (_workingId is { } old) storage.DropWorking(old);
+                }
                 storage.Create(directory, plan.Request, receipt);
                 if (working) _workingId = id;
                 // The rename is the acceptance point. Losing the response cannot submit another worker.
@@ -117,7 +126,7 @@ internal sealed class BackendExportJobs : IDisposable
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var storage = _storage.Value;
+            var storage = working ? _reviewStorage : _storage.Value;
             var directory = DirectoryFor(storage, id, working);
             return Reply(WithProgress(storage, directory, Load(storage, directory, id)));
         }
@@ -130,7 +139,7 @@ internal sealed class BackendExportJobs : IDisposable
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var storage = _storage.Value;
+            var storage = working ? _reviewStorage : _storage.Value;
             var directory = DirectoryFor(storage, id, working);
             var status = Load(storage, directory, id);
             if (_active is not { } active || active.Status.Id != id || status.State != "running" || status.Revision != expectedJobRevision)
@@ -211,8 +220,9 @@ internal sealed class BackendExportJobs : IDisposable
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var storage = _storage.Value;
-            var directory = DirectoryFor(storage, id, working: _workingId == id);
+            var working = _workingId == id;
+            var storage = working ? _reviewStorage : _storage.Value;
+            var directory = DirectoryFor(storage, id, working);
             var job = Load(storage, directory, id);
             if (job.State != "completed") throw new BackendExportException("export_not_ready");
             if (job.ProjectRevision != revision || !EqualHash(job.ProjectFingerprint, fingerprint))
@@ -419,14 +429,12 @@ internal sealed class BackendExportJobs : IDisposable
         try
         {
             worker?.GetAwaiter().GetResult();
-            if (_workingId is { } id)
-            {
-                try { _storage.Value.DropWorking(id); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-                { Console.Error.WriteLine("Studio preview: could not remove the temporary review."); }
-            }
         }
-        finally { _shutdown.Dispose(); }
+        finally
+        {
+            _reviewSession.Dispose();
+            _shutdown.Dispose();
+        }
     }
 
     private sealed class ActiveJob(BackendExportStatus status, string directory, FileStream slot)

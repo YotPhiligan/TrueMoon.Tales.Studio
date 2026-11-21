@@ -11,6 +11,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 [JsonDerivedType(typeof(LinkSource), "link_source")]
 [JsonDerivedType(typeof(ImportVideo), "import_video")]
 [JsonDerivedType(typeof(RelinkVideo), "relink_video")]
+[JsonDerivedType(typeof(RemoveVideoTake), "remove_video_take")]
 [JsonDerivedType(typeof(PlaceClip), "place_clip")]
 [JsonDerivedType(typeof(AssignTake), "assign_take")]
 [JsonDerivedType(typeof(SplitMontageClip), "split_clip")]
@@ -69,6 +70,7 @@ internal sealed record RecordTakeReference(string SourceId, string TakeId, strin
 internal sealed record LinkDraftFinalTake(string SourceId, string DraftTakeId, string FinalTakeId, string Method) : ScenarioCommand;
 internal sealed record ImportVideo(string? SourceId, string Title, string TakeName, string Reference) : ScenarioCommand;
 internal sealed record RelinkVideo(string SourceId, string TakeId, string Reference) : ScenarioCommand;
+internal sealed record RemoveVideoTake(string SourceId, string TakeId, [property: JsonRequired] bool Confirmed) : ScenarioCommand;
 internal sealed record PlaceClip(string SegmentId, string ActionId, string SourceId, string TakeId,
     int Start, int Duration, int SourceIn) : ScenarioCommand;
 internal sealed record AssignTake(string ClipId, string TakeId) : ScenarioCommand;

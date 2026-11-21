@@ -10,7 +10,7 @@ using TrueMoon.Argentis;
 namespace TrueMoon.Tales.Studio.Tests.Support;
 
 // A test-only owner loop/window controller. No HWND, OS input, GPU or background threads.
-internal sealed class RasterWindow<TWindow> : IWindowController, IDisposable where TWindow : Window
+internal sealed class RasterWindow<TWindow> : IWindowController, IDisposable where TWindow : Element
 {
     private readonly WindowHostConnection _connection;
     private readonly List<object> _frames = [];
@@ -30,7 +30,8 @@ internal sealed class RasterWindow<TWindow> : IWindowController, IDisposable whe
     internal string EvidenceDirectory { get; }
     internal bool Closed { get; private set; }
 
-    internal RasterWindow(TWindow window, string scenario, float width, float height, float scale = 1)
+    internal RasterWindow(TWindow window, string scenario, float width, float height, float scale = 1,
+        Func<Window, Element>? createFrame = null)
     {
         ValidateName(scenario);
         var viewport = CreateViewport(width, height, scale);
@@ -41,12 +42,18 @@ internal sealed class RasterWindow<TWindow> : IWindowController, IDisposable whe
         var parent = _retain ? Path.GetFullPath(requested!) : Path.GetTempPath();
         EvidenceDirectory = Path.Combine(parent, "studio-raster-" + scenario + "-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(EvidenceDirectory);
-        try { _connection = window.AttachHost(this); }
+        var root = window as Window ?? new Window();
+        if (!ReferenceEquals(root, window)) root.SetContent(window);
+        if (window is TrueMoon.Tales.Studio.Presentation.Scene.SceneView editor)
+            root.Closing += reason => Task.FromResult(editor.ConfirmClose(reason));
+        try { _connection = root.AttachHost(this); }
         catch { DeleteTemporaryEvidence(); throw; }
         UiSession? adopted = null;
+        Element presentation = root;
         try
         {
-            Session = adopted = UiSession.Create(window, new SkiaRasterRenderBackend(RasterFonts.Catalog), new RasterUiTarget(), viewport);
+            presentation = createFrame?.Invoke(root) ?? root;
+            Session = adopted = UiSession.Create(presentation, new SkiaRasterRenderBackend(RasterFonts.Catalog), new RasterUiTarget(), viewport);
             Publish();
         }
         catch
@@ -54,7 +61,7 @@ internal sealed class RasterWindow<TWindow> : IWindowController, IDisposable whe
             try { _connection.Dispose(); }
             finally
             {
-                try { if (adopted is not null) adopted.Dispose(); else window.Dispose(); }
+                try { if (adopted is not null) adopted.Dispose(); else presentation.Dispose(); }
                 finally { DeleteTemporaryEvidence(); }
             }
             throw;

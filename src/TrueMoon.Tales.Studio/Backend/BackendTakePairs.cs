@@ -8,7 +8,7 @@ internal sealed record TakeVideoSnapshot(string TakeId, string Name, string Asse
 
 internal sealed record DraftFinalPair(string Method, TakeVideoSnapshot Draft, TakeVideoSnapshot Final)
 {
-    internal string MethodName => Method == BackendTakePairs.FullTransfer ? "Full Transfer" : "Прямая генерация";
+    internal string MethodName => Method == BackendTakePairs.FullTransfer ? BackendTakePairs.GenerationFromDraftLabel : "Прямая генерация";
 
     internal int DraftFrameAt(int finalFrame) => (int)Math.Min(Draft.Frames - 1, Math.Floor(finalFrame * Draft.Fps / Final.Fps));
 }
@@ -18,6 +18,7 @@ internal static class BackendTakePairs
     private const string Key = "studio_draft_final_v1";
     internal const string Direct = "direct";
     internal const string FullTransfer = "full_transfer";
+    internal const string GenerationFromDraftLabel = "Генерация по черновику";
 
     internal static DraftFinalPair? Read(TakeContract take)
     {

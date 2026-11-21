@@ -13,21 +13,18 @@ internal static class ProjectPickerApplication
 {
     internal static async Task RunAsync(string config, bool openEmptyWorkspace, CancellationToken token)
     {
-        var catalog = new ProjectCatalog(config);
-        ProjectEntry? previous = null;
-        string? message = null;
-        if (openEmptyWorkspace && !token.IsCancellationRequested)
+        StudioWorkspaceWindow? workspace = null;
+        await using var preferences = StudioUiPreferences.OpenDefault();
+        await using var app = BuildWorkspace(new ProjectCatalog(config), openEmptyWorkspace, preferences, window => workspace = window);
+        try
         {
-            (previous, message) = await PrepareEmptyWorkspaceAsync(catalog, token).ConfigureAwait(false);
-            if (previous is not null)
-                message = await OpenSelectedAsync(catalog, previous, token).ConfigureAwait(false);
+            await app.StartAsync(token).ConfigureAwait(false);
+            await app.Services.Resolve<HostedUiWindow>()!.Completion.WaitAsync(token).ConfigureAwait(false);
         }
-        while (!token.IsCancellationRequested)
+        finally
         {
-            var selected = await SelectAsync(catalog, previous, message, token).ConfigureAwait(false);
-            if (selected is null) return;
-            previous = selected;
-            message = await OpenSelectedAsync(catalog, selected, token).ConfigureAwait(false);
+            try { await app.StopAsync().ConfigureAwait(false); }
+            finally { if (workspace is not null) await workspace.DrainAsync().ConfigureAwait(false); }
         }
     }
 
@@ -45,51 +42,29 @@ internal static class ProjectPickerApplication
         { return (null, $"Не удалось начать новый проект — {error.Message}"); }
     }
 
-    private static async Task<ProjectEntry?> SelectAsync(ProjectCatalog catalog, ProjectEntry? previous,
-        string? message, CancellationToken token)
-    {
-        ProjectEntry? selected = null;
-        await using var preferences = StudioUiPreferences.OpenDefault();
-        await using var app = BuildPicker(catalog,
-            entry => Interlocked.CompareExchange(ref selected, entry, null) is null, previous, message, preferences);
-        try
+    internal static IApp BuildWorkspace(ProjectCatalog catalog, bool openEmptyWorkspace = false,
+        StudioUiPreferences? preferences = null, Action<StudioWorkspaceWindow>? created = null) =>
+        App.Build(context => context.UsePresentation(_ =>
         {
-            await app.StartAsync(token).ConfigureAwait(false);
-            await app.Services.Resolve<IAppLifetimeHandler>()!.WaitAsync(token).ConfigureAwait(false);
-            return Volatile.Read(ref selected);
-        }
-        finally { await app.StopAsync().ConfigureAwait(false); }
-    }
+            var window = new StudioWorkspaceWindow(catalog, openEmptyWorkspace, preferences);
+            created?.Invoke(window);
+            return window;
+        }, options => options.UseSkiaOpenGL().UseSilkWindow(ConfigureWorkspaceWindow)));
 
-    internal static IApp BuildPicker(ProjectCatalog catalog, Func<ProjectEntry, bool> trySelect,
-        ProjectEntry? previous = null, string? message = null, StudioUiPreferences? preferences = null) =>
-        App.Build(context => context.UsePresentation(resolver =>
-        {
-            var lifetime = resolver.Resolve<IAppLifetime>()!;
-            var picker = new ProjectPickerWindow(catalog, entry =>
-            {
-                if (trySelect(entry)) lifetime.Cancel();
-            }, previous, message ?? preferences?.Notice);
-            preferences?.Attach(picker, StudioUiWindow.Projects);
-            return picker;
-        }, options => options.UseSkiaOpenGL().UseSilkWindow(window =>
-        {
-            ConfigurePickerWindow(window);
-            if (preferences is not null)
-                window.ConfigureDefaultTitleBar = (_, content, _) => StudioUiPreferences.ApplyTheme(content, preferences.Current.Theme);
-        })));
-
-    internal static void ConfigurePickerWindow(SilkUiWindowOptions window)
+    internal static void ConfigureWorkspaceWindow(SilkUiWindowOptions window)
     {
-        window.Title = "Проекты · TrueMoon Tales Studio";
-        window.Width = 1000;
-        window.Height = 720;
+        window.Title = "TrueMoon · Tales Studio";
+        window.Width = 1280;
+        window.Height = 820;
         window.Appearance = new WindowAppearance { Decorated = false };
-        window.Chrome = new WindowChromeOptions { NativeDrag = true, MinimumSize = new(740, 480) };
+        window.UseSystemAccentBorder = true;
+        window.Chrome = new WindowChromeOptions { NativeDrag = true, NativeSnapLayouts = true, MinimumSize = new(880, 640) };
+        window.ConfigureDefaultTitleBar = (title, content, _) => ((StudioWorkspaceWindow)content).AttachTitleBar(title);
     }
 
     internal static async Task<string?> OpenSelectedAsync(ProjectCatalog catalog, ProjectEntry selected,
-        CancellationToken token, Action<IApp>? externalHost = null, string? executablePath = null)
+        CancellationToken token, Action<IApp>? externalHost = null, string? executablePath = null,
+        StudioWorkspaceWindow? workspace = null)
     {
         var current = selected;
         var migrated = false;
@@ -113,7 +88,7 @@ internal static class ProjectPickerApplication
                     upgrade = new(entry.Directory!, null, _ => { });
 
                 var notice = await OpenProjectAsync(options with { ExecutablePath = executablePath }, () => catalog.Remember(entry),
-                    token, externalHost, upgrade, handoff?.Task).ConfigureAwait(false);
+                    token, externalHost, workspace, upgrade, handoff?.Task).ConfigureAwait(false);
                 if (handoff?.Task.IsCompletedSuccessfully != true)
                     return migrated && notice is not null ? EditorRetry(notice) : notice;
 
@@ -143,28 +118,25 @@ internal static class ProjectPickerApplication
     }
 
     private static async Task<string?> OpenProjectAsync(BackendOptions options, Action remember,
-        CancellationToken token, Action<IApp>? externalHost, ProjectFormatUpgrade? upgrade, Task<ProjectEntry>? upgraded)
+        CancellationToken token, Action<IApp>? externalHost, StudioWorkspaceWindow? workspace,
+        ProjectFormatUpgrade? upgrade, Task<ProjectEntry>? upgraded)
     {
         var opened = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var preferences = externalHost is null ? StudioUiPreferences.OpenDefault() : null;
         await using var app = App.Build(context =>
         {
             context.UseProjectBackend(options, child: false);
             if (options.WriteEnabled)
-            {
-                context.UseBackendScene(error => opened.TrySetResult(error), preferences);
-                if (externalHost is null) context.UseStudioWindow(preferences);
-            }
-            else context.UseProjectWindow(error => opened.TrySetResult(error), nativeWindow: externalHost is null,
-                preferences: preferences, upgrade: upgrade);
+                context.UseBackendScene(error => opened.TrySetResult(error), workspace?.Preferences);
+            else context.UseProjectWindow(error => opened.TrySetResult(error), nativeWindow: false, upgrade: upgrade,
+                returnToProjects: workspace is null ? null : workspace.RequestProjects);
         });
         try
         {
             await app.StartAsync(token).ConfigureAwait(false);
             externalHost?.Invoke(app);
+            if (workspace is not null) await workspace.AttachProjectAsync(app).ConfigureAwait(false);
             var stopped = app.Services.Resolve<IAppLifetimeHandler>()!.WaitAsync(token);
-            var closed = externalHost is null ? app.Services.Resolve<HostedUiWindow>()!.Completion : stopped;
-            var closing = upgraded is null ? Task.WhenAny(closed, stopped) : Task.WhenAny(closed, stopped, upgraded);
+            var closing = upgraded is null ? Task.WhenAny([stopped]) : Task.WhenAny(stopped, upgraded);
             using var readiness = CancellationTokenSource.CreateLinkedTokenSource(token);
             readiness.CancelAfter(TimeSpan.FromSeconds(45));
             await Task.WhenAny(opened.Task, closing).WaitAsync(readiness.Token).ConfigureAwait(false);
@@ -187,6 +159,10 @@ internal static class ProjectPickerApplication
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         { return "Истекло время открытия проекта. Попробуйте открыть его снова."; }
-        finally { await app.StopAsync().ConfigureAwait(false); }
+        finally
+        {
+            try { if (workspace is not null) await workspace.DetachProjectAsync(app).ConfigureAwait(false); }
+            finally { await app.StopAsync().ConfigureAwait(false); }
+        }
     }
 }

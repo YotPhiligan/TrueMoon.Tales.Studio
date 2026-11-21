@@ -11,6 +11,7 @@ using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Models;
 using TrueMoon.Tales.Studio.Persistence;
+using TrueMoon.Tales.Studio.Presentation;
 using TrueMoon.Tales.Studio.Presentation.Project;
 using TrueMoon.Tales.Studio.Presentation.Projects;
 using TrueMoon.Tales.Studio.Presentation.Scene;
@@ -83,9 +84,9 @@ public sealed class ProjectPickerTests
     public async Task PickerStartup_BuildsHostedWindowWithProductionChrome()
     {
         using var files = new PickerFixture();
-        await using var app = ProjectPickerApplication.BuildPicker(files.Catalog, _ => false);
+        await using var app = ProjectPickerApplication.BuildWorkspace(files.Catalog);
         var options = new SilkUiWindowOptions();
-        ProjectPickerApplication.ConfigurePickerWindow(options);
+        ProjectPickerApplication.ConfigureWorkspaceWindow(options);
 
         Assert.NotNull(app.Services.Resolve<HostedUiWindow>());
         Assert.False(options.Appearance.Decorated);
@@ -96,7 +97,7 @@ public sealed class ProjectPickerTests
     public void EmptyPicker_RendersAndAllowsRefresh()
     {
         using var files = new PickerFixture();
-        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException()),
+        using var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => throw new InvalidOperationException()),
             "picker-empty", 740, 480);
         host.PumpUntil(() => host.Window.RefreshButton.IsEnabled);
         Assert.Empty(host.Window.Rows);
@@ -144,7 +145,7 @@ public sealed class ProjectPickerTests
         Assert.True(entered);
         Assert.Equal(config, StudioStartup.DefaultConfig(null, files.Root, personal));
         Assert.Equal((null, null), await ProjectPickerApplication.PrepareEmptyWorkspaceAsync(catalog, token));
-        using var picker = new RasterWindow<ProjectPickerWindow>(new(catalog, _ => throw new InvalidOperationException()), "startup-recents", 740, 480);
+        using var picker = new RasterWindow<ProjectPickerView>(new(catalog, _ => throw new InvalidOperationException()), "startup-recents", 740, 480);
         picker.PumpUntil(() => picker.Window.RefreshButton.IsEnabled);
         var recent = Assert.Single(picker.Window.Rows).Entry;
         Assert.True(recent.Recent);
@@ -182,7 +183,7 @@ public sealed class ProjectPickerTests
         var path = await files.ProjectAsync(id, migrate: migrated);
         var before = files.Snapshot([path]);
         ProjectEntry? selection = null;
-        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, entry => selection = entry), "picker-read-only", 1000, 720))
+        using (var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, entry => selection = entry), "picker-read-only", 1000, 720))
         {
             host.PumpUntil(() => host.Window.RefreshButton.IsEnabled);
             var row = Assert.Single(host.Window.Rows);
@@ -200,8 +201,8 @@ public sealed class ProjectPickerTests
         {
             var services = app.Services;
             Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
-            var window = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
-            using var view = new RasterWindow<ProjectWindow>(window, "read-only-project", 1000, 720);
+            var window = services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+            using var view = new RasterWindow<ProjectPreviewView>(window, "read-only-project", 1000, 720);
             view.PumpUntil(() => window.ReloadButton.IsEnabled);
             Assert.Equal(selected.Name, window.ProjectTitle.Value);
             Assert.Contains($"схема {(migrated ? 2 : 1)}", window.RevisionText.Value);
@@ -247,8 +248,8 @@ public sealed class ProjectPickerTests
                 sessions.Add(options.Action);
                 if (!options.WriteEnabled)
                 {
-                    var view = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
-                    using var host = new RasterWindow<ProjectWindow>(view, "upgrade-from-viewer", 1000, 720);
+                    var view = services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+                    using var host = new RasterWindow<ProjectPreviewView>(view, "upgrade-from-viewer", 1000, 720);
                     host.PumpUntil(() => view.UpgradeButton.IsVisible && view.UpgradeButton.IsEnabled);
                     reader = Assert.IsType<BackendProcess>(services.Resolve<BackendProcessFactory>()!.Owned);
                     using (ProjectWriterLease.Acquire(files.Storage(directory))) { }
@@ -322,8 +323,8 @@ public sealed class ProjectPickerTests
             calls++;
             var services = app.Services;
             Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
-            var view = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
-            using var host = new RasterWindow<ProjectWindow>(view, "upgrade-rejected", 1000, 720);
+            var view = services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+            using var host = new RasterWindow<ProjectPreviewView>(view, "upgrade-rejected", 1000, 720);
             host.PumpUntil(() => view.UpgradeButton.IsVisible && view.UpgradeButton.IsEnabled);
             host.Click(view.UpgradeButton);
             // Change only the file bytes, keeping the shown revision and model valid.
@@ -354,7 +355,7 @@ public sealed class ProjectPickerTests
         if (namedFile) File.Move(PickerFixture.FileAt(path), location);
         var before = files.Snapshot([path]);
         ProjectEntry? selection = null;
-        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, entry => selection = entry), "picker-open-folder", 740, 480, 1.5f))
+        using (var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, entry => selection = entry), "picker-open-folder", 740, 480, 1.5f))
         {
             host.PumpUntil(() => host.Window.OpenExistingButton.IsEnabled);
             Assert.Empty(host.Window.Rows);
@@ -378,8 +379,8 @@ public sealed class ProjectPickerTests
             var services = app.Services;
             Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
             Assert.Equal(namedFile ? "Клэр.STUDIO" : null, services.Resolve<BackendOptions>()!.ProjectFileName);
-            var window = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
-            using var host = new RasterWindow<ProjectWindow>(window, "picker-open-folder-read-only", 1000, 720);
+            var window = services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+            using var host = new RasterWindow<ProjectPreviewView>(window, "picker-open-folder-read-only", 1000, 720);
             host.PumpUntil(() => window.ReloadButton.IsEnabled);
             Assert.Equal(selected.Name, window.ProjectTitle.Value);
             Assert.Contains("только чтение", window.StatusText.Value);
@@ -407,7 +408,7 @@ public sealed class ProjectPickerTests
         var secondLocation = PickerFixture.FileAt(duplicate, legacy: true);
         Directory.CreateDirectory(Path.GetDirectoryName(secondLocation)!);
         File.Copy(PickerFixture.FileAt(duplicate), secondLocation);
-        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+        using var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
             "picker-open-folder-errors", 740, 480);
         host.PumpUntil(() => host.Window.OpenExistingButton.IsEnabled);
         host.Click(host.Window.OpenExistingButton);
@@ -446,7 +447,7 @@ public sealed class ProjectPickerTests
         await files.ProjectAsync("next", location: nextRoot);
         var configBefore = File.ReadAllText(files.Catalog.ConfigPath);
 
-        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+        using (var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
             "picker-projects-folder", 740, 480, 1.5f))
         {
             host.PumpUntil(() => host.Window.ProjectsFolderButton.IsEnabled);
@@ -483,7 +484,7 @@ public sealed class ProjectPickerTests
         var external = Directory.CreateDirectory(Path.Combine(files.Root, "External")).FullName;
         var config = files.Catalog.ConfigPath;
         var original = File.ReadAllText(config);
-        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+        using var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
             "picker-projects-folder-errors", 740, 480);
         host.PumpUntil(() => host.Window.ProjectsFolderButton.IsEnabled);
         host.Click(host.Window.ProjectsFolderButton);
@@ -534,6 +535,148 @@ public sealed class ProjectPickerTests
             Assert.Contains("foreign", File.ReadAllText(foreignRegistry));
         }
         finally { Directory.Delete(files.State); }
+    }
+
+    [Fact]
+    public async Task Workspace_UsesOneFrameAcrossPreviewMigrationEditorAndProjectList()
+    {
+        using var files = new PickerFixture();
+        var legacy = await files.ProjectAsync("schema1", migrate: false);
+        var second = await files.ProjectAsync("alpha");
+        var activeJob = files.Export(second, "running");
+        var original = File.ReadAllBytes(PickerFixture.FileAt(legacy));
+        var workspace = new StudioWorkspaceWindow(files.Catalog, openEmptyWorkspace: false, preferences: null, BackendWriteFixture.Executable());
+        using var host = new RasterWindow<StudioWorkspaceWindow>(workspace, "workspace-single-window", 1280, 820,
+            createFrame: CreateWorkspaceFrame);
+        var sessionRoot = Assert.IsType<WindowFrame>(host.Session.Root);
+        host.Resize(1176, 742, 1);
+        try
+        {
+            Select("schema1");
+            host.PumpUntil(() => workspace.Child is ProjectPreviewView { UpgradeButton.IsEnabled: true, UpgradeButton.IsVisible: true },
+                TimeSpan.FromSeconds(20));
+            var preview = Assert.IsType<ProjectPreviewView>(workspace.Child);
+            var reader = Assert.IsType<BackendProcess>(workspace.ProjectApp!.Services.Resolve<BackendProcessFactory>()!.Owned);
+            Assert.False(sessionRoot.TitleBarOverContent);
+            CheckRoot();
+            host.Capture("preview", new { mode = "preview", revision = 11 });
+            host.Click(preview.UpgradeButton);
+            host.Click(preview.ConfirmUpgradeButton);
+
+            var firstEditor = WaitForEditor(12);
+            Assert.True(preview.IsDisposed);
+            Assert.False(reader.IsAlive);
+            Assert.True(sessionRoot.TitleBarOverContent);
+            Assert.IsType<TrueMoon.Tales.Studio.Presentation.Shell.StudioTitleBar>(sessionRoot.DefaultTitleBar!.HeaderContent);
+            var writer = Assert.IsType<BackendProcess>(workspace.ProjectApp!.Services.Resolve<BackendProcessFactory>()!.Owned);
+            Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(files.Storage(legacy)));
+            host.Capture("editor", new { mode = "editor", revision = 12 });
+            host.Click(ButtonAt(firstEditor.Footer, "К проектам"));
+            host.PumpUntil(() => workspace.Child is ProjectPickerView { OpenExistingButton.IsEnabled: true }, TimeSpan.FromSeconds(20));
+            Assert.True(firstEditor.IsDisposed);
+            Assert.False(writer.IsAlive);
+            Assert.Null(sessionRoot.DefaultTitleBar.HeaderContent);
+            using (ProjectWriterLease.Acquire(files.Storage(legacy))) { }
+            var history = Assert.Single(Directory.GetFiles(Path.Combine(legacy, "Production", "History"), "*.json"));
+            Assert.Equal(original, File.ReadAllBytes(history));
+            CheckRoot();
+            host.Capture("projects", new { mode = "projects" });
+
+            Select("alpha");
+            var secondEditor = WaitForEditor(12);
+            var next = Assert.IsType<BackendProcess>(workspace.ProjectApp!.Services.Resolve<BackendProcessFactory>()!.Owned);
+            Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(files.Storage(second)));
+            host.Click(ButtonAt(secondEditor.Heading, "Экспорт MP4"));
+            host.PumpUntil(() => RasterWindow<StudioWorkspaceWindow>.Walk(secondEditor).OfType<Text>().Any(text => text.Value == "Рендеринг…"));
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+            host.Click(ButtonAt(secondEditor.Footer, "К проектам"));
+            Assert.True(secondEditor.CloseNotice.IsVisible);
+            Assert.True(next.IsAlive);
+            host.Click(ButtonAt(secondEditor.CloseNotice, "Остаться"));
+            Assert.Same(secondEditor, workspace.Child);
+            host.Click(ButtonAt(secondEditor.Footer, "К проектам"));
+            host.Click(ButtonAt(secondEditor.CloseNotice, "Закрыть проект"));
+            host.PumpUntil(() => workspace.Child is ProjectPickerView { RefreshButton.IsEnabled: true }, TimeSpan.FromSeconds(20));
+            Assert.False(next.IsAlive);
+            Assert.Equal("running", files.Status(second, activeJob).State);
+            using (ProjectWriterLease.Acquire(files.Storage(second))) { }
+            var closed = workspace.RequestCloseAsync();
+            Assert.True(closed.IsCompletedSuccessfully);
+            Assert.True(await closed);
+            Assert.True(host.Closed);
+        }
+        finally
+        {
+            host.Dispose();
+            await workspace.DrainAsync();
+        }
+
+        void Select(string id)
+        {
+            host.PumpUntil(() => workspace.Child is ProjectPickerView { RefreshButton.IsEnabled: true }, TimeSpan.FromSeconds(20));
+            var picker = Assert.IsType<ProjectPickerView>(workspace.Child);
+            host.Click(Assert.Single(picker.Rows, item => item.Entry.Id == id).Button);
+            host.Click(picker.OpenButton);
+        }
+
+        SceneView WaitForEditor(long revision)
+        {
+            host.PumpUntil(() => workspace.Child is SceneView &&
+                workspace.ProjectApp?.Services.Resolve<SceneViewModel>()?.Scene?.Revision == revision, TimeSpan.FromSeconds(22));
+            CheckRoot();
+            return Assert.IsType<SceneView>(workspace.Child);
+        }
+
+        void CheckRoot()
+        {
+            Assert.Same(sessionRoot, host.Session.Root);
+            Assert.Same(workspace, sessionRoot.Content);
+            Assert.True(workspace.IsHosted);
+            Assert.False(host.Closed);
+            Assert.Equal(new Size(1176, 742), workspace.ActualClientSize);
+            Assert.All(RasterWindow<StudioWorkspaceWindow>.Walk(sessionRoot).OfType<Window>(),
+                window => Assert.Same(workspace, window));
+        }
+    }
+
+    [Fact]
+    public async Task Workspace_OpensDefaultEmptyEditorAndReleasesWriterOnWindowClose()
+    {
+        using var files = new PickerFixture(canCreate: true);
+        var workspace = new StudioWorkspaceWindow(files.Catalog, openEmptyWorkspace: true, preferences: null, BackendWriteFixture.Executable());
+        using var host = new RasterWindow<StudioWorkspaceWindow>(workspace, "workspace-empty-start", 1280, 820,
+            createFrame: CreateWorkspaceFrame);
+        BackendProcess? process = null;
+        string? directory = null;
+        try
+        {
+            host.PumpUntil(() => workspace.Child is SceneView &&
+                workspace.ProjectApp?.Services.Resolve<SceneViewModel>()?.EmptyProject is not null, TimeSpan.FromSeconds(22));
+            var services = workspace.ProjectApp!.Services;
+            process = Assert.IsType<BackendProcess>(services.Resolve<BackendProcessFactory>()!.Owned);
+            directory = services.Resolve<BackendOptions>()!.ProjectDirectory;
+            Assert.Equal("Без названия", services.Resolve<SceneViewModel>()!.EmptyProject!.Name);
+            Assert.True(File.Exists(Path.Combine(directory, ProjectStore.DefaultProjectFileName)));
+            Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(files.Storage(directory)));
+            Assert.True(await workspace.RequestCloseAsync());
+            Assert.True(host.Closed);
+        }
+        finally
+        {
+            host.Dispose();
+            await workspace.DrainAsync();
+        }
+        Assert.False(process!.IsAlive);
+        using (ProjectWriterLease.Acquire(files.Storage(directory!))) { }
+    }
+
+    private static WindowFrame CreateWorkspaceFrame(Window content)
+    {
+        var options = new SilkUiWindowOptions();
+        ProjectPickerApplication.ConfigureWorkspaceWindow(options);
+        var frame = WindowFrame.CreateDefault(content.Title, content);
+        options.ConfigureDefaultTitleBar!.Invoke(frame.DefaultTitleBar!, content, () => { _ = content.RequestCloseAsync(); });
+        return frame;
     }
 
     [Fact]
@@ -607,7 +750,7 @@ public sealed class ProjectPickerTests
         files.Registry();
         var registry = Hash(File.ReadAllBytes(files.RegistryPath));
         ProjectEntry? selection = null;
-        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, item => selection = item), "create-project", 740, 480, 1.5f))
+        using (var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, item => selection = item), "create-project", 740, 480, 1.5f))
         {
             host.PumpUntil(() => host.Window.NewButton.IsEnabled);
             host.Click(host.Window.NewButton);
@@ -746,7 +889,7 @@ public sealed class ProjectPickerTests
         Assert.Equal(pendingJson, File.ReadAllBytes(PickerFixture.FileAt(pending)));
         File.WriteAllBytes(journal, originalJournal);
 
-        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException(),
+        using (var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => throw new InvalidOperationException(),
             maintain: (entry, token) => files.Catalog.MaintainAsync(entry, token, BackendWriteFixture.Executable())), "project-maintenance", 1000, 720))
         {
             host.PumpUntil(() => host.Window.RefreshButton.IsEnabled);
@@ -792,10 +935,10 @@ public sealed class ProjectPickerTests
         public void Replace(string pendingPath, string destinationPath) => throw new IOException("Simulated interruption.");
     }
 
-    private static (ProjectEntry Entry, Button Button) Find(RasterWindow<ProjectPickerWindow> host, string id) =>
+    private static (ProjectEntry Entry, Button Button) Find(RasterWindow<ProjectPickerView> host, string id) =>
         Assert.Single(host.Window.Rows, row => row.Entry.Id == id);
 
-    private static void Fill(RasterWindow<ProjectPickerWindow> host, TextBox input, string value)
+    private static void Fill(RasterWindow<ProjectPickerView> host, TextBox input, string value)
     {
         host.Click(input);
         host.Input(new(InputKind.KeyDown, Key: UiKey.A, Control: true));
@@ -820,7 +963,7 @@ public sealed class ProjectPickerTests
             Assert.Contains("другой сессии", busy);
         }
         Assert.False(Directory.Exists(files.State));
-        using (var returned = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => { }, selected, busy), "picker-error", 1000, 720))
+        using (var returned = new RasterWindow<ProjectPickerView>(new(files.Catalog, _ => { }, selected, busy), "picker-error", 1000, 720))
         {
             returned.PumpUntil(() => returned.Window.RefreshButton.IsEnabled);
             Assert.Equal(busy, returned.Window.Status);
@@ -843,7 +986,7 @@ public sealed class ProjectPickerTests
     private static ProjectEntry Pick(PickerFixture files, string id, bool keyboard, ProjectEntry? previous = null)
     {
         ProjectEntry? selection = null;
-        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, row => selection = row, previous),
+        using var host = new RasterWindow<ProjectPickerView>(new(files.Catalog, row => selection = row, previous),
             "picker-" + id, 1000, 720);
         host.PumpUntil(() => host.Window.RefreshButton.IsEnabled);
         var row = Assert.Single(host.Window.Rows, row => row.Entry.Id == id);
@@ -877,7 +1020,14 @@ public sealed class ProjectPickerTests
     }
 
     private static Button ButtonAt(Element root, string title) =>
-        Assert.Single(RasterWindow<SceneView>.Walk(root).OfType<Button>(), button => button.Value == title && button.IsVisible);
+        Assert.Single(RasterWindow<SceneView>.Walk(root).OfType<Button>(), button => button.Value == title && Visible(button));
+
+    private static bool Visible(Element element)
+    {
+        for (Element? current = element; current is not null; current = current.Parent)
+            if (!current.IsVisible) return false;
+        return true;
+    }
 
     private static void RasterEditor(IApp app, Action<IServiceProvider, RasterWindow<SceneView>> exercise, bool expectWarning = false)
     {

@@ -23,7 +23,7 @@ public sealed class ProjectWindowTests
             .UseProjectBackend(fixture.Options, false).UseProjectWindow()
             .Services(r => r.Singleton<IBackendProjectReader>(_ => reader))).Build();
         Assert.IsType<CobaltServiceResolver>(app.Services);
-        using var window = app.Services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
+        using var window = app.Services.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
         using var session = new UiSession(window, new HeadlessSurface(), new(1000, 720));
         window.AdvanceFrame(TimeSpan.Zero, session);
         session.Update();

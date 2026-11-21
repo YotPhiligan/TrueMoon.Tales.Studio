@@ -162,7 +162,7 @@ internal sealed partial class ScenarioWorkspace
         var source = Source!;
         var take = Take!;
         var path = Input("Путь или ссылка на видео", BackendScenarioEdit.TryReference(_baseline!.Project, take.VideoAssetId!));
-        Form($"Перепривязка · {BackendScenarioEdit.TakeName(take)}",
+        Form($"Перепривязка · {BackendScenarioEdit.TakeDisplayName(take)}",
             [Field(path), Text.Plain("Все клипы этого видео сохранят свои участки.")],
             () => new RelinkVideo(source.Id, take.Id, path.Value));
     }
@@ -181,7 +181,7 @@ internal sealed partial class ScenarioWorkspace
         var length = Input("Длительность клипа, кадры", "24");
         var sourceIn = Input("Начало в дубле, кадр", "0");
         var target = window is null ? "Сегменту требуется монтажное окно." :
-            $"Окно {window.StartFrame}–{(long)window.StartFrame + window.DurationFrames} · {source.Title} / {BackendScenarioEdit.TakeName(take)}";
+            $"Окно {window.StartFrame}–{(long)window.StartFrame + window.DurationFrames} · {source.Title} / {BackendScenarioEdit.TakeDisplayName(take)}";
         Form("Разместить клип", [Text.Plain(target), Field(start), Field(length), Field(sourceIn)],
             () => new PlaceClip(segment.Id, action.Id, source.Id, take.Id, Number(start, "начало клипа"),
                 Number(length, "длительность"), Number(sourceIn, "начало в дубле")));
@@ -226,6 +226,23 @@ internal sealed partial class ScenarioWorkspace
         _refreshDraftChapter = null;
         Show("");
         RefreshLists();
+    }
+
+    private void RemoveTakeForm()
+    {
+        if (_baseline?.Project is not { } project || Source is not { } source || Take is not { } take) return;
+        string reference;
+        try { BackendTakeRemoval.RemoveFromLibrary(project, source.Id, take.Id, out reference); }
+        catch (ScenarioEditException error)
+        {
+            Show(error.Code == "take_in_use"
+                ? "Дубль используется клипом, звуком, другим дублем или ассетом. Сначала снимите связь."
+                : "Файл этого дубля недоступен.", error: true);
+            return;
+        }
+        Form("Удалить дубль", [Text.Plain($"«{BackendScenarioEdit.TakeDisplayName(take)}» будет убран из библиотеки, файл отправится в Корзину."),
+            Text.Plain(reference)], () => new RemoveVideoTake(source.Id, take.Id, Confirmed: true));
+        _commit.Value = "Переместить в Корзину";
     }
 
     private static int Number(TextBox field, string label) => int.TryParse(field.Value.Trim(), NumberStyles.None,

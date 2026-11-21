@@ -14,12 +14,12 @@ internal static partial class BackendFullTransfer
 
     internal static async Task<FullTransferReceipt> OpenOrStageAsync(BackendOptions options, ProjectFileDocument baseline,
         string id, string? expectedRequestSha, Func<CancellationToken, Task> confirmBaseline, CancellationToken token,
-        bool forLaunch = false)
+        bool forLaunch = false, string? scratchInput = null)
     {
         if (!ValidJobId(id) || expectedRequestSha is not null && !BackendConnection.IsHash(expectedRequestSha)) throw Invalid();
         var project = BackendProjectAccess.Read(options);
-        var job = Path.Combine(project.ProjectDirectory, JobReference(id));
-        if (expectedRequestSha is not null) BackendProjectAccess.CheckProductionWrite(project, job);
+        var job = JobDirectory(project.ProjectDirectory, id);
+        if (expectedRequestSha is not null) CheckJobWrite(project, job);
         var (request, receipt, alreadyStaged) = ReadJob(job, id, baseline.Project.Id, expectedRequestSha);
         if (expectedRequestSha is null)
         {
@@ -55,17 +55,18 @@ internal static partial class BackendFullTransfer
                 locked.Add(await OpenStageInputAsync(resolver, inputDirectory, id, index, inputs[index], rows[index], index == inputs.Length - 1, token)
                     .ConfigureAwait(false));
             await confirmBaseline(token).ConfigureAwait(false);
-            if (!forLaunch)
+            if (scratchInput is not null)
+            {
+                BackendMediaResolver.CheckNoLinks(scratchInput, allowMissing: true);
+                Directory.CreateDirectory(scratchInput);
                 foreach (var input in locked)
-                    await StageInputAsync(input, token).ConfigureAwait(false);
-            foreach (var input in locked)
-                if (!await CheckTargetAsync(input.Target, input.Sha, input.Source.Length, token).ConfigureAwait(false))
-                    throw new ScenarioEditException("transfer_not_staged");
+                    await StageInputAsync(input with { Target = Path.Combine(scratchInput, Path.GetFileName(input.Target)) }, token).ConfigureAwait(false);
+            }
             ReadReceipt(job, id, request, receipt.RequestSha256);
             await confirmBaseline(token).ConfigureAwait(false);
             if (!alreadyStaged)
             {
-                BackendProjectAccess.CheckProductionWrite(project, stagePath);
+                CheckJobWrite(project, stagePath);
                 var pending = Path.Combine(job, $".Staged-{Guid.NewGuid():N}.pending");
                 await PublishNewAsync(stagePath, pending, stream => WriteAsync(stream,
                     JsonSerializer.SerializeToUtf8Bytes(staged, BackendAdaptation.Json), token), token).ConfigureAwait(false);
@@ -131,7 +132,6 @@ internal static partial class BackendFullTransfer
         {
             if (stream.Length is < 1 || stream.Length > (motion ? 512L : 32L) * 1024 * 1024 ||
                 !await HasHashAsync(stream, input.Sha256, token).ConfigureAwait(false)) throw Changed();
-            await CheckTargetAsync(target, input.Sha256, stream.Length, token).ConfigureAwait(false);
             stream.Position = 0;
             return new(stream, target, input.Sha256);
         }

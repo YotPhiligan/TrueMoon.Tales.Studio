@@ -16,17 +16,30 @@ internal sealed partial class ScenarioWorkspace
     private Func<FullTransferForm>? _transferDraft;
     private FullTransferReceipt? _preparedTransfer;
     private FullTransferRunState? _transferRun;
+    private TimeSpan _nextTransferPoll;
+
+    private bool TrackingTransfer => !HasDraft && !_stale && _preparedTransfer?.DraftTakeId == Take?.Id &&
+        _transferRun?.State is "running" or "stopping";
+
+    private void PollTransfer(TimeSpan elapsed)
+    {
+        if (!TrackingTransfer) return;
+        _nextTransferPoll += elapsed;
+        if (_nextTransferPoll < TimeSpan.FromSeconds(1)) return;
+        _nextTransferPoll = TimeSpan.Zero;
+        ChangeTransferRun("status");
+    }
 
     private VStack CreateTransferPanel()
     {
-        _openTransfer = ButtonFor("Подготовить Full Transfer", OpenTransferForm);
+        _openTransfer = ButtonFor(BackendTakePairs.GenerationFromDraftLabel, OpenTransferForm);
         _inspectTransfer = ButtonFor("Открыть задание", () => AccessTransfer(stage: false));
-        _stageTransfer = ButtonFor("Скопировать входы Full Transfer", () => AccessTransfer(stage: true));
-        _launchTransfer = ButtonFor("Запустить Full Transfer на GPU", () => ChangeTransferRun("launch"));
-        _refreshTransferRun = ButtonFor("Обновить статус Full Transfer", () => ChangeTransferRun("status"));
-        _stopTransfer = ButtonFor("Остановить Full Transfer", () => ChangeTransferRun("stop"));
-        _collectTransfer = ButtonFor("Сохранить финальный дубль", CollectTransfer);
-        _transferId = Input("ID задания Full Transfer");
+        _stageTransfer = ButtonFor("Проверить входы", () => AccessTransfer(stage: true));
+        _launchTransfer = ButtonFor("Запустить генерацию на GPU", () => ChangeTransferRun("launch"));
+        _refreshTransferRun = ButtonFor("Обновить статус генерации", () => ChangeTransferRun("status"));
+        _stopTransfer = ButtonFor("Остановить генерацию", () => ChangeTransferRun("stop"));
+        _collectTransfer = ButtonFor("Повторить запись дубля", CollectTransfer);
+        _transferId = Input("ID задания генерации");
         _transferReceipt.IsVisible = _transferPath.IsVisible = _stageTransfer.IsVisible = _launchTransfer.IsVisible =
             _refreshTransferRun.IsVisible = _stopTransfer.IsVisible = _collectTransfer.IsVisible = false;
         _transferPanel = Stack(_openTransfer, Field(_transferId), _inspectTransfer, _transferReceipt, _transferPath,
@@ -54,12 +67,12 @@ internal sealed partial class ScenarioWorkspace
         {
             "running" => "Запуск выполняется",
             "stopping" => "Останавливаю запуск",
-            "completed" => "MP4 проверен и готов к сохранению",
+            "completed" => "MP4 готов · требуется запись в библиотеку",
             "cancelled" => "Запуск остановлен",
             "interrupted" => "Запуск прерван",
             "timed_out" => "Время запуска истекло",
-            "failed" => "Запуск завершился ошибкой · журнал в Run",
-            _ => ready.Staged ? "Входы скопированы" : "Подготовлено"
+            "failed" => "Запуск завершился ошибкой",
+            _ => ready.Staged ? "Входы проверены" : "Подготовлено"
         };
         _transferReceipt.Value = $"{status} · {ready.Width}×{ready.Height} · {ready.Frames} к. · {ready.Fps} кадр/с";
         _transferPath.Value = BackendFullTransfer.JobReference(ready.Id);
@@ -112,11 +125,11 @@ internal sealed partial class ScenarioWorkspace
             Number(guide, "номер Picture для Guide 0"), role.Value, notes.Text, predecessor);
         _commit.Value = "Подготовить";
         Element motion = draftId is null
-            ? Text.Plain($"Video 1 · {BackendScenarioEdit.TakeName(take!)}")
+            ? Text.Plain($"Черновик (Video 1) · {BackendScenarioEdit.TakeDisplayName(take!)}")
             : Stack(Text.Plain($"На основе {predecessor!.Id}"), Field(draftId), Stack(source.Takes.Where(IsTransferDraft)
-                .Select(candidate => ButtonFor($"Video 1 · {BackendScenarioEdit.TakeName(candidate)}", () => draftId.Value = candidate.Id))
+                .Select(candidate => ButtonFor($"Video 1 · {BackendScenarioEdit.TakeDisplayName(candidate)}", () => draftId.Value = candidate.Id))
                 .Cast<Element>().ToArray()));
-        ShowForm("Подготовка Full Transfer", [motion, Text.Plain("1280×736 · 24 кадр/с · длина черновика · без очереди"),
+        ShowForm(BackendTakePairs.GenerationFromDraftLabel, [motion, Text.Plain("1280×736 · 24 кадр/с · длина черновика · без очереди"),
             Field(seed), Field(guide), Field(role), Field(notes), Field(prompt), rows, Row(add, remove)]);
 
         string DraftId()
@@ -146,7 +159,7 @@ internal sealed partial class ScenarioWorkspace
         FullTransferForm form;
         try { form = _transferDraft!(); }
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
-        Start("Готовлю граф Full Transfer…", async token =>
+        Start("Готовлю задание генерации…", async token =>
         {
             var receipt = await _backend.PrepareFullTransferAsync(form, baseline, token).ConfigureAwait(false);
             return () =>
@@ -164,7 +177,7 @@ internal sealed partial class ScenarioWorkspace
                     ClearJobComparison();
                 }
                 Cancel();
-                Show("Full Transfer подготовлен без постановки в очередь.");
+                Show("Задание подготовлено без постановки в очередь.");
             };
         });
     }
@@ -177,18 +190,21 @@ internal sealed partial class ScenarioWorkspace
         var id = stage ? prepared!.Id : _transferId.Value.Trim();
         if (!BackendFullTransfer.ValidJobId(id)) { Show("Укажите ID задания вида ft-…", error: true); return; }
         var requestSha = stage ? prepared!.RequestSha256 : null;
-        Start(stage ? "Сверяю и копирую входы Full Transfer…" : "Открываю задание Full Transfer…", async token =>
+        Start(stage ? "Сверяю входы генерации…" : "Открываю задание генерации…", async token =>
         {
-            var receipt = await _backend.FullTransferJobAsync(id, requestSha, baseline, token).ConfigureAwait(false);
-            var run = await _backend.FullTransferRunAsync(id, receipt.RequestSha256, "status", baseline, token).ConfigureAwait(false);
+            var current = stage ? baseline : await _backend.OpenAsync(token).ConfigureAwait(false);
+            var receipt = await _backend.FullTransferJobAsync(id, requestSha, current, token).ConfigureAwait(false);
+            var run = await _backend.FullTransferRunAsync(id, receipt.RequestSha256, "status", current, token).ConfigureAwait(false);
             return () =>
             {
                 if (receipt.DraftTakeId != takeId) { Show("Задание относится к другому черновику.", error: true); return; }
+                _baseline = current;
                 _preparedTransfer = receipt;
                 _transferRun = run;
                 _transferId.Value = receipt.Id;
-                RefreshTransfer();
-                Show(stage ? "Входы сверены и скопированы без постановки в очередь." : "Задание Full Transfer открыто.");
+                if (current.Fingerprint != baseline.Fingerprint) RefreshLists();
+                else RefreshTransfer();
+                Show(stage ? "Входы сверены. Studio скопирует их в Temp при запуске." : "Задание генерации открыто.");
             };
         });
     }
@@ -199,17 +215,20 @@ internal sealed partial class ScenarioWorkspace
             job.DraftTakeId != Take?.Id) return;
         var action = operation switch
         {
-            "launch" => "Проверяю входы перед запуском Full Transfer…",
-            "stop" => "Останавливаю Full Transfer…",
-            _ => "Читаю статус Full Transfer…"
+            "launch" => "Проверяю входы перед запуском генерации…",
+            "stop" => "Останавливаю генерацию…",
+            _ => "Читаю статус генерации…"
         };
         Start(action, async token =>
         {
             var state = await _backend.FullTransferRunAsync(job.Id, job.RequestSha256, operation, baseline, token).ConfigureAwait(false);
+            var updated = state.State == "completed" ? await _backend.OpenAsync(token).ConfigureAwait(false) : baseline;
             return () =>
             {
+                _baseline = updated;
                 _transferRun = state;
-                RefreshTransfer();
+                if (updated.Fingerprint != baseline.Fingerprint) RefreshLists();
+                else RefreshTransfer();
                 Show(_transferReceipt.Value, error: state.State is "failed" or "timed_out");
             };
         });

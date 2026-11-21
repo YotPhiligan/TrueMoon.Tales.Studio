@@ -15,7 +15,7 @@ os.chdir(COMFY)
 sys.argv = [str(COMFY / "main.py"), "--listen", "127.0.0.1", "--port", os.environ.get("TMT_OMNI2_PORT", "8199"),
     "--windows-standalone-build", "--use-sage-attention", "--fast", "fp16_accumulation",
     "--disable-auto-launch", "--disable-all-custom-nodes", "--offline", "--disable-assets",
-    "--input-directory", str(COMFY / "input"),
+    "--input-directory", os.environ.get("TMT_OMNI2_INPUT", str(COMFY / "input")),
     "--output-directory", str(RESULT / "output"),
     "--temp-directory", str(RESULT / "temp"),
     "--user-directory", str(RESULT / "user")]

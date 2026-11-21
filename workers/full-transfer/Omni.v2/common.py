@@ -95,6 +95,11 @@ def verify_job(job, staged=True):
         if staged:
             target = Path(row['Target']).resolve()
             require(target.parent == (COMFY / 'input').resolve(), 'Unexpected staged directory')
+            if os.environ.get('TMT_OMNI2_INPUT'):
+                scratch = Path(os.environ['TMT_OMNI2_INPUT']).resolve()
+                require(scratch == (job / 'input').resolve(), 'Unexpected job input directory')
+                target = (scratch / target.name).resolve()
+                require(target.parent == scratch, 'Unexpected staged input path')
             require(sha(target) == row['SHA256'], 'Staged input changed: ' + str(target))
     for row in build['model_files']:
         stat = Path(row['path']).stat()

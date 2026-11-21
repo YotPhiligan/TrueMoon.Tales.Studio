@@ -231,6 +231,14 @@ internal static class BackendScenarioEdit
         take.Properties.TryGetValue("name", out var name) && name.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(name.GetString())
             ? name.GetString()! : take.Id;
 
+    internal static string TakeDisplayName(TakeContract take)
+    {
+        var name = TakeName(take);
+        return name == BackendFullTransfer.DefaultTakeName && take.Properties.ContainsKey(BackendFullTransfer.TakeOriginProperty)
+            ? "Дубль по черновику"
+            : name;
+    }
+
     private static string Reference(ProjectContract project, string asset) =>
         TryReference(project, asset) ?? throw new ScenarioEditException("media_not_found");
     private static string VideoAsset(SourceContract source, string takeId) =>

@@ -24,7 +24,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     private readonly TextBox _search = new() { AccessibleName = "Поиск источника" };
     private readonly TextBox _previewFrame = new() { AccessibleName = "Кадр дубля", Value = "0" };
     private readonly Button _back, _reload, _commit, _cancel, _newSegment, _editSegment, _newAction, _editAction,
-        _link, _place, _assign, _import, _addTake, _relink, _frameA, _frameB;
+        _link, _place, _assign, _import, _addTake, _relink, _removeTake, _frameA, _frameB;
     private readonly Button _segmentText, _actionText, _animaticStill, _order, _chapterTab, _libraryTab;
     private readonly FrameSlot _first = new("A"), _second = new("B");
     private Task<Action>? _pending;
@@ -74,12 +74,13 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         {
             var clipId = Clip!.Id;
             var take = Take!;
-            Form("Назначить дубль клипу", [Text.Plain($"Выбран дубль «{BackendScenarioEdit.TakeName(take)}». Монтажный участок сохранится.")],
+            Form("Назначить дубль клипу", [Text.Plain($"Выбран дубль «{BackendScenarioEdit.TakeDisplayName(take)}». Монтажный участок сохранится.")],
                 () => new AssignTake(clipId, take.Id));
         });
         _import = ButtonFor("Новый источник", () => ImportForm(null));
         _addTake = ButtonFor("Добавить дубль", () => ImportForm(Source));
         _relink = ButtonFor("Перепривязать файл", RelinkForm);
+        _removeTake = ButtonFor("Удалить дубль…", RemoveTakeForm);
         _frameA = ButtonFor("Кадр A", () => Preview(_first));
         _frameB = ButtonFor("Кадр B", () => Preview(_second));
 
@@ -93,7 +94,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
             Caption("Клипы действия"), _clips, _link, _place, _assign);
         var find = ButtonFor("Найти", () => { _query = _search.Value.Trim(); RefreshLists(); });
         _library = Stack(new StudioHeading(_search, find), Row(_import, _addTake),
-            _sources, Caption("Дубли источника"), _sourceInfo, _takes, _relink, CreateTakePairPanel(), CreateTransferPanel(),
+            _sources, Caption("Дубли источника"), _sourceInfo, _takes, Row(_relink, _removeTake), CreateTakePairPanel(), CreateTransferPanel(),
             new StudioHeading(Text.Plain("Кадр дубля"), _previewFrame), Row(_frameA, _frameB, CreateProxyToggle()), CreateProxyPanel(),
             new FramePair(_first.Content, _second.Content));
         _browser = new SplitView { Orientation = SplitOrientation.Horizontal, FirstPaneSize = 420 };
@@ -177,7 +178,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
     internal void ExplainClose() => Show(HasDraft ? "Сохраните или отмените черновик." :
         Busy ? "Дождитесь результата операции." : "Откройте монтаж, чтобы подтвердить остановку экспорта.", error: true);
 
-    public bool NeedsFrame => Busy || _storyboardFocus is not null || TrackingProxy;
+    public bool NeedsFrame => Busy || _storyboardFocus is not null || TrackingProxy || TrackingTransfer;
 
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
@@ -192,7 +193,11 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         }
         if (_pending is not { IsCompleted: true } ready)
         {
-            if (!Busy) PollProxy(elapsed);
+            if (!Busy)
+            {
+                PollTransfer(elapsed);
+                if (!Busy) PollProxy(elapsed);
+            }
             return;
         }
         _pending = null;
@@ -224,24 +229,30 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
                 "reference_changed" => "Содержимое файла изменилось. Для новой версии используйте отдельный файл.",
                 "invalid_take_pair" => "Выберите два разных готовых дубля одного источника.",
                 "take_pair_recorded" => "Связь этого финала уже записана. Для другого варианта добавьте новый дубль.",
-                "take_pair_timing" => "Для Full Transfer оба дубля должны иметь 24 кадра/с и одинаковое число кадров.",
+                "take_pair_timing" => "Для генерации по черновику оба дубля должны иметь 24 кадра/с и одинаковое число кадров.",
                 "take_pair_changed" => "Видео отличается от записанной версии. Для сравнения нужен исходный файл.",
-                "invalid_transfer" => "Проверьте черновик, роли изображений, Guide 0 и поля Full Transfer.",
+                "invalid_transfer" => "Проверьте черновик, роли изображений, Guide 0 и поля задания.",
                 "transfer_timing" => "Нужен MP4 на 24 кадра/с с длительностью Omni.v2, от 56 до 192 кадров по сетке 17k+5.",
                 "transfer_invalid_profile" => "Проверьте шесть разделов промпта, метки Picture и Video 1 и длительность MP4.",
-                "transfer_prompt_sound" => "Для Full Transfer оба звуковых раздела должны содержать N/A.",
+                "transfer_prompt_sound" => "Укажите N/A в обоих звуковых разделах промпта.",
                 "transfer_unavailable" or "transfer_worker_failed" => "Проверьте Python с PyAV, путь ComfyUI и файлы моделей Omni.v2.",
-                "transfer_missing" => "Один из входов Full Transfer отсутствует.",
-                "transfer_timeout" => "Операция Full Transfer остановилась по таймауту. Проверьте входы и попробуйте ещё раз.",
+                "transfer_missing" => "Отсутствует один из входных файлов генерации.",
+                "transfer_timeout" => "Истекло время ожидания. Проверьте входы и попробуйте ещё раз.",
                 "transfer_input_changed" => "Вход изменился. Сверьте черновик и опоры перед подготовкой.",
                 "transfer_interrupted" or "transfer_key_conflict" => "У этой попытки уже есть файлы. Откройте форму заново для нового задания.",
                 "transfer_damaged" => "Файлы подготовки не прошли проверку SHA.",
                 "transfer_stage_path_changed" => "Путь входа или каталог ComfyUI изменился. Подготовьте задание заново.",
-                "transfer_stage_conflict" => "Файл с таким именем в ComfyUI/input имеет другое содержимое. Он сохранён.",
-                "transfer_not_staged" => "Сначала скопируйте и проверьте все входы Full Transfer.",
+                "transfer_stage_conflict" => "По этому пути уже есть файл с другим содержимым.",
+                "transfer_not_staged" => "Сначала нажмите «Проверить входы».",
                 "transfer_already_launched" => "У задания уже была попытка запуска. Обновите статус или подготовьте новое задание.",
-                "transfer_run_busy" => "Другой Full Transfer выполняется в этой Studio.",
+                "transfer_run_busy" => "В этой Studio уже идёт генерация по черновику.",
                 "transfer_run_incomplete" => "Финальный MP4 ещё не готов к сохранению.",
+                "transfer_take_removed" => "Дубль этого задания удалён из проекта.",
+                "take_in_use" => "Дубль используется клипом, звуком, другим дублем или ассетом. Сначала снимите связь.",
+                "take_remove_unavailable" => "В Корзину можно отправить видео, принадлежащее папке проекта.",
+                "take_jobs_running" => "Дождитесь завершения генерации или рендера перед удалением дубля.",
+                "take_replaced" => "Файл дубля изменился. Проверьте его перед повтором.",
+                "take_recycle_unavailable" => "Для удаления дубля требуется Корзина Windows.",
                 "invalid_dependency_revision" => "Укажите более раннюю ревизию проекта.",
                 "dependency_history_missing" => "Этой ревизии нет в истории проекта.",
                 "dependency_schema" => "Для сравнения нужна сохранённая ревизия schema2.",
@@ -288,7 +299,18 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
         Start("Сохраняю…", async token =>
         {
-            var saved = await _backend.EditScenarioAsync(command, baseline, token).ConfigureAwait(false);
+            OpenedBackendProject saved;
+            try { saved = await _backend.EditScenarioAsync(command, baseline, token).ConfigureAwait(false); }
+            catch (BackendCommandException error) when (error.Code == "take_recycle_pending")
+            {
+                saved = await _backend.OpenAsync(token).ConfigureAwait(false);
+                return () =>
+                {
+                    _baseline = saved;
+                    _commit.Value = "Повторить перенос в Корзину";
+                    Show("Дубль убран из библиотеки. Файл остался в папке проекта. Повторите перенос в Корзину.", error: true);
+                };
+            }
             return () =>
             {
                 _baseline = saved;
@@ -306,7 +328,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         try { number = Number(_previewFrame, "номер кадра"); }
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
         var sourceTitle = Source!.Title;
-        var takeName = BackendScenarioEdit.TakeName(take);
+        var takeName = BackendScenarioEdit.TakeDisplayName(take);
         if (_shownPair is not null) ClearPreview();
         Start("Читаю кадр…", async token =>
         {
@@ -352,9 +374,10 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         Rows(_actions, (segment?.Actions ?? []).Select(row => (row.Id, row.Title)), _actionId,
             id => { _actionId = id; RefreshLists(); });
         Rows(_sources, project.Sources.Where(row => Matches(row.Title) || Matches(row.Label) ||
-            row.Takes.Any(take => Matches(BackendScenarioEdit.TakeName(take)))).Select(row => (row.Id, row.Title)), _sourceId,
+            row.Takes.Any(take => Matches(BackendScenarioEdit.TakeDisplayName(take)) || Matches(BackendScenarioEdit.TakeName(take))))
+            .Select(row => (row.Id, row.Title)), _sourceId,
             id => { _sourceId = id; _takeId = null; RefreshLists(); });
-        Rows(_takes, (Source?.Takes ?? []).Select(row => (row.Id, BackendScenarioEdit.TakeName(row))), _takeId,
+        Rows(_takes, (Source?.Takes ?? []).Select(row => (row.Id, BackendScenarioEdit.TakeDisplayName(row))), _takeId,
             id => { _takeId = id; RefreshLists(); });
         Rows(_bindings, (action?.Sources ?? []).Select(binding =>
         {
@@ -408,6 +431,7 @@ internal sealed partial class ScenarioWorkspace : Border, IUiFrameParticipant
         _assign.IsEnabled = ready && video && Clip is { } clip && clip.SourceId == _sourceId && clip.TakeId != _takeId;
         _addTake.IsEnabled = ready && Source is not null;
         _relink.IsEnabled = _frameA.IsEnabled = _frameB.IsEnabled = ready && video;
+        _removeTake.IsEnabled = ready && video;
         _linkTakePair.IsEnabled = ready && _baseline?.SchemaVersion == 2;
         _compareTakePair.IsEnabled = ready && _takePair is not null;
         _openTransfer.IsEnabled = ready && _baseline?.SchemaVersion == 2;

@@ -1,8 +1,11 @@
 using TrueMoon;
+using TrueMoon.Tales.Studio.Backend.Export;
 using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Presentation;
 
+await StudioReviewSession.CleanAbandonedAsync(StudioReviewSession.DefaultRoot);
+await StudioReviewSession.CleanAbandonedAsync(StudioReviewSession.FullTransferRoot, preserveCompleted: true);
 var builder = App.Builder(_ => { });
 await using var preferences = StudioOptions.TryParse(args, out _) ? StudioUiPreferences.OpenDefault() : null;
 if (preferences is not null)

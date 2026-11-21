@@ -12,7 +12,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent
 
 
-def run(job, comfy, expected_build):
+def run(job, comfy, expected_build, metadata):
     sys.path.insert(0, str(ROOT.parent / 'ExportWorker'))
     from RunExport import isolate_worker
 
@@ -32,8 +32,8 @@ def run(job, comfy, expected_build):
     require(launch['build_sha256'].lower() == expected_build.lower() == sha(job / 'Build.json'),
             'Frozen build SHA changed')
     require(launch['runner_sha256'].lower() == sha(Path(__file__)), 'Runner SHA changed')
-    require(launch['request_sha256'].lower() == sha(job.parent / 'Request.json'), 'Request SHA changed')
-    require(launch['staged_sha256'].lower() == sha(job.parent / 'Staged.json'), 'Staged receipt SHA changed')
+    require(launch['request_sha256'].lower() == sha(metadata / 'Request.json'), 'Request SHA changed')
+    require(launch['staged_sha256'].lower() == sha(metadata / 'Staged.json'), 'Staged receipt SHA changed')
     build = read(job / 'Build.json')
     require(build['profile'] == 'full-transfer' and build['staged'] and not build['generation_executed'],
             'Expected a staged, unused Full Transfer graph')
@@ -128,8 +128,13 @@ def run(job, comfy, expected_build):
 
 if __name__ == '__main__':
     job = Path(sys.argv[1]).resolve()
+    sys.path.insert(0, str(ROOT.parent / 'ExportWorker'))
+    from RunExport import lock_worker
     try:
-        run(job, Path(sys.argv[2]).resolve(), sys.argv[3])
+        with (job / 'Worker.lock').open('a+b') as lease:
+            lock_worker(lease)
+            os.environ['TMT_OMNI2_INPUT'] = str(job / 'input')
+            run(job, Path(sys.argv[2]).resolve(), sys.argv[3], Path(sys.argv[4]).resolve())
     except Exception as error:
         import traceback
         with (job / 'Runner.failure.log').open('x', encoding='utf-8') as log:

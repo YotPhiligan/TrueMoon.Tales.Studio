@@ -17,6 +17,7 @@ internal sealed class BackendProcess(IUnitConfiguration configuration, IEventsSo
     : ChildProcessUnitHandle(configuration, events)
 {
     protected override string GetProcessFilePath() => options.ExecutablePath ?? base.GetProcessFilePath();
+    internal int? ProcessId => Process?.Id;
     internal bool IsAlive
     {
         get

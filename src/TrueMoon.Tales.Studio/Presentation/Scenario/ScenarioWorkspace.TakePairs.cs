@@ -7,7 +7,7 @@ namespace TrueMoon.Tales.Studio.Presentation.Scenario;
 internal sealed partial class ScenarioWorkspace
 {
     private static readonly (string Id, string Name)[] TakePairMethods =
-        [(BackendTakePairs.Direct, "Прямая генерация"), (BackendTakePairs.FullTransfer, "Full Transfer")];
+        [(BackendTakePairs.Direct, "Прямая генерация"), (BackendTakePairs.FullTransfer, BackendTakePairs.GenerationFromDraftLabel)];
     private readonly Text _takePairMethod = new(), _draftInfo = new(), _finalInfo = new();
     private readonly VStack _relatedFinals = Stack();
     private VStack _takePairPanel = null!;
@@ -30,7 +30,7 @@ internal sealed partial class ScenarioWorkspace
         _takePair = take is null ? null : BackendTakePairs.Read(take);
         var related = source is not null && take is not null
             ? source.Takes.Where(row => BackendTakePairs.Read(row)?.Draft.TakeId == take.Id).ToArray() : [];
-        Rows(_relatedFinals, related.Select(row => (row.Id, $"Финал · {BackendScenarioEdit.TakeName(row)}")), null,
+        Rows(_relatedFinals, related.Select(row => (row.Id, $"Финал · {BackendScenarioEdit.TakeDisplayName(row)}")), null,
             id => { _takeId = id; RefreshLists(); });
         _relatedFinals.IsVisible = related.Length > 0;
         _linkTakePair.IsVisible = take?.VideoAssetId is not null && _takePair is null && related.Length == 0 &&
@@ -38,9 +38,9 @@ internal sealed partial class ScenarioWorkspace
         _takePairMethod.IsVisible = _draftInfo.IsVisible = _finalInfo.IsVisible = _compareTakePair.IsVisible = _takePair is not null;
         if (_takePair is { } pair)
         {
-            _takePairMethod.Value = $"Финал по черновику · {pair.MethodName}";
+            _takePairMethod.Value = $"Способ получения · {pair.MethodName}";
             TakeInfo(_draftInfo, "Черновик", pair.Draft);
-            TakeInfo(_finalInfo, "Финал", pair.Final);
+            TakeInfo(_finalInfo, "Финал", pair.Final with { Name = BackendScenarioEdit.TakeDisplayName(take!) });
         }
         _takePairPanel.IsVisible = _linkTakePair.IsVisible || _relatedFinals.IsVisible || _takePair is not null;
     }
@@ -64,7 +64,7 @@ internal sealed partial class ScenarioWorkspace
         string? draft = null, method = null;
         ShowDrafts();
         ShowMethods();
-        Form("Связать с черновиком", [Text.Plain($"Финальный дубль · {BackendScenarioEdit.TakeName(final)}"),
+        Form("Связать с черновиком", [Text.Plain($"Финальный дубль · {BackendScenarioEdit.TakeDisplayName(final)}"),
             Text.Plain("Выберите черновой дубль"), draftRows, Text.Plain("Как получен финал"), methodRows], () =>
             new LinkDraftFinalTake(source.Id, draft ?? throw new ArgumentException("Выберите черновик."), final.Id,
                 method ?? throw new ArgumentException("Выберите способ получения финала.")));
@@ -80,6 +80,7 @@ internal sealed partial class ScenarioWorkspace
         try { frame = Number(_previewFrame, "кадр финала"); }
         catch (ArgumentException error) { Show(error.Message, error: true); return; }
         if (frame >= pair.Final.Frames) { Show($"Укажите кадр финала от 0 до {pair.Final.Frames - 1}.", error: true); return; }
+        var finalName = BackendScenarioEdit.TakeDisplayName(Take!);
         ClearPreview();
         Start("Сверяю версии и читаю кадры…", async token =>
         {
@@ -91,7 +92,7 @@ internal sealed partial class ScenarioWorkspace
             return () =>
             {
                 _first.Show(source.Title, pair.Draft.Name, draft);
-                _second.Show(source.Title, pair.Final.Name, final);
+                _second.Show(source.Title, finalName, final);
                 _shownPair = (source.Id, pair.Final.TakeId);
                 Show("");
             };

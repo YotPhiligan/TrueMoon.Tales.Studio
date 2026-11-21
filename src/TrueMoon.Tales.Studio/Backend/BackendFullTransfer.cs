@@ -22,6 +22,8 @@ internal sealed record FullTransferReceipt(int Version, string Id, string State,
 internal static partial class BackendFullTransfer
 {
     private const string Store = "FullTransfer.v1";
+    internal const string DefaultTakeName = "Full Transfer";
+    internal const string TakeOriginProperty = "studio_full_transfer_v1";
     private const int Width = 1280, Height = 736, Fps = 24;
     private static readonly string[] PreviewFiles = ["Job.json", "Prepared.api.json", "Workflow.ui.json", "Inputs.prepared.json", "Prompt.txt"];
     private static readonly string[] JobFiles = ["Request.json", "Prepare.config.json", "Prompt.txt", "Prepared.json.pending"];
@@ -48,7 +50,23 @@ internal static partial class BackendFullTransfer
     }
 
     internal static string JobId(string key) => "ft-" + key;
-    internal static string JobReference(string id) => $"Production/{Store}/{id}";
+    internal static string JobReference(string id) => $".local/{Store}/{id}";
+    internal static string JobDirectory(string projectDirectory, string id)
+    {
+        var local = Path.Combine(projectDirectory, JobReference(id));
+        BackendMediaResolver.CheckNoLinks(local, allowMissing: true);
+        if (Directory.Exists(local)) return local;
+        var legacy = Path.Combine(projectDirectory, "Production", Store, id);
+        BackendMediaResolver.CheckNoLinks(legacy, allowMissing: true);
+        return Directory.Exists(legacy) ? legacy : local;
+    }
+
+    private static void CheckJobWrite(ProjectStoreOptions project, string path)
+    {
+        var relative = Path.GetRelativePath(project.ProjectDirectory, path);
+        BackendProjectAccess.CheckProjectSubdirectoryWrite(project, relative.StartsWith("Production" + Path.DirectorySeparatorChar, PathComparison)
+            ? "Production" : ".local", path);
+    }
     internal static bool ValidClientKey(string? key) => key is { Length: 32 } &&
         key.All(ch => ch is >= '0' and <= '9' or >= 'a' and <= 'f');
 
@@ -62,13 +80,13 @@ internal static partial class BackendFullTransfer
         var project = BackendProjectAccess.Read(options);
         if (form.Predecessor is { } previous)
         {
-            var previousJob = Path.Combine(project.ProjectDirectory, "Production", Store, previous.Id);
+            var previousJob = JobDirectory(project.ProjectDirectory, previous.Id);
             var (previousRequest, _, _) = ReadJob(previousJob, previous.Id, baseline.Project.Id, previous.RequestSha256);
             if (previousRequest.SourceId != form.SourceId || previousRequest.Revision > baseline.Project.Revision)
                 throw Invalid();
         }
-        var job = Path.Combine(project.ProjectDirectory, "Production", Store, id);
-        BackendProjectAccess.CheckProductionWrite(project, job);
+        var job = JobDirectory(project.ProjectDirectory, id);
+        CheckJobWrite(project, job);
         var draft = await media.SnapshotTakeAsync(baseline.Project, take, token).ConfigureAwait(false);
         if (draft.Fps != Fps || draft.Frames is < 56 or > 192 || (draft.Frames - 5) % 17 != 0 ||
             !string.Equals(Path.GetExtension(draft.Reference), ".mp4", StringComparison.OrdinalIgnoreCase))
@@ -102,12 +120,17 @@ internal static partial class BackendFullTransfer
             }
             var worker = BackendFullTransferWorker.Read(options);
             await confirmBaseline(token).ConfigureAwait(false);
+            var local = Path.Combine(project.ProjectDirectory, ".local");
+            var ignore = Path.Combine(local, ".gitignore");
+            CheckJobWrite(project, ignore);
+            Directory.CreateDirectory(local);
+            if (!File.Exists(ignore)) File.WriteAllText(ignore, "*\n");
             Directory.CreateDirectory(job);
             var owned = false;
             var published = false;
             try
             {
-                BackendProjectAccess.CheckProductionWrite(project, job);
+                CheckJobWrite(project, job);
                 await using (var requestFile = OpenNew(Path.Combine(job, "Request.json")))
                 {
                     owned = true;
@@ -141,7 +164,7 @@ internal static partial class BackendFullTransfer
                 await WriteNewAsync(pending, JsonSerializer.SerializeToUtf8Bytes(receipt, BackendAdaptation.Json), token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
                 var ready = Path.Combine(job, "Prepared.json");
-                BackendProjectAccess.CheckProductionWrite(project, ready);
+                CheckJobWrite(project, ready);
                 File.Move(pending, ready);
                 published = true;
                 return receipt;
@@ -261,7 +284,7 @@ internal static partial class BackendFullTransfer
 
         void Delete(string path)
         {
-            BackendProjectAccess.CheckProductionWrite(project, path);
+            CheckJobWrite(project, path);
             File.Delete(path);
         }
     }

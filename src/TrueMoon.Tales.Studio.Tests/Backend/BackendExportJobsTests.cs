@@ -28,12 +28,15 @@ public sealed class BackendExportJobsTests
             started.SetResult(directory);
             try { await Task.Delay(Timeout.InfiniteTimeSpan, stopping); }
             catch (OperationCanceledException) { PutProof(directory, hash, [1, 2, 3]); }
-        }))
+        }, reviewRoot: files.ReviewRoot))
         {
+            Assert.False(Directory.Exists(files.ReviewRoot));
             var running = Status(await jobs.StartAsync(Key, "draft", baseline.Project.Revision, baseline.Fingerprint,
                 _ => Task.FromResult(baseline), token, working: true));
             var directory = await started.Task.WaitAsync(token);
             Assert.StartsWith("working-", Path.GetFileName(directory));
+            Assert.Equal(files.ReviewRoot, Directory.GetParent(directory)!.Parent!.Parent!.FullName);
+            Assert.Empty(Directory.GetFiles(files.ExportRoot, "Request.json", SearchOption.AllDirectories));
             await ExpectCode("export_not_found", () => jobs.StatusAsync(running.Id, token));
             await ExpectCode("export_not_found", () => jobs.RecoverAsync(running.Id, token));
             await ExpectCode("export_busy", () => StartAsync(jobs, baseline, token));
@@ -45,7 +48,7 @@ public sealed class BackendExportJobsTests
                 jobs.OpenReviewAsync(running.Id, baseline.Project.Revision, baseline.Fingerprint, token));
             Assert.Equal("export_not_ready", error.Code);
         }
-        Assert.Empty(Directory.GetDirectories(files.ExportRoot, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(files.ReviewRoot));
         Assert.Equal(bytes, File.ReadAllBytes(files.ProjectPath));
         Assert.Equal(history, files.History);
     }
@@ -276,6 +279,7 @@ public sealed class BackendExportJobsTests
         internal string ProjectPath => _files.Files.ProjectPath;
         internal string[] History => _files.Files.HistoryFiles;
         internal string ExportRoot => Path.Combine(_files.Files.Root, "exports");
+        internal string ReviewRoot => Path.Combine(_files.Files.Root, "review-temp");
         internal BackendOptions Options => _files.Options;
 
         internal ExportFixture()

@@ -10,7 +10,7 @@ namespace TrueMoon.Tales.Studio.Presentation.Project;
 internal sealed record ProjectFormatUpgrade(string Location,
     Func<OpenedBackendProject, CancellationToken, Task<ProjectEntry>>? Apply, Action<ProjectEntry> OpenEditor);
 
-internal sealed class ProjectWindow : Window<ProjectViewModel>, IUiFrameParticipant, IUiInputObserver
+internal sealed class ProjectPreviewView : View<ProjectViewModel>, IUiFrameParticipant, IUiInputObserver
 {
     private readonly ProjectViewModel _model;
     private readonly ProjectFormatUpgrade? _upgrade;
@@ -35,13 +35,13 @@ internal sealed class ProjectWindow : Window<ProjectViewModel>, IUiFrameParticip
     internal string UpgradePath => _upgradePath.Value;
     internal string UpgradeDetails => _upgradeDetails.Value;
     internal string UpgradeStatus => _upgradeStatus.Value;
+    internal bool CanLeave => _upgrading is null;
 
-    internal ProjectWindow(ProjectViewModel model, IViewStyle<ProjectWindow> style, ProjectFormatUpgrade? upgrade = null)
+    internal ProjectPreviewView(ProjectViewModel model, IViewStyle<ProjectPreviewView> style, ProjectFormatUpgrade? upgrade = null,
+        Action? returnToProjects = null)
     {
         _model = model;
         _upgrade = upgrade;
-        Title = "TrueMoon · Tales Studio";
-        ClientSize = new(1000, 720);
         _reload = new Button("Перечитать проект");
         _reload.Click += () => { ShowUpgradeStatus(""); model.Reload(); Refresh(); };
         UpgradeButton.Click += AskUpgrade;
@@ -51,8 +51,8 @@ internal sealed class ProjectWindow : Window<ProjectViewModel>, IUiFrameParticip
         _upgradePath = new Text(upgrade?.Location ?? "") { FontSize = 13, AccessibleName = upgrade?.Location ?? "" };
         _confirmation = VStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(_upgradePath, _upgradeDetails,
             HStack.Create().Configure(stack => stack.Spacing = 8).WithChildren(ConfirmUpgradeButton, CancelUpgradeButton));
-        Closing += WaitForUpgradeOnShutdownAsync;
         var fields = VStack.Create().Configure(stack => stack.Spacing = 16).WithChildren(_name, _revision, _summary, _reload);
+        if (returnToProjects is not null) fields.WithChildren(Button.Simple("К проектам").OnClick(returnToProjects));
         if (upgrade is not null) fields.WithChildren(UpgradeButton, _confirmation, _upgradeStatus);
         fields.WithChildren(Text.Plain("Сценарные сегменты"), ScrollViewer.Create().Content(_segments), _status);
         Content(model, _ => Border.Create().Configure(border => border.Padding = new Thickness(24)).Content(fields));
@@ -130,7 +130,7 @@ internal sealed class ProjectWindow : Window<ProjectViewModel>, IUiFrameParticip
         UpdateUpgradeControls();
     }
 
-    private async Task<bool> WaitForUpgradeOnShutdownAsync(WindowCloseReason reason)
+    internal async Task<bool> WaitForUpgradeOnShutdownAsync(WindowCloseReason reason)
     {
         if (_upgrading is not { } pending) return true;
         if (reason != WindowCloseReason.Shutdown) return false;
@@ -191,41 +191,40 @@ internal sealed class ProjectWindow : Window<ProjectViewModel>, IUiFrameParticip
     }
 }
 
-internal sealed class ProjectWindowFactory(ProjectViewModel model, IViewStyle<ProjectWindow> style, StudioUiPreferences? preferences,
-    ProjectFormatUpgrade? upgrade) : IFactory<ProjectWindow>
+internal sealed class ProjectWindowFactory(ProjectViewModel model, IViewStyle<ProjectPreviewView> style, ProjectFormatUpgrade? upgrade,
+    Action? returnToProjects) : IFactory<ProjectPreviewView>
 {
-    public ProjectWindow Create()
-    {
-        var window = new ProjectWindow(model, style, upgrade);
-        preferences?.Attach(window, StudioUiWindow.Viewer);
-        return window;
-    }
-    public ProjectWindow Create<TData>(TData? data = default) => data is null ? Create() : throw new ArgumentException("Window arguments are unsupported.");
+    public ProjectPreviewView Create() => new(model, style, upgrade, returnToProjects);
+    public ProjectPreviewView Create<TData>(TData? data = default) => data is null ? Create() : throw new ArgumentException("Window arguments are unsupported.");
 }
 
 internal static class ProjectPresentation
 {
     internal static IAppConfigurationContext UseProjectWindow(this IAppConfigurationContext context,
-        Action<string?>? initialOpen = null, bool nativeWindow = true, StudioUiPreferences? preferences = null, ProjectFormatUpgrade? upgrade = null)
+        Action<string?>? initialOpen = null, bool nativeWindow = true, StudioUiPreferences? preferences = null,
+        ProjectFormatUpgrade? upgrade = null, Action? returnToProjects = null)
     {
         context.Services(r => r.Singleton<ProjectViewModel>(resolver => new(resolver.Resolve<IBackendProjectReader>()!,
                 resolver.Resolve<BackendOptions>()!.InitialFingerprint, initialOpen))
-            .Singleton<IViewStyle<ProjectWindow>, ProjectWindowStyle>()
-            .Singleton<IFactory<ProjectWindow>>(resolver => new ProjectWindowFactory(resolver.Resolve<ProjectViewModel>()!,
-                resolver.Resolve<IViewStyle<ProjectWindow>>()!, preferences, upgrade)));
+            .Singleton<IViewStyle<ProjectPreviewView>, ProjectWindowStyle>()
+            .Singleton<IFactory<ProjectPreviewView>>(resolver => new ProjectWindowFactory(resolver.Resolve<ProjectViewModel>()!,
+                resolver.Resolve<IViewStyle<ProjectPreviewView>>()!, upgrade, returnToProjects)));
         if (!nativeWindow) return context;
-        return context.UsePresentationFactory<ProjectWindow>(options => options.UseSkiaOpenGL().UseSilkWindow(window =>
+        return context.UsePresentation(resolver =>
         {
-            window.Title = "TrueMoon · Tales Studio";
-            window.Width = 1000;
-            window.Height = 720;
-        }));
+            var preview = resolver.Resolve<IFactory<ProjectPreviewView>>()!.Create()!;
+            var window = new Window { Title = "TrueMoon · Tales Studio", ClientSize = new(1000, 720) };
+            window.SetContent(preview);
+            window.Closing += preview.WaitForUpgradeOnShutdownAsync;
+            preferences?.Attach(window, StudioUiWindow.Viewer);
+            return window;
+        }, options => options.UseSkiaOpenGL().UseSilkWindow(_ => { }));
     }
 }
 
-internal sealed class ProjectWindowStyle : IViewStyle<ProjectWindow>
+internal sealed class ProjectWindowStyle : IViewStyle<ProjectPreviewView>
 {
-    public void Configure(IViewStyleBuilder<ProjectWindow> styles)
+    public void Configure(IViewStyleBuilder<ProjectPreviewView> styles)
     {
         styles.Root().Background(theme => theme.Surface).FontSize(14);
         styles.Part(view => view.ProjectTitle).FontSize(20);

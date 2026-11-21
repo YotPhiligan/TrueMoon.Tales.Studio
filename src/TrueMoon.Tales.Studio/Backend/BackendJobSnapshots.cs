@@ -29,7 +29,7 @@ internal static partial class BackendFullTransfer
 
     private static SavedJobSnapshot ReadTransferSnapshot(string directory, string id, string projectId)
     {
-        var job = Path.Combine(directory, "Production", Store, id);
+        var job = JobDirectory(directory, id);
         var (request, receipt, _) = ReadJob(job, id, projectId, null);
         var promptSha = Hash(SnapshotEncoding.GetBytes(request.Form.Prompt));
         return new(id, request.Revision, request.Form.Prompt, promptSha,

@@ -18,12 +18,15 @@ internal sealed class BackendProjectAccess
             .ForProject(options.ProjectDirectory, options.WriteEnabled) with { ProjectFileName = options.ProjectFileName };
 
     internal static void CheckProductionWrite(ProjectStoreOptions project, string path)
+        => CheckProjectSubdirectoryWrite(project, "Production", path);
+
+    internal static void CheckProjectSubdirectoryWrite(ProjectStoreOptions project, string subdirectory, string path)
     {
         path = Path.GetFullPath(path);
-        if (!Within(path, Path.Combine(project.ProjectDirectory, "Production")) ||
+        if (!Within(path, Path.Combine(project.ProjectDirectory, subdirectory)) ||
             project.ProtectedRoots.Any(root => Within(path, root)) ||
             !project.AllowedWriteRoots.Any(root => Within(path, root)))
-            throw new UnauthorizedAccessException("Project production write is not permitted.");
+            throw new UnauthorizedAccessException("Project data write is not permitted.");
         BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
     }
 

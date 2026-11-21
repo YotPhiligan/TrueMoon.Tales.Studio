@@ -66,7 +66,7 @@ internal sealed partial class ScenarioWorkspace
         _sceneReference.Value = _sceneSelection is { } scene ? $"Сцена · v{scene.Version}" : "Сцена · версия не выбрана";
         _actionReference.Value = _actionSelection is { } action ? $"Действие · v{action.Version}" :
             _sceneSelection is { } inherited ? $"Действие · версия сцены v{inherited.Version}" : "Действие · версия не выбрана";
-        _takeReference.Value = Take is { } take ? $"{BackendScenarioEdit.TakeName(take)} · " +
+        _takeReference.Value = Take is { } take ? $"{BackendScenarioEdit.TakeDisplayName(take)} · " +
             (_takeSelection is { } input ? $"опора v{input.Version.Number}" : "опора не записана") : "";
         _sceneReference.IsVisible = _referenceEntry is not null && Segment is not null;
         _actionReference.IsVisible = _referenceEntry is not null && Story is not null;
@@ -96,7 +96,7 @@ internal sealed partial class ScenarioWorkspace
         foreach (var source in project.Sources)
             foreach (var take in source.Takes.Where(take => BackendReferenceLibrary.Inputs(take).Any(input =>
                 input.ReferenceId == _referenceId && input.Version.Number == _referenceVersion)))
-                _referenceUses.Add(Text.Plain($"Дубль · {BackendScenarioEdit.TakeName(take)}"));
+                _referenceUses.Add(Text.Plain($"Дубль · {BackendScenarioEdit.TakeDisplayName(take)}"));
         if (_referenceUses.Items.Count == 1) _referenceUses.Add(Text.Plain("Использований пока нет"));
     }
 
@@ -157,7 +157,7 @@ internal sealed partial class ScenarioWorkspace
         var take = Take!;
         var entry = _referenceEntry!;
         var version = _selectedVersion!;
-        Form("Фактическая опора дубля", [Text.Plain(BackendScenarioEdit.TakeName(take)), Text.Plain($"{entry.Name} · {version.Display}"),
+        Form("Фактическая опора дубля", [Text.Plain(BackendScenarioEdit.TakeDisplayName(take)), Text.Plain($"{entry.Name} · {version.Display}"),
             Text.Plain("Подтвердите версию по материалам генерации или импорта.")],
             () => new RecordTakeReference(source.Id, take.Id, entry.Id, version.Number));
     }

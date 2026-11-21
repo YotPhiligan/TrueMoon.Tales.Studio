@@ -5,7 +5,7 @@ using System.Globalization;
 
 namespace TrueMoon.Tales.Studio.Presentation.Projects;
 
-internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInputObserver
+internal sealed class ProjectPickerView : View, IUiFrameParticipant, IUiInputObserver
 {
     private enum FormMode { Create, OpenFolder, ProjectsFolder, Maintenance }
 
@@ -55,8 +55,9 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
     internal IReadOnlyList<(ProjectEntry Entry, Button Button)> Rows => _rows;
     internal ProjectEntry? Selected => _selected;
     internal string Status => _status.Value;
+    internal bool CanLeave => _changing is null;
 
-    internal ProjectPickerWindow(ProjectCatalog catalog, Action<ProjectEntry> openProject,
+    internal ProjectPickerView(ProjectCatalog catalog, Action<ProjectEntry> openProject,
         ProjectEntry? previous = null, string? openingError = null,
         Func<ProjectEntry, CancellationToken, Task<ProjectEntry>>? maintain = null)
     {
@@ -65,8 +66,6 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         _maintain = maintain ?? ((entry, token) => catalog.MaintainAsync(entry, token));
         _selected = previous;
         _openingError = openingError;
-        Title = "Проекты · TrueMoon Tales Studio";
-        ClientSize = new(1000, 720);
 
         RefreshButton.Click += StartRead;
         OpenButton.Tone = ControlTone.Accent;
@@ -99,7 +98,6 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         _form = Stack(14, _formTitle, _formPath.WithRole(LocationRole), _newFields, _folderFields, _projectsFolderFields, _confirmation);
         _form.IsVisible = false;
         _scroll = ScrollViewer.Create().Content(Stack(0, _list, _form));
-        Closing += _ => Task.FromResult(_changing is null);
         SetContent(Border.Create().Configure(border => border.Padding = new Thickness(24))
             .Content(new ProjectPickerLayout(header, _scroll, footer)));
         this.WithViewStyle(new PickerStyle());
@@ -450,9 +448,9 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         return path[..head] + " … " + path[tail..];
     }
 
-    private sealed class PickerStyle : IViewStyle<ProjectPickerWindow>
+    private sealed class PickerStyle : IViewStyle<ProjectPickerView>
     {
-        public void Configure(IViewStyleBuilder<ProjectPickerWindow> styles)
+        public void Configure(IViewStyleBuilder<ProjectPickerView> styles)
         {
             styles.Root().Background(theme => theme.Surface).FontSize(14);
             styles.Role(RowRole).Background(theme => theme.Input).Padding(new Thickness(12, 8, 12, 8));

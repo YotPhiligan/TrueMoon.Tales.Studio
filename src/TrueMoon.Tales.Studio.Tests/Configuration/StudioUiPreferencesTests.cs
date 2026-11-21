@@ -116,7 +116,7 @@ public sealed class StudioUiPreferencesTests
         using var scene = new InteractionFixture();
         var editor = new SceneView(scene.Model, new SceneViewStyle(), new StudioTitleBarFactory(new StudioTitleBarStyle()),
             preferences: preferences);
-        var frame = WindowFrame.CreateDefault(editor.Title, editor);
+        var frame = WindowFrame.CreateDefault("TrueMoon · Tales Studio", editor);
         frame.TitleBarOverContent = true;
         var header = editor.CreateTitleBar(() => throw new InvalidOperationException("Unexpected close"));
         frame.DefaultTitleBar!.SetHeader(header);

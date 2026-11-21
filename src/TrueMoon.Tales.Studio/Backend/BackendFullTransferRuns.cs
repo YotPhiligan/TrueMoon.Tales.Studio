@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Backend.Export;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -10,18 +11,26 @@ internal sealed class BackendFullTransferRuns : IDisposable
     private sealed record End(string BuildSha256, string State, string? Detail);
     private sealed record Active(BackendFullTransfer.RunJob Job, CancellationTokenSource Stop, Task<End> Completion);
     private Active? _active;
+    internal bool Busy => _active is { Completion.IsCompleted: false };
 
     internal async Task<FullTransferRunState> LaunchAsync(BackendFullTransfer.RunJob job, BackendFullTransferWorker worker,
-        CancellationToken token)
+        Func<string, Task> stage, Func<CancellationToken, Task<string?>> register, CancellationToken token)
     {
         if (_active is { Completion.IsCompleted: false }) throw new ScenarioEditException("transfer_run_busy");
         Reap();
         var script = Path.Combine(Path.GetDirectoryName(worker.Script)!, "ManagedRun.py");
         BackendMediaResolver.CheckNoLinks(script);
-        var buildSha = await BackendFullTransfer.FreezeRunAsync(job, worker, script, token).ConfigureAwait(false);
-        // The claim is durable. Neither a lost reply nor a backend restart can start this directory again.
-        var stop = new CancellationTokenSource();
-        _active = new(job, stop, RunAsync(job, worker, script, buildSha, stop.Token));
+        var scratch = new StudioReviewSession(StudioReviewSession.FullTransferRoot);
+        try
+        {
+            scratch.Open();
+            await stage(Path.Combine(scratch.DirectoryPath, "input")).ConfigureAwait(false);
+            var buildSha = await BackendFullTransfer.FreezeRunAsync(job, worker, script, scratch.DirectoryPath, token).ConfigureAwait(false);
+            // The durable claim survives the scratch directory.
+            var stop = new CancellationTokenSource();
+            _active = new(job, stop, RunAsync(job, worker, script, buildSha, scratch, register, stop.Token));
+        }
+        catch { scratch.Dispose(); throw; }
         return Read(job);
     }
 
@@ -52,14 +61,15 @@ internal sealed class BackendFullTransferRuns : IDisposable
         {
             if (end.BuildSha256 != buildSha || end.State is not ("failed" or "cancelled" or "timed_out" or "completed"))
                 throw new ScenarioEditException("transfer_damaged");
-            if (end.State != "completed") return identity with { State = end.State, Detail = end.Detail };
-            return Completed();
+            if (end.State != "completed")
+                return BackendFullTransfer.HasPublishedOutput(job) ? Completed(null) : identity with { State = end.State, Detail = end.Detail };
+            return Completed(end.Detail);
         }
         var completion = Path.Combine(job.Run, "Completed.json");
         BackendMediaResolver.CheckNoLinks(completion, allowMissing: true);
-        return File.Exists(completion) ? Completed() : identity with { State = "interrupted" };
+        return BackendFullTransfer.HasPublishedOutput(job) || File.Exists(completion) ? Completed(null) : identity with { State = "interrupted" };
 
-        FullTransferRunState Completed() => identity with { State = "completed", OutputSha256 = BackendFullTransfer.RunOutput(job).Sha };
+        FullTransferRunState Completed(string? detail) => identity with { State = "completed", OutputSha256 = BackendFullTransfer.RunOutput(job).Sha, Detail = detail };
     }
 
     private static FullTransferRunState Identity(BackendFullTransfer.RunJob job) =>
@@ -76,8 +86,9 @@ internal sealed class BackendFullTransferRuns : IDisposable
     }
 
     private static async Task<End> RunAsync(BackendFullTransfer.RunJob job, BackendFullTransferWorker worker, string script,
-        string buildSha, CancellationToken stop)
+        string buildSha, StudioReviewSession scratch, Func<CancellationToken, Task<string?>> register, CancellationToken stop)
     {
+        using var workspace = scratch;
         var end = new End(buildSha, "failed", "runner_failed");
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
         deadline.CancelAfter(TimeSpan.FromSeconds(725));
@@ -88,7 +99,7 @@ internal sealed class BackendFullTransferRuns : IDisposable
                 WorkingDirectory = Path.GetDirectoryName(script)!, UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true
             };
-            foreach (var argument in new[] { "-I", "-B", script, job.Run, worker.ComfyRoot, buildSha })
+            foreach (var argument in new[] { "-I", "-B", script, scratch.DirectoryPath, worker.ComfyRoot, buildSha, job.Directory })
                 start.ArgumentList.Add(argument);
             start.Environment["TMT_COMFY_ROOT"] = worker.ComfyRoot;
             using var process = Process.Start(start) ?? throw new IOException("The Full Transfer worker did not start.");
@@ -97,8 +108,10 @@ internal sealed class BackendFullTransferRuns : IDisposable
                 await process.WaitForExitAsync(deadline.Token).ConfigureAwait(false);
                 if (process.ExitCode == 0)
                 {
-                    BackendFullTransfer.RunOutput(job);
-                    end = new(buildSha, "completed", null);
+                    await BackendFullTransfer.PublishOutputAsync(job, scratch.DirectoryPath, deadline.Token).ConfigureAwait(false);
+                    // A confirmed result is recoverable if writer admission is interrupted.
+                    end = new(buildSha, "completed", "registration_pending");
+                    end = end with { Detail = await register(deadline.Token).ConfigureAwait(false) };
                 }
                 else if (process.ExitCode == 3) end = new(buildSha, "timed_out", null);
             }
@@ -117,13 +130,15 @@ internal sealed class BackendFullTransferRuns : IDisposable
                 }
             }
         }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested) { end = new(buildSha, "cancelled", null); }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { end = new(buildSha, "timed_out", null); }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { if (end.State != "completed") end = new(buildSha, "cancelled", null); }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { if (end.State != "completed") end = new(buildSha, "timed_out", null); }
         catch (Exception error) when (error is IOException or Win32Exception or UnauthorizedAccessException or TimeoutException or
                                       InvalidOperationException or JsonException or KeyNotFoundException or ScenarioEditException)
-        { end = new(buildSha, "failed", "runner_failed"); }
+        { if (end.State != "completed") end = new(buildSha, "failed", "runner_failed"); }
         try { await BackendFullTransfer.WriteRunEndAsync(job, end).ConfigureAwait(false); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { /* An orphaned intent remains non-replayable. */ }
+        if (end.State != "completed" && File.Exists(Path.Combine(scratch.DirectoryPath, "Completed.json")))
+            scratch.LeaveForRecovery();
         return end;
     }
 

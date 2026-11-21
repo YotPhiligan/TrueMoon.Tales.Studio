@@ -21,6 +21,7 @@ internal sealed partial class StudioBackendService
             try
             {
                 var baseline = await ObserveAsync(expectedRevision, fingerprint, cancellationToken).ConfigureAwait(false);
+                baseline = await RecoverTransferOutputsAsync(baseline, cancellationToken).ConfigureAwait(false);
                 var reply = Reply(baseline);
                 if (reply.ErrorCode.Length == 0) { _writer ??= lease; lease = null; }
                 return reply;

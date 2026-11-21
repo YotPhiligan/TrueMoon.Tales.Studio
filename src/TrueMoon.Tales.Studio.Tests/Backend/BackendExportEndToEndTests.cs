@@ -10,6 +10,7 @@ using TrueMoon;
 using TrueMoon.Argentis;
 using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Backend.Export;
 using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Presentation.Scene;
 using TrueMoon.Tales.Studio.Presentation.Scenario;
@@ -276,7 +277,7 @@ public sealed class BackendExportEndToEndTests
             var play = ButtonIn(preparing, "Смотреть проект");
             host.PumpUntil(() => play.IsEnabled, TimeSpan.FromSeconds(30));
             Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
-            var temp = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var temp = Assert.Single(files.WorkingJobs());
             previewId = "export-" + Path.GetFileName(temp)[8..];
             Assert.Equal("export_not_found", Assert.Throws<BackendCommandException>(() =>
                 connection.ExportStatusAsync(previewId).GetAwaiter().GetResult()).Code);
@@ -324,7 +325,7 @@ public sealed class BackendExportEndToEndTests
             }
         }
         Assert.Single(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
         files.AssertProject(savedBytes, savedHistory);
     }
 
@@ -472,7 +473,7 @@ public sealed class BackendExportEndToEndTests
         const string archivedPrompt = "Сохранённый промпт продолжения.\r\nВторая строка.";
         var legacyA = WriteArchive(archiveA, "take-archive-1", archivedPrompt, new('a', 64));
         var legacyB = WriteArchive(archiveB, "take-archive-2", archivedPrompt, null);
-        var jobs = Path.Combine(production, "FullTransfer.v1");
+        var jobs = Path.GetDirectoryName(BackendFullTransfer.JobDirectory(Path.GetDirectoryName(files.ProjectPath)!, parent.Id))!;
         var receipts = CaptureFiles(Path.Combine(jobs, parent.Id));
         var archiveFiles = CaptureFiles(Path.Combine(production, "Jobs"));
         var bytes = File.ReadAllBytes(files.ProjectPath);
@@ -802,7 +803,7 @@ public sealed class BackendExportEndToEndTests
             var view = ButtonIn(setup, "Смотреть проект");
             host.PumpUntil(() => view.IsEnabled || !setup.NeedsFrame, TimeSpan.FromSeconds(50));
             Assert.True(view.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(setup).OfType<Text>().Select(row => row.Value)));
-            var working = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            var working = JsonNode.Parse(File.ReadAllText(Assert.Single(files.WorkingRequests())))!;
             AssertPlacement(working, "clip-main", uhdPath, uhdProxy.ProxySha256);
             AssertPlacement(working, "clip-extra", widePath, wideProxy.ProxySha256);
             Assert.Equal(Hash(original), AssetSha(working, "video-a"), ignoreCase: true);
@@ -889,7 +890,7 @@ public sealed class BackendExportEndToEndTests
             string ProxyFile(ProxyReceipt proxy) => Assert.Single(Directory.GetFiles(cache, proxy.FileId + ".mp4", SearchOption.AllDirectories));
         }
 
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
         Assert.Equal(original, File.ReadAllBytes(files.MediaPath(uhd)));
         Assert.Equal(wideSha, Hash(File.ReadAllBytes(files.MediaPath(wide))));
         await using (var reopened = await files.OpenAsync())
@@ -918,6 +919,52 @@ public sealed class BackendExportEndToEndTests
             Assert.Equal(path, (string?)request["assets"]![key]!["path"]);
             Assert.Equal(sha, AssetSha(request, key), ignoreCase: true);
         }
+    }
+
+    [BackendMediaFact]
+    public async Task WorkingReview_AfterBackendCrash_NextLaunchRemovesOrphanAndKeepsExport()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(65));
+        var token = deadline.Token;
+        string orphan, savedVideo, sha;
+        await using (var session = await files.OpenAsync())
+        {
+            var connection = session.Connection;
+            var head = await connection.OpenAsync(token);
+            var exported = await connection.StartExportAsync("retained-after-review-crash", "draft", head.Project.Revision, head.Fingerprint, token);
+            var directory = files.JobDirectory(exported.Id);
+            var final = await session.UntilAsync(exported.Id, row => (string?)row["state"] != "running", directory);
+            Assert.Equal("completed", (string?)final["state"]);
+            savedVideo = Path.Combine(directory, "Draft.mp4");
+            sha = (string)final["artifact_sha256"]!;
+
+            var review = await connection.StartWorkingReviewAsync("abandoned-after-review-crash", head.Project.Revision, head.Fingerprint, token, new(0, 12));
+            while (review.State == "running")
+            {
+                await Task.Delay(30, token);
+                review = await connection.WorkingReviewStatusAsync(review.Id, token);
+            }
+            Assert.Equal("completed", review.State);
+            Assert.True(File.Exists(Path.Combine(Assert.Single(files.WorkingJobs()), "Draft.mp4")));
+            orphan = Assert.Single(files.WorkingSessions());
+
+            var factory = session.App.Services.Resolve<BackendProcessFactory>()!;
+            Assert.True(factory.Owned!.IsServing(head.Identity.ProcessId));
+            using var backend = Process.GetProcessById(head.Identity.ProcessId);
+            backend.Kill();
+            await backend.WaitForExitAsync(token);
+        }
+        Assert.True(Directory.Exists(orphan));
+        Assert.True(File.Exists(orphan + ".lock"));
+
+        await using var reopened = await files.OpenAsync();
+        await reopened.Connection.OpenAsync(token);
+        Assert.False(Directory.Exists(orphan));
+        Assert.False(File.Exists(orphan + ".lock"));
+        Assert.Equal(sha, Hash(File.ReadAllBytes(savedVideo)), ignoreCase: true);
+        Assert.Single(files.Requests());
     }
 
     [BackendMediaFact]
@@ -953,16 +1000,18 @@ public sealed class BackendExportEndToEndTests
             host.Click(prepare);
             var view = ButtonIn(setup, "Смотреть диапазон");
             host.PumpUntil(() => view.IsEnabled, TimeSpan.FromSeconds(30));
-            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var folder = Assert.Single(files.WorkingJobs());
             var jobId = "export-" + Path.GetFileName(folder)[8..];
             var completed = connection.WorkingReviewStatusAsync(jobId, CancellationToken.None).GetAwaiter().GetResult();
             Assert.Equal(start, completed.RangeStart);
             Assert.Equal(end - start, completed.Frames);
             Assert.Equal(head.Fingerprint, completed.ProjectFingerprint);
             Assert.Equal(head.Project.Revision, completed.ProjectRevision);
-            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.WorkingRequests())))!;
             Assert.Equal(start, (int)request["start_frame"]!);
             Assert.Equal(end - start, (int)request["frames"]!);
+            Assert.True(File.Exists(Path.Combine(folder, "Draft.mp4")));
+            Assert.Empty(files.Requests());
             Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
 
             host.Click(view);
@@ -984,7 +1033,7 @@ public sealed class BackendExportEndToEndTests
             var stale = Assert.Throws<BackendCommandException>(() => connection.StartWorkingReviewAsync("range-stale-snapshot",
                 head.Project.Revision - 1, head.Fingerprint, CancellationToken.None, new(start, end)).GetAwaiter().GetResult());
             Assert.Equal("revision_conflict", stale.Code);
-            Assert.Single(files.Requests());
+            Assert.Single(files.WorkingRequests());
 
             var export = connection.StartExportAsync("range-full-comparison", "draft", head.Project.Revision, head.Fingerprint).GetAwaiter().GetResult();
             var final = session.UntilAsync(export.Id, row => row["state"]!.GetValue<string>() != "running",
@@ -1034,7 +1083,7 @@ public sealed class BackendExportEndToEndTests
                 return MemoryMarshal.Cast<byte, float>(data.ToArray()).ToArray();
             }
         }
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
     }
 
     [BackendMediaFact]
@@ -1072,7 +1121,7 @@ public sealed class BackendExportEndToEndTests
             host.PumpUntil(() => Views().OfType<RenderedReviewPanel>().Any(), TimeSpan.FromSeconds(30));
             var player = Assert.Single(Views().OfType<RenderedReviewPanel>());
             ReviewReady(host, player);
-            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.WorkingRequests())))!;
             Assert.Equal((19, 53), ((int)request["start_frame"]!, (int)request["frames"]!));
             Assert.Contains(Views().OfType<Text>(), item => item.Value.Contains("кадры 19–71"));
             Assert.Empty(starts);
@@ -1114,7 +1163,7 @@ public sealed class BackendExportEndToEndTests
                 host.Click(ButtonIn(setup, "Смотреть от курсора"));
             }
         }
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
     }
 
     private sealed class ReviewSoundProbe(NAudio.Wave.IWaveProvider source) : TrueMoon.Tales.Studio.Media.IPreviewSound
@@ -1147,7 +1196,7 @@ public sealed class BackendExportEndToEndTests
             host.Click(ButtonIn(setup, "Подготовить диапазон"));
             var cancel = ButtonIn(setup, "Отменить подготовку");
             host.PumpUntil(() => cancel.IsEnabled);
-            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var folder = Assert.Single(files.WorkingJobs());
             var id = "export-" + Path.GetFileName(folder)[8..];
             host.Click(cancel);
             host.PumpUntil(() => !setup.NeedsFrame, TimeSpan.FromSeconds(20));
@@ -1158,7 +1207,7 @@ public sealed class BackendExportEndToEndTests
             Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
             files.AssertProject(bytes, history);
         }
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
     }
 
     [BackendMediaFact]
@@ -1415,7 +1464,7 @@ public sealed class BackendExportEndToEndTests
         var play = ButtonIn(preparation, "Смотреть аниматик");
         host.PumpUntil(() => play.IsEnabled || !preparation.NeedsFrame, TimeSpan.FromSeconds(30));
         Assert.True(play.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(preparation).OfType<Text>().Select(row => row.Value)));
-        var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+        var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.WorkingRequests())))!;
         Assert.Empty(request["clips"]!.AsArray());
         var card = Assert.Single(request["titles"]!.AsArray())!;
         Assert.Equal((0, 16), ((int)card["start_frame"]!, (int)card["duration_frames"]!));
@@ -1459,15 +1508,17 @@ public sealed class BackendExportEndToEndTests
             var view = ButtonIn(preparing, "Смотреть аниматик");
             host.PumpUntil(() => view.IsEnabled || !preparing.NeedsFrame, TimeSpan.FromSeconds(35));
             Assert.True(view.IsEnabled, string.Join(" · ", RasterWindow<SceneView>.Walk(preparing).OfType<Text>().Select(row => row.Value)));
-            var folder = Assert.Single(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+            var folder = Assert.Single(files.WorkingJobs());
             var jobId = "export-" + Path.GetFileName(folder)[8..];
             var status = connection.WorkingReviewStatusAsync(jobId, CancellationToken.None).GetAwaiter().GetResult();
             Assert.True(status.Animatic);
             Assert.Equal((144, 24d), (status.Frames, status.Fps));
             Assert.Equal(head.Fingerprint, status.ProjectFingerprint);
             Assert.Equal(head.Project.Revision, status.ProjectRevision);
-            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.Requests())))!;
+            var request = JsonNode.Parse(File.ReadAllText(Assert.Single(files.WorkingRequests())))!;
             var still = Assert.Single(request["animatic_stills"]!.AsArray())!;
+            Assert.True(File.Exists(Path.Combine(folder, "Draft.mp4")));
+            Assert.Empty(files.Requests());
             Assert.Equal((72, 24), ((int)still["start_frame"]!, (int)still["duration_frames"]!));
             Assert.Single(request["titles"]!.AsArray());
             Assert.Equal(2, request["clips"]!.AsArray().Count);
@@ -1521,7 +1572,7 @@ public sealed class BackendExportEndToEndTests
             Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "export-*", SearchOption.AllDirectories));
             files.AssertProject(bytes, history);
         }
-        Assert.Empty(Directory.GetDirectories(files.OutputDirectory, "working-*", SearchOption.AllDirectories));
+        Assert.Empty(files.WorkingSessions());
         files.AssertProject(bytes, history);
     }
 
@@ -1823,7 +1874,8 @@ public sealed class BackendExportEndToEndTests
         var draft = baseline.Project.Sources.First().Takes.Last();
         var bytes = File.ReadAllBytes(files.ProjectPath);
         var history = files.History();
-        var jobs = Path.Combine(Path.GetDirectoryName(files.ProjectPath)!, "Production", "FullTransfer.v1");
+        var projectDirectory = Path.GetDirectoryName(files.ProjectPath)!;
+        var jobs = Path.GetDirectoryName(Path.Combine(projectDirectory, BackendFullTransfer.JobReference("unused")))!;
         var prompt = "subject_definitions: <Picture 1> is the room. <Picture 2> is the opening. <Video 1> supplies motion.\n" +
             "summary: Follow the selected motion.\nretention_analysis: Keep Picture roles.\ndetailed_description: One continuous shot.\n" +
             "overall_soundscape: N/A\n\nnon_diegetic_music: N/A";
@@ -1842,7 +1894,7 @@ public sealed class BackendExportEndToEndTests
         host.PumpUntil(() => !scenario.NeedsFrame);
         Click("Библиотека");
         Click("PV · черновик");
-        Click("Подготовить Full Transfer");
+        Click("Генерация по черновику");
         Assert.True(scenario.HasDraft);
         Click("Добавить Picture");
         Fill("Picture 1 · файл из @mount", "@videos/1.png");
@@ -1899,7 +1951,7 @@ public sealed class BackendExportEndToEndTests
              Sha: row.GetProperty("SHA256").GetString()!)).ToArray();
         var marker = Path.Combine(job, "Staged.json");
         Click("Открыть задание");
-        Assert.Contains("Задание Full Transfer открыто", scenario.Status);
+        Assert.Contains("Задание генерации открыто", scenario.Status);
         Assert.False(File.Exists(marker));
         Assert.Equal("transfer_not_staged", RejectRun(receipt, baseline, "launch"));
         Assert.False(Directory.Exists(Path.Combine(job, "Run")));
@@ -1912,24 +1964,15 @@ public sealed class BackendExportEndToEndTests
         finally { File.WriteAllBytes(targets[1].Source, originalImage); }
         Assert.All(targets, row => Assert.False(File.Exists(row.Target)));
 
-        File.Copy(targets[0].Source, targets[0].Target);
-        File.WriteAllText(targets[^1].Target, "foreign-content");
-        Click("Скопировать входы Full Transfer");
-        Assert.Contains("другое содержимое", scenario.Status);
-        Assert.Equal("foreign-content", File.ReadAllText(targets[^1].Target));
-        Assert.False(File.Exists(targets[1].Target));
-        Assert.False(File.Exists(marker));
-        File.Delete(targets[^1].Target);
-        Click("Скопировать входы Full Transfer");
-        Assert.Contains("без постановки в очередь", scenario.Status);
+        Click("Проверить входы");
+        Assert.Contains("в Temp при запуске", scenario.Status);
         var staged = receipt with { State = "staged", Staged = true };
         Assert.Equal(staged, api.FullTransferJobAsync(receipt.Id, null, baseline, CancellationToken.None).GetAwaiter().GetResult());
         Assert.Equal(staged, api.FullTransferJobAsync(receipt.Id, receipt.RequestSha256, baseline, CancellationToken.None).GetAwaiter().GetResult());
-        Assert.All(targets, row => Assert.Equal(row.Sha, Hash(File.ReadAllBytes(row.Target)), ignoreCase: true));
+        Assert.All(targets, row => Assert.False(File.Exists(row.Target)));
         var markerBytes = File.ReadAllBytes(marker);
-        File.Delete(targets[^1].Target);
-        Click("Скопировать входы Full Transfer");
-        Assert.Equal(targets[^1].Sha, Hash(File.ReadAllBytes(targets[^1].Target)), ignoreCase: true);
+        Click("Проверить входы");
+        Assert.All(targets, row => Assert.False(File.Exists(row.Target)));
         Assert.Equal(markerBytes, File.ReadAllBytes(marker));
         Assert.Equal(previewBytes, File.ReadAllBytes(buildPath));
         Assert.Equal(receipt, api.PrepareFullTransferAsync(recorded.Form, baseline, CancellationToken.None).GetAwaiter().GetResult());
@@ -1938,10 +1981,6 @@ public sealed class BackendExportEndToEndTests
         files.AssertProject(bytes, history);
         host.Capture("full-transfer-inputs-staged", new { receipt.Id, inputCount = targets.Length });
 
-        File.Delete(targets[0].Target);
-        Assert.Equal("transfer_not_staged", RejectRun(receipt, baseline, "launch"));
-        Assert.False(File.Exists(targets[0].Target));
-        Click("Скопировать входы Full Transfer");
         var apiGraph = Path.Combine(preview, "Prepared.api.json");
         var originalGraph = File.ReadAllBytes(apiGraph);
         File.AppendAllText(apiGraph, " ");
@@ -1951,21 +1990,24 @@ public sealed class BackendExportEndToEndTests
 
         var cancelled = StageOther('b', 1);
         var badEnvironment = StageOther('c', 2);
-        var interrupted = StageOther('d', 1);
         var cancelledDir = Path.Combine(jobs, cancelled.Id, "Run");
         Assert.Equal("running", Run(cancelled, baseline, "launch").State);
-        Eventually(() => File.Exists(Path.Combine(cancelledDir, "FixtureDriver.pid")), cancelledDir).GetAwaiter().GetResult();
-        using var stoppedDriver = OwnerProcess(cancelledDir, "FixtureDriver.pid");
-        using var stoppedServer = OwnerProcess(cancelledDir, "server.pid");
+        var cancelledScratch = Scratch(baseline.Identity.ProcessId);
+        Eventually(() => File.Exists(Path.Combine(cancelledScratch, "FixtureDriver.pid")), cancelledScratch).GetAwaiter().GetResult();
+        using var stoppedDriver = OwnerProcess(cancelledScratch, "FixtureDriver.pid");
+        using var stoppedServer = OwnerProcess(cancelledScratch, "server.pid");
+        Assert.All(targets, row => Assert.Equal(row.Sha, Hash(File.ReadAllBytes(Path.Combine(cancelledScratch, "input",
+            Path.GetFileName(row.Target).Replace(receipt.Id, cancelled.Id, StringComparison.Ordinal)))), ignoreCase: true));
         Assert.Equal("transfer_run_busy", RejectRun(receipt, baseline, "launch"));
-        Fill("ID задания Full Transfer", cancelled.Id);
+        Fill("ID задания генерации", cancelled.Id);
         Click("Открыть задание");
-        Click("Остановить Full Transfer");
+        Click("Остановить генерацию");
         Assert.Contains("Запуск остановлен", scenario.Status);
         Task.WhenAll(stoppedDriver.WaitForExitAsync(), stoppedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
         Assert.True(stoppedDriver.HasExited && stoppedServer.HasExited);
         Assert.Equal("transfer_already_launched", RejectRun(cancelled, baseline, "launch"));
         Assert.False(File.Exists(Path.Combine(cancelledDir, "Completed.json")));
+        Assert.False(Directory.Exists(cancelledScratch));
 
         var model = Directory.GetFiles(Path.Combine(files.ComfyRoot, "models"), "*.safetensors", SearchOption.AllDirectories).First();
         var modelStamp = File.GetLastWriteTimeUtc(model);
@@ -1975,35 +2017,50 @@ public sealed class BackendExportEndToEndTests
         {
             Run(badEnvironment, baseline, "launch");
             Eventually(() => Run(badEnvironment, baseline, "status").State == "failed", badRun).GetAwaiter().GetResult();
-            Assert.Contains("Model metadata changed", File.ReadAllText(Path.Combine(badRun, "Runner.failure.log")));
+            Assert.Empty(Directory.GetFiles(badRun, "*.log"));
             Assert.False(File.Exists(Path.Combine(badRun, "server.pid")));
             Assert.False(File.Exists(Path.Combine(badRun, "Submission.claim")));
         }
         finally { File.SetLastWriteTimeUtc(model, modelStamp); }
 
-        Fill("ID задания Full Transfer", receipt.Id);
+        Fill("ID задания генерации", receipt.Id);
         Click("Открыть задание");
-        Click("Запустить Full Transfer на GPU");
+        Click("Запустить генерацию на GPU");
         var runDir = Path.Combine(job, "Run");
         Eventually(() => Run(receipt, baseline, "status").State == "completed", runDir).GetAwaiter().GetResult();
-        Click("Обновить статус Full Transfer");
-        Assert.Contains("MP4 проверен", scenario.Status);
-        var resultPath = Path.Combine(runDir, "output", "Final.mp4");
+        Click("Обновить статус генерации");
+        Assert.Contains("Финальный дубль сохранён", scenario.Status);
+        var resultPath = Path.Combine(projectDirectory, "video", $"FullTransfer.{receipt.Id}.mp4");
         var outputHash = Hash(File.ReadAllBytes(resultPath));
+        var registered = api.OpenAsync().GetAwaiter().GetResult();
+        Assert.Equal(baseline.Project.Revision + 1, registered.Project.Revision);
         var completed = Run(receipt, baseline, "status");
         Assert.Equal(outputHash, completed.OutputSha256, ignoreCase: true);
-        Assert.Equal("transfer_already_launched", RejectRun(receipt, baseline, "launch"));
-        Assert.Single(Directory.GetFiles(runDir, "Submission.claim"));
+        Assert.Null(completed.Detail);
+        Assert.Equal("transfer_already_launched", RejectRun(receipt, registered, "launch"));
+        Assert.False(Directory.Exists(Path.Combine(runDir, "output")));
+        Assert.Empty(Directory.GetDirectories(StudioReviewSession.FullTransferRoot, $"review-{baseline.Identity.ProcessId:x8}-*"));
         Assert.Equal(markerBytes, File.ReadAllBytes(marker));
         Assert.Equal(previewBytes, File.ReadAllBytes(buildPath));
-        files.AssertProject(bytes, history);
         host.Capture("full-transfer-run-completed", new { receipt.Id, outputHash });
 
-        var otherRun = Path.Combine(jobs, interrupted.Id, "Run");
-        Run(interrupted, baseline, "launch");
-        Eventually(() => File.Exists(Path.Combine(otherRun, "FixtureDriver.pid")), otherRun).GetAwaiter().GetResult();
-        using var interruptedDriver = OwnerProcess(otherRun, "FixtureDriver.pid");
-        using var interruptedServer = OwnerProcess(otherRun, "server.pid");
+        var retry = StageOther('e', 2, registered);
+        var retryFile = Path.Combine(projectDirectory, "video", $"FullTransfer.{retry.Id}.mp4");
+        Directory.CreateDirectory(retryFile);
+        Run(retry, registered, "launch");
+        var retryScratch = Scratch(registered.Identity.ProcessId);
+        Eventually(() => Run(retry, registered, "status").State == "failed", retryScratch).GetAwaiter().GetResult();
+        Assert.True(File.Exists(Path.Combine(retryScratch, "Completed.json")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(retryFile));
+        Directory.Delete(retryFile);
+        Assert.Equal(registered.Fingerprint, api.OpenAsync().GetAwaiter().GetResult().Fingerprint);
+
+        var interrupted = StageOther('d', 1, registered);
+        Run(interrupted, registered, "launch");
+        var interruptedScratch = Scratch(registered.Identity.ProcessId, retryScratch);
+        Eventually(() => File.Exists(Path.Combine(interruptedScratch, "FixtureDriver.pid")), interruptedScratch).GetAwaiter().GetResult();
+        using var interruptedDriver = OwnerProcess(interruptedScratch, "FixtureDriver.pid");
+        using var interruptedServer = OwnerProcess(interruptedScratch, "server.pid");
         using (var backend = System.Diagnostics.Process.GetProcessById(baseline.Identity.ProcessId))
         {
             Assert.Equal(exe, backend.MainModule!.FileName, ignoreCase: true);
@@ -2023,7 +2080,7 @@ public sealed class BackendExportEndToEndTests
                 current, CancellationToken.None).GetAwaiter().GetResult().State);
             Assert.Equal("transfer_already_launched", Assert.Throws<BackendCommandException>(() =>
                 connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "launch", current, CancellationToken.None).GetAwaiter().GetResult()).Code);
-            Assert.Single(Directory.GetFiles(otherRun, "Submission.claim"));
+            Assert.False(Directory.Exists(interruptedScratch));
             Assert.Equal(completed, connection.FullTransferRunAsync(receipt.Id, receipt.RequestSha256, "status", current, CancellationToken.None).GetAwaiter().GetResult());
             Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
                 connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, previous, CancellationToken.None).GetAwaiter().GetResult()).Code);
@@ -2040,7 +2097,11 @@ public sealed class BackendExportEndToEndTests
                 originalMp4[^1] ^= 1;
                 File.WriteAllBytes(resultPath, originalMp4);
             }
-            files.AssertProject(bytes, history);
+            Assert.Equal(registered.Project.Revision + 1, current.Project.Revision);
+            Assert.False(Directory.Exists(retryScratch));
+            Assert.Equal(outputHash, Hash(File.ReadAllBytes(retryFile)));
+            Assert.Equal("completed", connection.FullTransferRunAsync(retry.Id, retry.RequestSha256, "status", current,
+                CancellationToken.None).GetAwaiter().GetResult().State);
             using var collectHost = Workspace(recovered);
             host = collectHost;
             Ready(host, recovered.App.Services.Resolve<SceneViewModel>()!);
@@ -2049,35 +2110,72 @@ public sealed class BackendExportEndToEndTests
             host.PumpUntil(() => !scenario.NeedsFrame);
             Click("Библиотека");
             Click("PV · черновик");
-            Fill("ID задания Full Transfer", receipt.Id);
+            Fill("ID задания генерации", receipt.Id);
             Click("Открыть задание");
-            Click("Сохранить финальный дубль");
-            Assert.Contains("Финальный дубль сохранён", scenario.Status);
             var written = connection.OpenAsync().GetAwaiter().GetResult();
-            Assert.Equal(current.Project.Revision + 1, written.Project.Revision);
-            Assert.Equal(history.Length + 1, files.History().Length);
+            Assert.Equal(current.Project.Revision, written.Project.Revision);
+            Assert.Equal(history.Length + 2, files.History().Length);
             var newTake = Assert.Single(written.Project.Sources.Single(row => row.Id == source.Id).Takes,
                 row => row.Id == BackendFullTransfer.FinalTakeId(receipt.Id));
+            Assert.Contains(written.Project.Sources.Single(row => row.Id == source.Id).Takes,
+                row => row.Id == BackendFullTransfer.FinalTakeId(retry.Id));
             var pair = BackendTakePairs.Read(newTake)!;
             Assert.Equal(recorded.Draft, pair.Draft);
+            Assert.Equal("Full Transfer", pair.Final.Name);
             Assert.Equal(outputHash, pair.Final.Sha256);
+            Assert.Equal($"@project/video/FullTransfer.{receipt.Id}.mp4", pair.Final.Reference);
+            Assert.Equal(baseline.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)), written.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)));
             Assert.Equal(current.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)), written.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)));
             var repeated = connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, written, CancellationToken.None).GetAwaiter().GetResult();
             Assert.Equal(written.Fingerprint, repeated.Fingerprint);
-            Assert.Equal(history.Length + 1, files.History().Length);
+            Assert.Equal(history.Length + 2, files.History().Length);
             host.Capture("full-transfer-final-take", new { receipt.Id, TakeId = newTake.Id, outputHash });
+
+            if (OperatingSystem.IsWindowsVersionAtLeast(6, 2))
+            {
+                var delete = new RemoveVideoTake(source.Id, newTake.Id, Confirmed: false);
+                Assert.Equal("take_confirmation_required", Assert.Throws<BackendCommandException>(() =>
+                    connection.EditScenarioAsync(delete, written).GetAwaiter().GetResult()).Code);
+                Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
+                    connection.EditScenarioAsync(delete with { Confirmed = true }, registered).GetAwaiter().GetResult()).Code);
+                Assert.Equal(outputHash, Hash(File.ReadAllBytes(resultPath)));
+                // Two completed runs give the two library rows the same label. Select the first result by stable order.
+                var resultButtons = RasterWindow<SceneView>.Walk(scenario).OfType<Button>()
+                    .Where(button => button.Value == "Дубль по черновику").ToArray();
+                Assert.Equal(2, resultButtons.Length);
+                Reveal(resultButtons[0]);
+                host.Click(resultButtons[0]);
+                Click("Удалить дубль…");
+                Assert.True(scenario.HasDraft);
+                Click("Отменить");
+                Assert.False(scenario.HasDraft);
+                Assert.Equal(written.Fingerprint, connection.OpenAsync().GetAwaiter().GetResult().Fingerprint);
+                Assert.True(File.Exists(resultPath));
+                Click("Удалить дубль…");
+                Click("Переместить в Корзину");
+                var deleted = connection.OpenAsync().GetAwaiter().GetResult();
+                Assert.Equal(written.Project.Revision + 1, deleted.Project.Revision);
+                Assert.False(File.Exists(resultPath), scenario.Status);
+                Assert.True(File.Exists(retryFile));
+                Assert.DoesNotContain(deleted.Project.Sources.SelectMany(row => row.Takes), row => row.Id == newTake.Id);
+                Assert.Equal("transfer_take_removed", Assert.Throws<BackendCommandException>(() =>
+                    connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, deleted, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            }
         }
 
         FullTransferRunState Run(FullTransferReceipt row, OpenedBackendProject head, string op) =>
             api.FullTransferRunAsync(row.Id, row.RequestSha256, op, head, CancellationToken.None).GetAwaiter().GetResult();
         string RejectRun(FullTransferReceipt row, OpenedBackendProject head, string op) =>
             Assert.Throws<BackendCommandException>(() => Run(row, head, op)).Code;
-        FullTransferReceipt StageOther(char key, ulong seed)
+        FullTransferReceipt StageOther(char key, ulong seed, OpenedBackendProject? current = null)
         {
+            var head = current ?? baseline;
             var second = api.PrepareFullTransferAsync(recorded.Form with { ClientKey = new(key, 32), Seed = seed },
-                baseline, CancellationToken.None).GetAwaiter().GetResult();
-            return api.FullTransferJobAsync(second.Id, second.RequestSha256, baseline, CancellationToken.None).GetAwaiter().GetResult();
+                head, CancellationToken.None).GetAwaiter().GetResult();
+            return api.FullTransferJobAsync(second.Id, second.RequestSha256, head, CancellationToken.None).GetAwaiter().GetResult();
         }
+        static string Scratch(int pid, string? earlier = null) => Assert.Single(
+            Directory.GetDirectories(StudioReviewSession.FullTransferRoot, $"review-{pid:x8}-*"), path => path != earlier);
         static async Task Eventually(Func<bool> condition, string directory)
         {
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(35));
@@ -2109,7 +2207,7 @@ public sealed class BackendExportEndToEndTests
             Assert.True(button.IsVisible && button.IsEffectivelyEnabled);
             Reveal(button);
             host.Click(button);
-            host.PumpUntil(() => !scenario.NeedsFrame, TimeSpan.FromSeconds(30));
+            host.PumpUntil(() => !scenario.Busy, TimeSpan.FromSeconds(30));
         }
         void Fill(string label, string value)
         {
@@ -2169,7 +2267,7 @@ public sealed class BackendExportEndToEndTests
         Click("Полный дубль");
         Click("Связать с черновиком");
         Click(BackendScenarioEdit.TakeName(draft));
-        Click("Full Transfer");
+        Click("Генерация по черновику");
         Click("Сохранить");
         Assert.False(scenario.HasDraft, scenario.Status);
         var saved = api.OpenAsync().GetAwaiter().GetResult();
@@ -3444,6 +3542,7 @@ public sealed class BackendExportEndToEndTests
 
     private sealed class ExportFixture(bool longRender = false) : IDisposable
     {
+        private readonly HashSet<int> _backends = [];
         internal BackendWriteFixture Files { get; } = new();
         internal string ProjectPath => Files.Files.ProjectPath;
         private string Root => Files.Files.Root;
@@ -3455,6 +3554,15 @@ public sealed class BackendExportEndToEndTests
         private static string Ffmpeg => Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
         private static string Ffprobe => Environment.GetEnvironmentVariable("STUDIO_TEST_FFPROBE")!;
         internal string[] Requests() => Directory.GetFiles(Exports, "Request.json", SearchOption.AllDirectories);
+        internal string[] WorkingSessions() => Directory.Exists(StudioReviewSession.DefaultRoot)
+            ? _backends.SelectMany(pid => Directory.GetDirectories(StudioReviewSession.DefaultRoot, $"review-{pid:x8}-*")).ToArray()
+            : [];
+
+        internal string[] WorkingJobs() => WorkingSessions()
+            .SelectMany(session => Directory.GetDirectories(session, "working-*", SearchOption.AllDirectories)).ToArray();
+
+        internal string[] WorkingRequests() => WorkingJobs().Select(directory => Path.Combine(directory, "Request.json"))
+            .Where(File.Exists).ToArray();
         internal string Checkpoint() => Directory.GetFiles(Exports, "ClientKey", SearchOption.AllDirectories).Single();
         internal string JobDirectory(string id) => Directory.GetDirectories(Exports, id, SearchOption.AllDirectories).Single();
         internal byte[][] History() => Files.Files.HistoryFiles.Order().Select(File.ReadAllBytes).ToArray();
@@ -3621,6 +3729,8 @@ public sealed class BackendExportEndToEndTests
             {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
                 await app.StartAsync(deadline.Token);
+                var factory = app.Services.Resolve<BackendProcessFactory>()!;
+                _backends.Add(factory.Owned!.ProcessId!.Value);
                 await session.Http.StartAsync(deadline.Token);
                 return session;
             }

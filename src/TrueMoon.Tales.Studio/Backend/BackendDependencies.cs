@@ -60,7 +60,7 @@ internal static class BackendDependencies
                 {
                     var input = BackendReferenceLibrary.Inputs(take).FirstOrDefault(row => row.ReferenceId == id);
                     if (input?.Version != earlier.Version || !affectedTakes.Add((sourceId, take.Id, id))) continue;
-                    rows.Add(new("take_reference", Short(BackendScenarioEdit.TakeName(take)),
+                    rows.Add(new("take_reference", Short(BackendScenarioEdit.TakeDisplayName(take)),
                         Short(input.Version.Display), Short(selected.Version?.Display), scope.Segment, scope.Action, sourceId, take.Id));
                 }
             }
@@ -73,7 +73,7 @@ internal static class BackendDependencies
             var left = old.TakeReference(source.Id, pair.Draft.TakeId);
             var right = now.TakeReference(source.Id, pair.Draft.TakeId);
             if (left == right || right == pair.Draft.Reference) continue;
-            rows.Add(new("take_draft", Short(BackendScenarioEdit.TakeName(take)),
+            rows.Add(new("take_draft", Short(BackendScenarioEdit.TakeDisplayName(take)),
                 Short($"{pair.Draft.Name} · SHA {pair.Draft.Sha256[..12]}"), Short(Path.GetFileName(right)),
                 SourceId: source.Id, TakeId: take.Id));
         }
@@ -182,7 +182,7 @@ internal static class BackendDependencies
             _segments.GetValueOrDefault(scope.Segment)?.Actions.FirstOrDefault(row => row.Id == scope.Action)?.Sources.Select(row => row.SourceId) ?? [];
 
         private TakeContract? Take(ClipContract clip) => TakesBySource[clip.SourceId].FirstOrDefault(row => row.Id == clip.TakeId);
-        internal string ClipName(ClipContract clip) => Take(clip) is { } take ? BackendScenarioEdit.TakeName(take) : clip.Id;
+        internal string ClipName(ClipContract clip) => Take(clip) is { } take ? BackendScenarioEdit.TakeDisplayName(take) : clip.Id;
         internal string? Asset(ClipContract? clip) => clip is not null && Take(clip)?.VideoAssetId is { } asset
             ? BackendScenarioEdit.TryReference(project, asset) : null;
         internal string? TakeReference(string source, string take) => TakesBySource[source].FirstOrDefault(row => row.Id == take)?.VideoAssetId is { } asset

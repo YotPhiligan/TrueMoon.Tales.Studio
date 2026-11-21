@@ -29,7 +29,7 @@ internal static class BackendSceneMapping
                     .Select(row => row.SourceOutFrame ?? row.SourceInFrame + row.DurationFrames * row.Speed).DefaultIfEmpty(1).Max();
                 if (!double.IsFinite(extent) || extent > int.MaxValue) throw new InvalidDataException("Clip source extent exceeds the current scene UI range.");
                 var frames = checked((int)Math.Ceiling(Math.Max(1, extent)));
-                return new Take(take.Id, take.VideoAssetId!, new(project.Fps, frames / project.Fps, frames), BackendScenarioEdit.TakeName(take));
+                return new Take(take.Id, take.VideoAssetId!, new(project.Fps, frames / project.Fps, frames), BackendScenarioEdit.TakeDisplayName(take));
             }).ToArray();
             return new ClipChoice(new(clip.Id, clip.WindowId, clip.SourceId, clip.TakeId, action?.Title,
                 clip.StartFrame, clip.DurationFrames, clip.SourceInFrame, clip.SourceOutFrame, clip.Speed, clip.AnchorFrame, clip.MuteNativeAudio, clip.GapProtected),

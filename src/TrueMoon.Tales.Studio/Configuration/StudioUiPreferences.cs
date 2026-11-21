@@ -6,7 +6,7 @@ using TrueMoon.Tales.Studio.Backend;
 
 namespace TrueMoon.Tales.Studio.Configuration;
 
-internal enum StudioUiWindow { Projects, Editor, Viewer }
+internal enum StudioUiWindow { Projects, Editor, Viewer, Workspace }
 
 internal sealed record StudioUiSettings
 {
@@ -14,11 +14,13 @@ internal sealed record StudioUiSettings
     internal int[]? ProjectsSize { get; set; }
     internal int[]? EditorSize { get; set; }
     internal int[]? ViewerSize { get; set; }
+    internal int[]? WorkspaceSize { get; set; }
 
     internal int[]? SizeFor(StudioUiWindow role) => role switch
     {
         StudioUiWindow.Projects => ProjectsSize,
         StudioUiWindow.Editor => EditorSize,
+        StudioUiWindow.Workspace => WorkspaceSize,
         _ => ViewerSize
     };
 }
@@ -30,6 +32,7 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
     private const string ProjectsSizeKey = "projects_size";
     private const string EditorSizeKey = "editor_size";
     private const string ViewerSizeKey = "viewer_size";
+    private const string WorkspaceSizeKey = "workspace_size";
     private readonly SemaphoreSlim _updates = new(1);
     private readonly IConfigurationReader? _reader = app?.Services.Resolve<IConfigurationReader>();
 
@@ -38,7 +41,8 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
         {
             ProjectsSize = value.ProjectsSize?.ToArray(),
             EditorSize = value.EditorSize?.ToArray(),
-            ViewerSize = value.ViewerSize?.ToArray()
+            ViewerSize = value.ViewerSize?.ToArray(),
+            WorkspaceSize = value.WorkspaceSize?.ToArray()
         }, Validate, fields =>
         {
             fields.Field("theme", value => value.Theme, (value, theme) => value.Theme = theme,
@@ -46,6 +50,7 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
             fields.Field(ProjectsSizeKey, value => value.ProjectsSize, (value, size) => value.ProjectsSize = size);
             fields.Field(EditorSizeKey, value => value.EditorSize, (value, size) => value.EditorSize = size);
             fields.Field(ViewerSizeKey, value => value.ViewerSize, (value, size) => value.ViewerSize = size);
+            fields.Field(WorkspaceSizeKey, value => value.WorkspaceSize, (value, size) => value.WorkspaceSize = size);
         });
 
     internal string? Notice { get; } = notice;
@@ -84,6 +89,8 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
     {
         var settings = Current;
         if (settings.SizeFor(role) is [var width, var height]) window.ClientSize = new(width, height);
+        else if (role == StudioUiWindow.Workspace && settings.ProjectsSize is [var oldWidth, var oldHeight])
+            window.ClientSize = new(Math.Max(880, oldWidth), Math.Max(640, oldHeight));
         ApplyTheme(window, settings.Theme);
         var requested = window.ClientSize;
         Size lastNormal = requested;
@@ -139,6 +146,7 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
         {
             StudioUiWindow.Projects => ProjectsSizeKey,
             StudioUiWindow.Editor => EditorSizeKey,
+            StudioUiWindow.Workspace => WorkspaceSizeKey,
             _ => ViewerSizeKey
         };
         await _updates.WaitAsync().ConfigureAwait(false);
@@ -171,7 +179,7 @@ internal sealed class StudioUiPreferences(string? path, IApp? app, string? notic
 
     private static bool ValidSize(StudioUiWindow role, Size size) => role switch
     {
-        StudioUiWindow.Editor => size.Width is >= 880 and <= 32768 && size.Height is >= 640 and <= 32768,
+        StudioUiWindow.Editor or StudioUiWindow.Workspace => size.Width is >= 880 and <= 32768 && size.Height is >= 640 and <= 32768,
         _ => size.Width is >= 740 and <= 32768 && size.Height is >= 480 and <= 32768
     };
 

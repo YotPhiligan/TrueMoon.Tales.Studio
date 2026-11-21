@@ -35,6 +35,8 @@ internal sealed partial class StudioBackendService
         try
         {
             var command = ScenarioCommand.Decode(commandJson);
+            if (command is RemoveVideoTake removal)
+                return await RemoveTakeAsync(baseline, removal, cancellationToken).ConfigureAwait(false);
             if (command is UndoMontage or RedoMontage)
             {
                 if (baseline.Project.Revision >= int.MaxValue) throw new InvalidDataException("Revision exceeds the editor range.");
@@ -73,6 +75,39 @@ internal sealed partial class StudioBackendService
         catch (ScenarioEditException error) { return Failure(error.Code); }
         catch (Win32Exception) { return Failure("decoder_unavailable"); }
     }, cancellationToken);
+
+    private async Task<BackendProjectReply> RemoveTakeAsync(ProjectFileDocument baseline, RemoveVideoTake command, CancellationToken token)
+    {
+        if (!command.Confirmed) return Failure("take_confirmation_required");
+        if (_transfers.Busy || _exports.HasActiveJob) return Failure("take_jobs_running");
+        if (!OperatingSystem.IsWindowsVersionAtLeast(6, 2)) return Failure("take_recycle_unavailable");
+        var resolver = new BackendMediaResolver(options);
+        var paths = BackendProjectAccess.Read(options);
+        var saved = baseline;
+        BackendTakeRemoval.Removal removal;
+        string path;
+        if (BackendTakeRemoval.Find(baseline.Project, command.SourceId, command.TakeId) is { } previous)
+        {
+            BackendTakeRemoval.CheckLinks(baseline.Project, previous.TakeId, previous.AssetId, previous.Reference, resolver);
+            removal = previous;
+            path = BackendTakeRemoval.AuthorizedPath(previous.Reference, paths, resolver);
+            if (!File.Exists(path)) return Reply(baseline);
+        }
+        else
+        {
+            var draft = BackendTakeRemoval.RemoveFromLibrary(baseline.Project, command.SourceId, command.TakeId, out var reference, resolver);
+            (removal, path) = await BackendTakeRemoval.CheckFileAsync(baseline.Project, command.SourceId, command.TakeId,
+                reference, paths, resolver, token).ConfigureAwait(false);
+            draft = BackendTakeRemoval.Record(draft, removal);
+            if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
+                return Failure("project_too_large");
+            saved = await store.SaveAsync(baseline, draft, baseline.Project.Revision, "studio:remove-take", token).ConfigureAwait(false);
+        }
+        try { await BackendTakeRemoval.RecycleAsync(removal, path, WindowsRecycleBin.MoveFile).ConfigureAwait(false); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        { return Failure("take_recycle_pending"); }
+        return Reply(saved);
+    }
 
     private Task<BackendMediaReply> ObserveFrameNoteAsync(ProjectFileDocument baseline, FrameNoteAnchor anchor,
         FrameNoteLocation location, CancellationToken token) => anchor.AssetId is { } asset

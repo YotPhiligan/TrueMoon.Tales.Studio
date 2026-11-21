@@ -11,7 +11,7 @@ using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
-internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, IUiInputObserver
+internal sealed class SceneView : View<SceneViewModel>, IUiFrameParticipant, IUiInputObserver
 {
     internal static readonly ViewStyleRole<Border> PaneRole = new("studio.pane");
     internal static readonly ViewStyleRole<Text> CaptionRole = new("studio.caption");
@@ -62,6 +62,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private SceneSnapshot? _shownScene;
     private StudioTitleBar? _header;
     private Action? _requestClose;
+    private Action? _resumeClose;
     private bool _closePrompt, _closeAfterSave, _contextMenu, _exportClosePrompt, _confirmExportClose;
     private readonly Element _draftCloseNotice, _exportCloseNotice;
 
@@ -84,7 +85,6 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _model = model; _headers = headers; _commands = new(Refresh); _export = export; _initialOpen = initialOpen; _scenario = scenario; _backend = backend;
         _preferences = preferences;
         _themeNotice = preferences?.Notice;
-        Title = "TrueMoon · Tales Studio"; ClientSize = new(1280, 820);
         RegisterCommands();
         _exportButton = Command("Экспорт MP4", StudioCommand.Export);
         _exportButton.Tone = ControlTone.Accent;
@@ -157,7 +157,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 Command("Отбросить и закрыть", StudioCommand.DiscardClose), Command("Остаться", StudioCommand.Stay)));
         _exportCloseNotice = Stack(Text.Plain("Закрытие проекта прервёт активный экспорт."),
             HStack.Create().Configure(x => x.Spacing = 8).WithChildren(
-                Button.Simple("Закрыть проект").OnClick(() => { _confirmExportClose = true; _requestClose?.Invoke(); }),
+                Button.Simple("Закрыть проект").OnClick(() => { _confirmExportClose = true; ResumeClose(); }),
                 Command("Остаться", StudioCommand.Stay)));
         CloseNotice = Border.Create().Content(Stack(_draftCloseNotice, _exportCloseNotice));
         _layout = new(_panels, CloseNotice, Heading, Navigation, Preview, Inspector, Timeline, Footer);
@@ -166,8 +166,6 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _page.SetContent(Overlays);
         Content(model, _ => _page);
         this.WithViewStyle(style);
-        Closing += ConfirmClose;
-        preferences?.Attach(this, StudioUiWindow.Editor);
         model.Open(); Refresh();
     }
 
@@ -367,8 +365,8 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _commands.Add(StudioCommand.ResetLayout, () => { _panels.Reset(); _panels.WideTimeline = true; _layout.ResetSizes(); });
         _commands.Add(StudioCommand.Theme, ToggleTheme, () => _themeChange is null);
         _commands.Add(StudioCommand.Close, () => _requestClose?.Invoke(), () => !_model.Saving);
-        _commands.Add(StudioCommand.Stay, () => { _closePrompt = false; _exportClosePrompt = false; });
-        _commands.Add(StudioCommand.DiscardClose, () => { _model.Cancel(); _closePrompt = false; _requestClose?.Invoke(); }, () => _model.Idle);
+        _commands.Add(StudioCommand.Stay, () => { _closePrompt = false; _exportClosePrompt = false; _resumeClose = null; });
+        _commands.Add(StudioCommand.DiscardClose, () => { _model.Cancel(); _closePrompt = false; ResumeClose(); }, () => _model.Idle);
         _commands.Add(StudioCommand.SaveClose, () => { _closeAfterSave = true; _model.Save(); }, () => _model.CanSave);
     }
 
@@ -420,36 +418,45 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         if (sceneChanged && _closeAfterSave)
         {
             _closeAfterSave = false;
-            if (!_model.Modified && !_model.HasError && !_model.Stale) { _closePrompt = false; _requestClose?.Invoke(); return; }
+            if (!_model.Modified && !_model.HasError && !_model.Stale) { _closePrompt = false; ResumeClose(); return; }
         }
         Refresh();
     }
 
-    private Task<bool> ConfirmClose(WindowCloseReason reason)
+    internal bool ConfirmClose(WindowCloseReason reason, Action? resume = null)
     {
         _model.PausePlayback();
         _strip.CancelGesture();
-        if (reason == WindowCloseReason.Shutdown) return Task.FromResult(true);
-        if (_workingReview is { CanClose: false } review) { review.Back(); return Task.FromResult(false); }
-        if (_tracks?.CancelNavigation() == true) return Task.FromResult(false);
-        if (_storyboard?.CanLeave() == false) return Task.FromResult(false);
+        if (reason == WindowCloseReason.Shutdown) return true;
+        if (_workingReview is { CanClose: false } review) { review.Back(); return false; }
+        if (_tracks?.CancelNavigation() == true) return false;
+        if (_storyboard?.CanLeave() == false) return false;
         if (ScenarioVisible && (_scenario!.HasDraft || _scenario.Busy || _export?.MayInterrupt == true))
         {
             _scenario.ExplainClose();
-            return Task.FromResult(false);
+            return false;
         }
-        if (_model.Saving) { _model.Explain("Дождитесь завершения сохранения"); Refresh(); return Task.FromResult(false); }
+        if (_model.Saving) { _model.Explain("Дождитесь завершения сохранения"); Refresh(); return false; }
         if (_model.Modified)
         {
+            _resumeClose = resume;
             _closePrompt = true; Overlays.Close(); Refresh();
-            return Task.FromResult(false);
+            return false;
         }
         if (_export?.MayInterrupt == true && !_confirmExportClose)
         {
+            _resumeClose = resume;
             _exportClosePrompt = true; Overlays.Close(); Refresh();
-            return Task.FromResult(false);
+            return false;
         }
-        return Task.FromResult(true);
+        return true;
+    }
+
+    private void ResumeClose()
+    {
+        var close = _resumeClose ?? _requestClose;
+        _resumeClose = null;
+        close?.Invoke();
     }
 
     private void ToggleTheme()
@@ -645,7 +652,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _revision.Value = $"Рев. {scene.Revision} · {scene.Fps:0.###} кадр/с";
             _savedRange.Value = $"Сохранено · [{scene.Clip.SourceInFrame:0.###}, {scene.Clip.SourceEnd:0.###}) к.";
             _duration.Value = $"{_model.TimelineDuration} кадров · {_model.TimelineDuration / scene.Fps:0.###} с";
-            Title = $"{scene.ProjectName}{(_model.Modified ? " •" : "")} · Tales Studio";
+            SetWindowTitle($"{scene.ProjectName}{(_model.Modified ? " •" : "")} · Tales Studio");
             SyncRows(_clipButtons, _clips, scene.Choices.Select(row => (row.Clip.Id, row.Clip.Id == scene.Clip.Id ? $"{row.Title} · выбран" : row.Title)),
                 id => _model.SelectClip(id), _model.CanReload);
             SyncRows(_takeButtons, _takes, scene.Takes.Select((row, index) => (row.Id,
@@ -659,13 +666,23 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
             _savedRange.Value = "";
             _duration.Value = "";
             _edit.Value = "Нет монтажного клипа";
-            Title = $"{empty.Name} · Tales Studio";
+            SetWindowTitle($"{empty.Name} · Tales Studio");
             SyncRows(_clipButtons, _clips, [], _model.SelectClip, false);
             SyncRows(_takeButtons, _takes, [], SelectTake, false);
         }
         _exportPanel?.Refresh();
         _montageTools?.Refresh();
         _header?.Refresh(); _commands.Refresh(); _strip.Invalidate(); _layout.Sync();
+    }
+
+    private void SetWindowTitle(string title)
+    {
+        for (var parent = Parent; parent is not null; parent = parent.Parent)
+            if (parent is Window window)
+            {
+                window.Title = title;
+                return;
+            }
     }
 
     private void SyncRows(Dictionary<string, Button> rows, VStack list, IEnumerable<(string Id, string Label)> entries, Action<string> select, bool enabled)
@@ -687,7 +704,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     public override void Dispose()
     {
         _strip.CancelGesture();
-        Closing -= ConfirmClose; _requestClose = null;
+        _requestClose = null; _resumeClose = null;
         Overlays.Closed -= ContextClosed;
         _export?.Dispose();
         _preview.Source = null; _image?.Dispose(); _image = null;

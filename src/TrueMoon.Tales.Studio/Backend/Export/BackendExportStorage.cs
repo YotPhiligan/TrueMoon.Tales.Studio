@@ -61,6 +61,13 @@ internal sealed class BackendExportStorage
         Check(_project);
     }
 
+    internal BackendExportStorage(StudioReviewSession session)
+    {
+        _root = session.DirectoryPath;
+        _namespace = _root;
+        _project = Path.Combine(_root, "Jobs");
+    }
+
     internal string JobDirectory(string id, bool working = false)
     {
         if (!ValidId(id)) throw new BackendExportException("invalid_export");
@@ -79,6 +86,7 @@ internal sealed class BackendExportStorage
     }
 
     internal string ClientOutputDirectory => _root;
+    internal string WorkerScope => _namespace;
 
     internal string PublishInterchange(BackendInterchange package, CancellationToken token)
     {

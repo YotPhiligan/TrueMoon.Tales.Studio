@@ -5,7 +5,7 @@ namespace TrueMoon.Tales.Studio.Backend.Export;
 
 internal static class BackendExportWorker
 {
-    internal static async Task RunAsync(string configPath, string jobDirectory, string requestSha256, CancellationToken token)
+    internal static async Task RunAsync(string configPath, string jobDirectory, string requestSha256, string workerScope, CancellationToken token)
     {
         var config = await WorkspaceProfile.ReadAsync(configPath, token).ConfigureAwait(false);
         if (config.PythonExecutable is not { } configuredPython) throw new InvalidDataException("Configure python_executable for CPU export.");
@@ -19,7 +19,7 @@ internal static class BackendExportWorker
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true
         };
-        foreach (var argument in new[] { "-I", "-B", script, jobDirectory, requestSha256 })
+        foreach (var argument in new[] { "-I", "-B", script, jobDirectory, requestSha256, workerScope })
             start.ArgumentList.Add(argument);
         start.Environment["OPENBLAS_NUM_THREADS"] = "1";
         start.Environment.Remove("IMAGEIO_FFMPEG_EXE");

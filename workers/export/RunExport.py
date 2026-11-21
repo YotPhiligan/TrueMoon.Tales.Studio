@@ -56,8 +56,7 @@ def lock_worker(file):
         fcntl.lockf(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB, 1)
 
 
-def run(folder, expected_sha):
-    scope = folder.parent.parent
+def run(folder, expected_sha, scope):
     with (scope / 'WorkerActive.lock').open('a+b') as active, (folder / 'Worker.lock').open('a+b') as lock:
         lock_worker(active)
         lock_worker(lock)
@@ -96,4 +95,4 @@ def run(folder, expected_sha):
 
 
 if __name__ == '__main__':
-    run(Path(sys.argv[1]).resolve(), sys.argv[2])
+    run(Path(sys.argv[1]).resolve(), sys.argv[2], Path(sys.argv[3]).resolve())
