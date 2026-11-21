@@ -35,7 +35,10 @@ Mithril/Enerit с schema2, переносом клипа и медиапредп
 ```
 
 При запуске без аргументов Studio проверяет `TRUE_MOON_STUDIO_CONFIG`, затем
-загружает или создаёт `%LOCALAPPDATA%\TrueMoon\Tales Studio\Studio.config.local.json`.
+ищет профиль по пути `%LOCALAPPDATA%\TrueMoon.Tales\Studio\config.json`.
+При отсутствии этого файла Studio ищет профили по прежним путям в AppData.
+Если профилей ещё нет, Studio создаёт `config.json`.
+[Настройка и перенос](../Workspace.md#настройка-и-запуск).
 В пустом доступном для записи пространстве Studio создаёт проект «Без названия»
 с размером 1280 × 736 при 24 fps. Если каталог уже содержит проекты, открывается
 список. Явная команда `--projects --config` сразу показывает список.

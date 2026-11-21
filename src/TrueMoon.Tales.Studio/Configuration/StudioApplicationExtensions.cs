@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TrueMoon.Configuration;
 using TrueMoon.Dependencies;
 using TrueMoon.Mithril;
 using TrueMoon.Tales.Studio.Backend;
@@ -87,6 +88,11 @@ internal static class StudioApplicationExtensions
             return 2;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return 0; }
+        catch (ConfigurationException error)
+        {
+            Console.Error.WriteLine($"Studio: {WorkspaceProfile.Describe(error)}");
+            return 1;
+        }
         catch (Exception error)
         {
             Console.Error.WriteLine($"Studio: {error.Message}");

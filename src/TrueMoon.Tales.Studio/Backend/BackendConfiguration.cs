@@ -1,8 +1,10 @@
+using TrueMoon.Configuration;
 using TrueMoon.Enerit;
 using TrueMoon.Enerit.IO.Pipes;
 using TrueMoon.Diagnostics;
 using TrueMoon.Mithril;
 using TrueMoon.Mithril.Units;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -11,7 +13,12 @@ internal static class BackendConfiguration
 {
     internal static IAppConfigurationContext UseProjectBackend(this IAppConfigurationContext context, BackendOptions options, bool child)
     {
-        var storage = BackendProjectAccess.Read(options);
+        context.UseConfiguration(WorkspaceProfile.Create(options.ConfigPath))
+            .ConfigureModule(WorkspaceProfile.Schema, (module, settings) =>
+            {
+                var storage = BackendProjectAccess.Read(options, settings);
+                module.Services(r => r.Instance(storage));
+            });
         context.Services(r => r.Instance(options));
         context.UseDiagnostics(diagnostics => diagnostics.OnEvent(message =>
         {
@@ -25,9 +32,10 @@ internal static class BackendConfiguration
             MaxConcurrentRequests = 4, MaxBufferedRequestBytes = 64 * 1024, MaxConnections = 2
         });
         context.AddUnit(unit => unit
-            .Services(r => r.Instance(storage).Singleton<ProjectStore>(resolver => new(resolver.Resolve<ProjectStoreOptions>()))
+            .Services(r => r.Singleton<ProjectStore>(resolver => new(resolver.Resolve<ProjectStoreOptions>()))
                 .Singleton<IFactory<BackendMediaResolver>, BackendMediaResolverFactory>()
-                .Singleton<BackendMediaDecoder>(_ => BackendMediaReader.Decoder(options))
+                .Singleton<BackendMediaDecoder>(resolver => BackendMediaReader.Decoder(options,
+                    resolver.Resolve<IConfigurationReader>()!.Current.GetOptions(WorkspaceProfile.Schema)))
                 .Singleton<BackendProxyStore>(resolver => new(options, resolver.Resolve<BackendMediaDecoder>()!))
                 .Singleton<BackendMediaReader>()
                 .Singleton<IStudioBackend, StudioBackendService>())

@@ -1,6 +1,6 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using TrueMoon.Tales.Studio.Backend.Export;
+using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -19,23 +19,19 @@ internal sealed class BackendMediaResolver
     private static readonly StringComparison Comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     private static readonly StringComparer Comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-    internal BackendMediaResolver(BackendOptions options)
+    internal BackendMediaResolver(BackendOptions options, WorkspaceSettings? settings = null)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(options.ConfigPath));
-        var config = document.RootElement;
-        if (config.ValueKind != JsonValueKind.Object || !config.TryGetProperty("version", out var version) || version.GetInt32() != 1)
-            throw new InvalidDataException("Unsupported workspace configuration version.");
+        var config = settings ?? WorkspaceProfile.Read(options.ConfigPath);
         var directory = Path.GetDirectoryName(options.ConfigPath)!;
         _projectDirectory = Path.GetFullPath(options.ProjectDirectory);
-        if (config.TryGetProperty("archive_media", out var episode) && episode.GetBoolean())
+        if (config.ArchiveMedia)
             _episodeMedia = new(() => BackendEpisodeArchive.ReadMediaIndex(_projectDirectory));
-        string ConfigPath(JsonElement value) => Absolute(RequiredString(value), directory, trustedConfiguration: true);
-        _legacy = config.TryGetProperty("legacy_root", out var legacy) ? ConfigPath(legacy) : null;
-        _legacyEnabled = !config.TryGetProperty("legacy_read_enabled", out var enabled) || enabled.GetBoolean();
+        string ConfigPath(string value) => Absolute(value, directory, trustedConfiguration: true);
+        _legacy = config.LegacyRoot is { } legacy ? ConfigPath(legacy) : null;
+        _legacyEnabled = config.LegacyReadEnabled;
         _base = _legacy ?? Path.GetFullPath(options.ProjectDirectory);
 
-        if (config.TryGetProperty("protected_roots", out var denied))
-            foreach (var value in denied.EnumerateArray()) _protected.Add(ConfigPath(value));
+        foreach (var value in config.ProtectedRoots) _protected.Add(ConfigPath(value));
         string? codeRoot = null;
         foreach (var start in new[] { AppContext.BaseDirectory, Environment.CurrentDirectory })
             for (var parent = new DirectoryInfo(start); parent is not null; parent = parent.Parent)
@@ -48,35 +44,25 @@ internal sealed class BackendMediaResolver
                 break;
             }
 
-        if (config.TryGetProperty("mounts", out var mounts))
-            foreach (var mount in mounts.EnumerateObject())
-            {
-                if (!Regex.IsMatch(mount.Name, "\\A[a-z][a-z0-9_-]{0,31}\\z", RegexOptions.CultureInvariant))
-                    throw new InvalidDataException("Invalid workspace mount name.");
-                if (!_mounts.TryAdd(mount.Name, ConfigPath(mount.Value))) throw new InvalidDataException("Duplicate workspace mount.");
-            }
-        foreach (var pair in new[] { ("projects_root", "projects"), ("state_root", "state"), ("cache_root", "cache"), ("exports_root", "exports"), ("profiles_root", "profiles") })
-            if (config.TryGetProperty(pair.Item1, out var value)) AddReserved(pair.Item2, ConfigPath(value));
+        foreach (var (name, path) in config.Mounts) _mounts.Add(name, ConfigPath(path));
+        foreach (var (value, name) in new[] { (config.ProjectsRoot, "projects"), (config.StateRoot, "state"),
+            (config.CacheRoot, "cache"), (config.ExportsRoot, "exports"), (config.ProfilesRoot, "profiles") })
+            if (value is not null) AddReserved(name, ConfigPath(value));
         if (codeRoot is not null) AddReserved("studio", codeRoot);
         foreach (var root in _mounts.Values) AddRoot(root);
-        foreach (var key in new[] { "amv_root", "projects_root" })
-            if (config.TryGetProperty(key, out var root)) AddRoot(ConfigPath(root));
+        foreach (var root in new[] { config.AmvRoot, config.ProjectsRoot }.OfType<string>()) AddRoot(ConfigPath(root));
         if (_legacyEnabled && _legacy is not null) _roots.Add(_legacy);
         if (_roots.Count == 0) throw new InvalidDataException("No media read roots are configured.");
 
-        if (config.TryGetProperty("path_aliases", out var aliases))
-            foreach (var alias in aliases.EnumerateArray())
-            {
-                if (alias.ValueKind != JsonValueKind.Object || alias.EnumerateObject().Count() != 2 ||
-                    !alias.TryGetProperty("from", out var source) || !alias.TryGetProperty("to", out var target))
-                    throw new InvalidDataException("Invalid workspace path alias.");
-                var from = Logical(RequiredString(source));
-                var to = Logical(RequiredString(target));
-                CheckNamespace(from, alias: true); CheckNamespace(to, alias: true);
-                if (string.Equals(from, to, Comparison) || _aliases.Any(row => string.Equals(row.Source, from, Comparison)))
-                    throw new InvalidDataException("Duplicate or self-referencing workspace alias.");
-                _aliases.Add((from, to));
-            }
+        foreach (var alias in config.PathAliases)
+        {
+            var from = Logical(alias.From);
+            var to = Logical(alias.To);
+            CheckNamespace(from, alias: true); CheckNamespace(to, alias: true);
+            if (string.Equals(from, to, Comparison) || _aliases.Any(row => string.Equals(row.Source, from, Comparison)))
+                throw new InvalidDataException("Duplicate or self-referencing workspace alias.");
+            _aliases.Add((from, to));
+        }
         _aliases.Sort((left, right) => right.Source.Length.CompareTo(left.Source.Length));
     }
 
@@ -149,9 +135,6 @@ internal sealed class BackendMediaResolver
         if (!Within(path, root)) throw new UnauthorizedAccessException("Media escapes its named root.");
         return Path.TrimEndingDirectorySeparator(path);
     }
-
-    private static string RequiredString(JsonElement value) => value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text
-        ? text : throw new InvalidDataException("Expected a workspace path string.");
 
     private static string Absolute(string value, string relativeTo, bool trustedConfiguration = false)
     {

@@ -3,7 +3,16 @@ $ErrorActionPreference='Stop'
 if ([string]::IsNullOrWhiteSpace($Config)) {
     $personalData=[Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
     if (-not $personalData) { throw 'Local application data directory is unavailable.' }
-    $Config=Join-Path $personalData 'TrueMoon/Tales Studio/Studio.config.local.json'
+    $Config=Join-Path $personalData 'TrueMoon.Tales/Studio/config.json'
+    if (-not (Test-Path -LiteralPath $Config)) {
+        foreach ($relativePath in @('TrueMoon.Tales/Studio/Studio.config.local.json','TrueMoon/Tales Studio/Studio.config.local.json')) {
+            $previousConfig=Join-Path $personalData $relativePath
+            if (Test-Path -LiteralPath $previousConfig -PathType Leaf) {
+                $Config=$previousConfig
+                break
+            }
+        }
+    }
     if (-not (Test-Path -LiteralPath $Config -PathType Leaf)) {
         throw "Studio configuration not found: $Config. Launch the desktop Studio once or copy Studio.config.example.json to that location."
     }

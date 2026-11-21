@@ -7,19 +7,25 @@ Arts/Lore/Texts подключены извне. Чтение Book отключ�
 
 ## Настройка и запуск
 
-EXE и `Start-Studio.cmd` по умолчанию используют профиль
-`%LOCALAPPDATA%\TrueMoon\Tales Studio\Studio.config.local.json`. EXE создаёт
-его при первом запуске. Для запуска только Web можно скопировать в AppData
-[шаблон](Studio.config.example.json) и заполнить пути. `Start-Studio.ps1 -Config <файл>`
-и `--projects --config <файл>` имеют приоритет над `TRUE_MOON_STUDIO_CONFIG`.
+EXE, `Start-Studio.cmd` и `app.py` в Windows по умолчанию используют профиль
+`%LOCALAPPDATA%\TrueMoon.Tales\Studio\config.json`. Если его ещё нет,
+приложение ищет `Studio.config.local.json` сначала рядом, затем в
+`%LOCALAPPDATA%\TrueMoon\Tales Studio`. При отсутствии всех профилей
+EXE создаёт `config.json`. Для запуска только Web можно скопировать
+[шаблон](Studio.config.example.json) в папку AppData под именем `config.json`
+и заполнить пути. `Start-Studio.ps1 -Config <файл>`
+для launcher, `--config <файл>` для `app.py` и `--projects --config <файл>`
+для EXE имеют приоритет над `TRUE_MOON_STUDIO_CONFIG`.
 PowerShell 7 запускает Python из `python_executable` или `STUDIO_PYTHON`.
 Для подготовки и генерации используется `python_executable` из профиля.
 
-При переносе старого профиля пересчитайте относительные корни и пути к
+При переносе профиля в другую папку пересчитайте относительные корни и пути к
 инструментам от его прежней папки. Относительные `path_aliases` считаются
 от `legacy_root`. Сохраните `state_root` с реестром. Файл недавних
 `Projects.recent.<SHA256>.json` в `state_root` использует SHA-256 полного
 пути к конфигурации в UTF-8, на Windows путь приводится к верхнему регистру.
+Чтобы сохранить список при смене пути к профилю, скопируйте файл недавних
+в том же `state_root` под именем с SHA-256 нового пути.
 
 ```powershell
 # Из корня репозитория Studio при заданном STUDIO_PYTHON. Только проверка.
@@ -37,6 +43,12 @@ API `GET /api/workspace` показывает фактически загруж�
 
 Все относительные пути конфигурации считаются от самого JSON. Поддерживаются
 абсолютные пути и переменные окружения. Неизвестные поля/версии отклоняются.
+
+Настольная Studio и backend читают плоский JSON v1 через схему TrueMoon.
+Выбранный путь к профилю передаётся в процесс backend. Настройки для
+запуска backend доступны через `IConfigurationReader`, а проверки доступа
+к проектам и материалам используют те же правила корней и aliases.
+Legacy Web читает тот же формат v1. [План перехода](Plan.md#studio-truemoon-configuration).
 
 | Поле | Назначение |
 |---|---|
@@ -164,7 +176,7 @@ Aliases перенаправляют относительные и абсолю�
 сразу в корне. Mount @arts указывает на корень репозитория; пример нового адреса:
 @arts/Characters/Claire/ComfyUI_00915_.png. Конфигурация сохраняет aliases для
 старого @arts/Arts/... и прежнего Book/Arts/... без переписывания ID/истории.
-После обновления Studio.config.local.json перезапустить уже открытый сервер Studio.
+После обновления профиля перезапустить уже открытый сервер Studio.
 
 ## Файл проекта
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Backend.Export;
 
@@ -36,19 +37,16 @@ internal sealed class BackendExportStorage
     private readonly string _project;
     private static readonly StringComparison Comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-    internal BackendExportStorage(BackendOptions options)
+    internal BackendExportStorage(BackendOptions options, WorkspaceSettings? settings = null)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(options.ConfigPath));
-        var config = document.RootElement;
-        if (!config.TryGetProperty("exports_root", out var root)) throw new BackendExportException("export_unavailable");
+        var config = settings ?? WorkspaceProfile.Read(options.ConfigPath);
+        if (config.ExportsRoot is not { } root) throw new BackendExportException("export_unavailable");
         var directory = Path.GetDirectoryName(options.ConfigPath)!;
         _root = ConfigPath(root, directory);
         var project = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.ProjectDirectory));
-        var denied = BackendProjectAccess.Read(options).ProtectedRoots.Append(project);
-        foreach (var key in new[] { "amv_root", "projects_root", "legacy_root" })
-            if (config.TryGetProperty(key, out var path)) denied = denied.Append(ConfigPath(path, directory));
-        if (config.TryGetProperty("mounts", out var mounts))
-            denied = denied.Concat(mounts.EnumerateObject().Select(mount => ConfigPath(mount.Value, directory)));
+        var denied = BackendProjectAccess.Read(options, config).ProtectedRoots.Append(project)
+            .Concat(new[] { config.AmvRoot, config.ProjectsRoot, config.LegacyRoot }.OfType<string>()
+                .Concat(config.Mounts.Values).Select(path => ConfigPath(path, directory)));
         if (_root == Path.GetPathRoot(_root) || denied.Any(path => Within(_root, path) || Within(path, _root)))
             throw new UnauthorizedAccessException("Export storage overlaps protected or source roots.");
         // Do not place writable export state in the source/distribution tree.
@@ -232,10 +230,9 @@ internal sealed class BackendExportStorage
     internal static bool EqualHash(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     internal static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
-    private static string ConfigPath(JsonElement value, string directory)
+    private static string ConfigPath(string value, string directory)
     {
-        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString())) throw new InvalidDataException("Expected a trusted workspace path.");
-        var path = Environment.ExpandEnvironmentVariables(value.GetString()!).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        var path = Environment.ExpandEnvironmentVariables(value).Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
         if (path.StartsWith(new string(Path.DirectorySeparatorChar, 2), StringComparison.Ordinal) ||
             Path.IsPathRooted(path) && !Path.IsPathFullyQualified(path) ||
             path.IndexOf(':', OperatingSystem.IsWindows() && Path.IsPathFullyQualified(path) ? 2 : 0) >= 0)

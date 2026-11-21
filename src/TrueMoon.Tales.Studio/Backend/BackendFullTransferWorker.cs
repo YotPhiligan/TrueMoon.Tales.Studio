@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -9,19 +9,17 @@ internal sealed record BackendFullTransferWorker(string Python, string ComfyRoot
 {
     internal static BackendFullTransferWorker Read(BackendOptions options)
     {
-        using var config = JsonDocument.Parse(File.ReadAllBytes(options.ConfigPath));
-        var directory = Path.GetDirectoryName(options.ConfigPath)!;
-        var python = PathFor("python_executable");
-        var comfy = PathFor("comfy_root");
+        var config = WorkspaceProfile.Read(options.ConfigPath);
+        var python = PathFor(config.PythonExecutable);
+        var comfy = PathFor(config.ComfyRoot);
         var script = Path.Combine(AppContext.BaseDirectory, "FullTransferWorker", "prepare.py");
         if (!File.Exists(python) || !Directory.Exists(comfy) || !File.Exists(script))
             throw new ScenarioEditException("transfer_unavailable");
         BackendMediaResolver.CheckNoLinks(script);
         return new(python, comfy, script);
 
-        string PathFor(string name) => config.RootElement.TryGetProperty(name, out var value) &&
-            value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } path
-            ? Path.GetFullPath(Environment.ExpandEnvironmentVariables(path), directory)
+        string PathFor(string? path) => path is not null
+            ? WorkspaceProfile.ResolvePath(path, options.ConfigPath)
             : throw new ScenarioEditException("transfer_unavailable");
     }
 

@@ -6,7 +6,8 @@ namespace TrueMoon.Tales.Studio.Configuration;
 
 internal static class StudioStartup
 {
-    private const string ConfigName = "Studio.config.local.json";
+    private const string ConfigName = "config.json";
+    private const string PreviousConfigName = "Studio.config.local.json";
 
     internal static string? ProjectPickerConfig(string[] args, UnitLaunchSettings launch, Func<string> defaultConfig)
     {
@@ -36,15 +37,29 @@ internal static class StudioStartup
         if (string.IsNullOrEmpty(localApplicationData))
             throw new DirectoryNotFoundException("Локальный каталог данных пользователя недоступен.");
 
-        return CreatePersonalConfig(Path.Combine(localApplicationData, "TrueMoon", "Tales Studio"));
-    }
-
-    private static string CreatePersonalConfig(string root)
-    {
+        var root = Path.Combine(localApplicationData, "TrueMoon.Tales", "Studio");
         var config = Path.Combine(root, ConfigName);
         BackendMediaResolver.CheckNoLinks(config, allowMissing: true);
         if (File.Exists(config)) return config;
+        if (Directory.Exists(config)) throw new IOException($"Expected a configuration file at '{config}'.");
 
+        string[] previousConfigs =
+        [
+            Path.Combine(root, PreviousConfigName),
+            Path.Combine(localApplicationData, "TrueMoon", "Tales Studio", PreviousConfigName)
+        ];
+        foreach (var previous in previousConfigs)
+        {
+            if (!File.Exists(previous)) continue;
+            BackendMediaResolver.CheckNoLinks(previous);
+            return previous;
+        }
+
+        return CreatePersonalConfig(root, config);
+    }
+
+    private static string CreatePersonalConfig(string root, string config)
+    {
         var projects = Path.Combine(root, "Projects");
         BackendMediaResolver.CheckNoLinks(projects, allowMissing: true);
         Directory.CreateDirectory(projects);

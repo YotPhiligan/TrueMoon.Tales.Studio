@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Backend.Export;
 
@@ -7,17 +7,9 @@ internal static class BackendExportWorker
 {
     internal static async Task RunAsync(string configPath, string jobDirectory, string requestSha256, CancellationToken token)
     {
-        using var config = JsonDocument.Parse(await File.ReadAllBytesAsync(configPath, token).ConfigureAwait(false));
-        var directory = Path.GetDirectoryName(configPath)!;
-        string? Tool(string key)
-        {
-            if (!config.RootElement.TryGetProperty(key, out var value)) return null;
-            if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
-                throw new InvalidDataException("Invalid configured export executable.");
-            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.GetString()!), directory);
-        }
-
-        var python = Tool("python_executable") ?? throw new InvalidDataException("Configure python_executable for CPU export.");
+        var config = await WorkspaceProfile.ReadAsync(configPath, token).ConfigureAwait(false);
+        if (config.PythonExecutable is not { } configuredPython) throw new InvalidDataException("Configure python_executable for CPU export.");
+        var python = WorkspaceProfile.ResolvePath(configuredPython, configPath);
         var script = Path.Combine(AppContext.BaseDirectory, "ExportWorker", "RunExport.py");
         if (!File.Exists(python) || !File.Exists(script))
             throw new FileNotFoundException("CPU export worker is unavailable.");
@@ -31,8 +23,8 @@ internal static class BackendExportWorker
             start.ArgumentList.Add(argument);
         start.Environment["OPENBLAS_NUM_THREADS"] = "1";
         start.Environment.Remove("IMAGEIO_FFMPEG_EXE");
-        if (Tool("ffmpeg_executable") is { } ffmpeg)
-            start.Environment["IMAGEIO_FFMPEG_EXE"] = ffmpeg;
+        if (config.FfmpegExecutable is { } ffmpeg)
+            start.Environment["IMAGEIO_FFMPEG_EXE"] = WorkspaceProfile.ResolvePath(ffmpeg, configPath);
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(310));

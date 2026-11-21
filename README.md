@@ -33,7 +33,7 @@ API и CLI, а также интеграция с ComfyUI.
 
 Без аргументов Studio показывает недавние и доступные проекты. В пустом рабочем пространстве она создаёт «Без названия» и открывает редактор с пустым таймлайном. Если проект некуда сохранить, экран «Проекты» покажет причину. [Экран «Проекты»](src/README.md#projects)
 
-EXE и `Start-Studio.cmd` используют `%LOCALAPPDATA%\TrueMoon\Tales Studio\Studio.config.local.json`. EXE создаёт профиль при первом запуске. Другой профиль можно выбрать через `TRUE_MOON_STUDIO_CONFIG` или `--projects --config <файл>`. На экране «Проекты» команда «Открыть существующий проект» принимает полный путь к папке или файлу `.studio` в одном из разрешённых корней. [Пример конфигурации](Studio.config.example.json) · [Поля и разрешения](Workspace.md#поля-конфигурации-v1)
+EXE и `Start-Studio.cmd` по умолчанию используют `%LOCALAPPDATA%\TrueMoon.Tales\Studio\config.json`. EXE создаёт профиль при первом запуске, если профиля в AppData ещё нет. Другой профиль можно выбрать через `TRUE_MOON_STUDIO_CONFIG` или `--projects --config <файл>`. На экране «Проекты» команда «Открыть существующий проект» принимает полный путь к папке или файлу `.studio` в одном из разрешённых корней. [Пример конфигурации](Studio.config.example.json) · [Расположение профиля и перенос](Workspace.md#настройка-и-запуск)
 
 Для кадров и воспроизведения укажите `ffmpeg_executable` и `ffprobe_executable` или добавьте инструменты в `PATH`. Для CPU-экспорта и рабочего просмотра настройте Python с PyAV, Pillow, NumPy и imageio-ffmpeg и отдельный `exports_root`. [Настройка медиа](Workspace.md#backend-media-tools--17112026) · [Настройка экспорта](src/Verification/BackendExport.md#настройка)
 

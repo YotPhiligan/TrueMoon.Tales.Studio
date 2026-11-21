@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Persistence;
 
@@ -130,11 +131,12 @@ internal static partial class BackendEpisodeArchive
     internal static async Task<EpisodeRestoreReceipt> RestoreAsync(string config, string name, string expectedSha, CancellationToken token)
     {
         if (!ArchiveName().IsMatch(name) || !BackendExportStorage.ValidHash(expectedSha)) throw Invalid();
-        var root = new BackendProjectAccess(config).RestoreRoot();
+        var access = new BackendProjectAccess(config);
+        var root = access.RestoreRoot();
         var id = Guid.NewGuid().ToString("N");
         var destination = Path.Combine(root, "project-restored-" + id);
         var stage = Path.Combine(root, ".restore-" + id);
-        var storage = new BackendExportStorage(BackendOptions.Create(destination, config));
+        var storage = new BackendExportStorage(BackendOptions.Create(destination, config), access.Settings);
         await using var stream = Open(storage.Check(Path.Combine(storage.ClientOutputDirectory, name)));
         if (stream.Length is < 1 or > MaxTotalBytes + 64 * 1024 * 1024 ||
             !BackendExportStorage.EqualHash(await HashAsync(stream, token).ConfigureAwait(false), expectedSha))
@@ -176,7 +178,7 @@ internal static partial class BackendEpisodeArchive
                 historyCount++;
             }
             await WriteNewAsync(Path.Combine(stage, MediaIndex), manifest.Media, token).ConfigureAwait(false);
-            await WriteNewAsync(Path.Combine(stage, ConfigName), RestoredConfig(config, storage.ClientOutputDirectory), token).ConfigureAwait(false);
+            await WriteNewAsync(Path.Combine(stage, ConfigName), RestoredConfig(access.Settings, config, storage.ClientOutputDirectory), token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             BackendMediaResolver.CheckNoLinks(stage);
             BackendMediaResolver.CheckNoLinks(destination, allowMissing: true);
@@ -293,22 +295,22 @@ internal static partial class BackendEpisodeArchive
         }
     }
 
-    private static Dictionary<string, object> RestoredConfig(string config, string exports)
+    private static Dictionary<string, object> RestoredConfig(WorkspaceSettings source, string config, string exports)
     {
-        using var source = JsonDocument.Parse(File.ReadAllBytes(config));
         var settings = new Dictionary<string, object>
         {
             ["version"] = 1, ["projects_root"] = ".", ["project_write_roots"] = new[] { "." },
             ["exports_root"] = exports, ["archive_media"] = true
         };
-        foreach (var key in new[] { "ffmpeg_executable", "ffprobe_executable", "python_executable" })
-            if (source.RootElement.TryGetProperty(key, out var tool) && tool.GetString() is { Length: > 0 } path)
+        foreach (var (key, path) in new[] { ("ffmpeg_executable", source.FfmpegExecutable),
+            ("ffprobe_executable", source.FfprobeExecutable), ("python_executable", source.PythonExecutable) })
+            if (path is not null)
                 settings[key] = Absolute(path);
-        if (source.RootElement.TryGetProperty("protected_roots", out var denied))
-            settings["protected_roots"] = denied.EnumerateArray().Select(path => Absolute(path.GetString()!)).ToArray();
+        if (source.ProtectedRoots.Length > 0)
+            settings["protected_roots"] = source.ProtectedRoots.Select(Absolute).ToArray();
         return settings;
 
-        string Absolute(string path) => Path.GetFullPath(Environment.ExpandEnvironmentVariables(path), Path.GetDirectoryName(config)!);
+        string Absolute(string path) => WorkspaceProfile.ResolvePath(path, config);
     }
 
     private static string[] HistoryFiles(string project)

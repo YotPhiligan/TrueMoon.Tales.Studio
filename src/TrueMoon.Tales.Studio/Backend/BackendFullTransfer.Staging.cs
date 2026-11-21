@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -98,11 +99,8 @@ internal static partial class BackendFullTransfer
 
     private static string ResolveInputDirectory(string configPath, IEnumerable<string> protectedRoots)
     {
-        using var settings = JsonDocument.Parse(File.ReadAllBytes(configPath));
-        if (!settings.RootElement.TryGetProperty("comfy_root", out var root) || root.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(root.GetString())) throw new ScenarioEditException("transfer_unavailable");
-        var directory = Path.GetFullPath(Path.Combine(Environment.ExpandEnvironmentVariables(root.GetString()!), "input"),
-            Path.GetDirectoryName(configPath)!);
+        if (WorkspaceProfile.Read(configPath).ComfyRoot is not { } root) throw new ScenarioEditException("transfer_unavailable");
+        var directory = Path.Combine(WorkspaceProfile.ResolvePath(root, configPath), "input");
         foreach (var rootPath in protectedRoots)
         {
             var relative = Path.GetRelativePath(rootPath, directory);

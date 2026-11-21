@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Editing;
 using TrueMoon.Tales.Studio.Media;
@@ -201,16 +202,10 @@ internal sealed class BackendMediaReader(IFactory<BackendMediaResolver> resolver
         finally { _slot.Release(); }
     }
 
-    internal static BackendMediaDecoder Decoder(BackendOptions options)
+    internal static BackendMediaDecoder Decoder(BackendOptions options, WorkspaceSettings? settings = null)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(options.ConfigPath));
-        string Tool(string property, string fallback)
-        {
-            if (!document.RootElement.TryGetProperty(property, out var value)) return fallback;
-            if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
-                throw new InvalidDataException("Invalid trusted media tool path.");
-            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.GetString()!), Path.GetDirectoryName(options.ConfigPath)!);
-        }
-        return new(Tool("ffmpeg_executable", "ffmpeg"), Tool("ffprobe_executable", "ffprobe"));
+        var config = settings ?? WorkspaceProfile.Read(options.ConfigPath);
+        string Tool(string? path, string fallback) => path is null ? fallback : WorkspaceProfile.ResolvePath(path, options.ConfigPath);
+        return new(Tool(config.FfmpegExecutable, "ffmpeg"), Tool(config.FfprobeExecutable, "ffprobe"));
     }
 }

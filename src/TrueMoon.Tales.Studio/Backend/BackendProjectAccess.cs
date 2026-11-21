@@ -1,4 +1,4 @@
-using System.Text.Json;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -11,9 +11,10 @@ internal sealed class BackendProjectAccess
     internal string? ProjectsRoot { get; }
     internal string? StateRoot { get; }
     private string? CacheRoot { get; }
+    internal WorkspaceSettings Settings { get; }
 
-    internal static ProjectStoreOptions Read(BackendOptions options) =>
-        new BackendProjectAccess(options.ConfigPath, picker: false, options.WriteEnabled)
+    internal static ProjectStoreOptions Read(BackendOptions options, WorkspaceSettings? settings = null) =>
+        new BackendProjectAccess(options.ConfigPath, settings ?? WorkspaceProfile.Read(options.ConfigPath), picker: false, options.WriteEnabled)
             .ForProject(options.ProjectDirectory, options.WriteEnabled) with { ProjectFileName = options.ProjectFileName };
 
     internal static void CheckProductionWrite(ProjectStoreOptions project, string path)
@@ -26,25 +27,20 @@ internal sealed class BackendProjectAccess
         BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
     }
 
-    internal BackendProjectAccess(string configPath) : this(configPath, picker: true, write: true) { }
+    internal BackendProjectAccess(string configPath) : this(configPath, WorkspaceProfile.Read(configPath), picker: true, write: true) { }
 
-    private BackendProjectAccess(string configPath, bool picker, bool write)
+    private BackendProjectAccess(string configPath, WorkspaceSettings settings, bool picker, bool write)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(configPath));
-        var config = document.RootElement;
-        if (config.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("Unsupported workspace configuration version.");
-        var configDirectory = Path.GetDirectoryName(configPath)!;
-        string Resolve(JsonElement value) => Path.TrimEndingDirectorySeparator(
-            Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.GetString()!), configDirectory));
-        string? Root(string key) => config.TryGetProperty(key, out var value) ? Resolve(value) : null;
-        ProjectsRoot = Root("projects_root");
-        StateRoot = picker ? Root("state_root") : null;
-        CacheRoot = picker ? Root("cache_root") : null;
-        _allowed = new[] { Root("amv_root"), ProjectsRoot }.OfType<string>().ToArray();
-        var denied = config.TryGetProperty("protected_roots", out var roots)
-            ? roots.EnumerateArray().Select(Resolve).ToList() : [];
-        var legacy = Root("legacy_root");
-        if (legacy is not null && config.TryGetProperty("legacy_read_enabled", out var enabled) && !enabled.GetBoolean())
+        Settings = settings;
+        string Resolve(string value) => WorkspaceProfile.ResolvePath(value, configPath);
+        string? Root(string? value) => value is null ? null : Resolve(value);
+        ProjectsRoot = Root(settings.ProjectsRoot);
+        StateRoot = picker ? Root(settings.StateRoot) : null;
+        CacheRoot = picker ? Root(settings.CacheRoot) : null;
+        _allowed = new[] { Root(settings.AmvRoot), ProjectsRoot }.OfType<string>().ToArray();
+        var denied = settings.ProtectedRoots.Select(Resolve).ToList();
+        var legacy = Root(settings.LegacyRoot);
+        if (legacy is not null && !settings.LegacyReadEnabled)
             denied.Add(legacy);
         // Preserve Studio's automatic exclusion even with a configuration outside the source tree.
         var code = new List<string>();
@@ -57,10 +53,8 @@ internal sealed class BackendProjectAccess
                 }
         _denied = denied.ToArray();
         _codeRoots = code.ToArray();
-        _writes = write && config.TryGetProperty("project_write_roots", out var grants)
-            ? grants.EnumerateArray().Select(Resolve).ToArray() : [];
-        var mounts = picker && config.TryGetProperty("mounts", out var values)
-            ? values.EnumerateObject().Where(mount => mount.Name != "state").Select(mount => Resolve(mount.Value)) : [];
+        _writes = write ? settings.ProjectWriteRoots.Select(Resolve).ToArray() : [];
+        var mounts = picker ? settings.Mounts.Where(mount => mount.Key != "state").Select(mount => Resolve(mount.Value)) : [];
         _stateExcluded = [.. _allowed, .. _denied, .. mounts, .. code, .. new[] { legacy }.OfType<string>()];
     }
 

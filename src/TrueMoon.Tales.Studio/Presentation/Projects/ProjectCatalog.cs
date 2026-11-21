@@ -134,7 +134,7 @@ internal sealed partial class ProjectCatalog(string configPath)
     internal void Remember(ProjectEntry entry) => ProjectRecents.Remember(new BackendProjectAccess(ConfigPath), ConfigPath, entry);
 
     private BackendMediaResolver Resolver(BackendProjectAccess access) =>
-        new(BackendOptions.Create(access.ProjectsRoot ?? Path.GetDirectoryName(ConfigPath)!, ConfigPath));
+        new(BackendOptions.Create(access.ProjectsRoot ?? Path.GetDirectoryName(ConfigPath)!, ConfigPath), access.Settings);
 
     private static async Task<ProjectEntry> InspectAsync(BackendProjectAccess access, BackendMediaResolver resolver,
         string reference, string name, string? expectedId, CancellationToken token, bool fileOrFolder = false)

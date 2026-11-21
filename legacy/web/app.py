@@ -22,7 +22,15 @@ def main():
             local_data = os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local'
         else:
             local_data = os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share'
-        default_config = Path(local_data) / 'TrueMoon' / 'Tales Studio' / 'Studio.config.local.json'
+        app_data = Path(local_data)
+        profile_dir = app_data / 'TrueMoon.Tales' / 'Studio'
+        default_config = profile_dir / 'config.json'
+        if not default_config.exists():
+            for previous_config in (profile_dir / 'Studio.config.local.json',
+                                    app_data / 'TrueMoon' / 'Tales Studio' / 'Studio.config.local.json'):
+                if previous_config.is_file():
+                    default_config = previous_config
+                    break
     p.add_argument('--config', type=Path, default=default_config)
     p.add_argument('--adopt-registry',type=Path,help='Validate registry without rewriting projects')
     p.add_argument('--sync-imports',action='store_true');p.add_argument('--no-import',action='store_true',help=argparse.SUPPRESS)
