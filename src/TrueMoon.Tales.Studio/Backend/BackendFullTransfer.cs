@@ -118,7 +118,14 @@ internal static partial class BackendFullTransfer
                 await confirmBaseline(token).ConfigureAwait(false);
                 return existing;
             }
-            var worker = BackendFullTransferWorker.Read(options);
+            var comfy = BackendFullTransferWorker.ReadComfyRoot(options);
+            ValidateWorkflowPrompt(form.Prompt, images.Count);
+            bool hasAudio;
+            try
+            {
+                hasAudio = await BackendMediaReader.Decoder(options).CheckTransferMotionAsync(motion.Path, draft, token).ConfigureAwait(false);
+            }
+            catch (InvalidDataException) { throw new ScenarioEditException("transfer_timing"); }
             await confirmBaseline(token).ConfigureAwait(false);
             var local = Path.Combine(project.ProjectDirectory, ".local");
             var ignore = Path.Combine(local, ".gitignore");
@@ -145,11 +152,12 @@ internal static partial class BackendFullTransfer
                     references = images.Select(row => new { role = row.Input.Role, path = row.Path }),
                     guides = new[] { new { picture = form.GuidePicture, frame = 0 } },
                     motion_video = new { path = motion.Path, role = form.MotionRole, review_notes = form.MotionNotes },
-                    runtime = new { comfy_root = worker.ComfyRoot }
+                    runtime = new { comfy_root = comfy }
                 });
                 await WriteNewAsync(config, configBytes, token).ConfigureAwait(false);
                 var preview = Path.Combine(job, "Preview");
-                await worker.RunAsync(config, preview, token).ConfigureAwait(false);
+                await WriteWorkflowAsync(preview, config, configBytes, request, [.. images, motion], comfy, hasAudio, token)
+                    .ConfigureAwait(false);
                 foreach (var pin in pins)
                 {
                     if (resolver.Resolve(pin.Input.Reference) != pin.Path) throw Changed();

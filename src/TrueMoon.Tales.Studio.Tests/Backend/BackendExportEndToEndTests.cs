@@ -1852,6 +1852,64 @@ public sealed class BackendExportEndToEndTests
         }
     }
 
+    [BackendMediaTheory(requirePython: false)]
+    [InlineData(1)]
+    [InlineData(8)]
+    public async Task FullTransfer_CSharpPrepareFreezesInputsAndSilentWorkflowWithoutPython(int pictures)
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync(fullTransfer: true);
+        var profile = JsonNode.Parse(File.ReadAllBytes(files.Files.Base.ConfigPath))!.AsObject();
+        profile.Remove("python_executable");
+        File.WriteAllText(files.Files.Base.ConfigPath, profile.ToJsonString());
+        var ffmpeg = Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
+        await BackendTrimFixture.RunAsync(ffmpeg, ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=purple:s=160x120:r=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=3", "-map", "0:v:0", "-map", "1:a:0",
+            "-frames:v", "56", "-c:v", "libx264", "-c:a", "aac", "-threads", "1", "-n", files.MediaPath("Motion.mp4")], 2048);
+        await BackendTrimFixture.RunAsync(ffmpeg, ["-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=lime:s=80x60",
+            "-frames:v", "1", "-threads", "1", "-n", files.MediaPath("Reference.png")], 2048);
+        await using var session = await files.OpenAsync();
+        var api = session.Connection;
+        var initial = await api.AcquireWriterAsync(await api.OpenAsync());
+        var source = initial.Project.Sources.First();
+        var baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "Контроль движения", "@videos/Motion.mp4"), initial);
+        var take = baseline.Project.Sources.First().Takes.Last();
+        var references = Enumerable.Range(1, pictures).Select(n => new FullTransferImage("@videos/Reference.png", $"Роль {n}")).ToArray();
+        var prompt = "subject_definitions: " + string.Join(", ", Enumerable.Range(1, pictures).Select(n => $"<Picture {n}>")) +
+            ", <Video 1>\nsummary: Черновик.\nretention_analysis: Лица.\ndetailed_description: Поворот.\n" +
+            "overall_soundscape: N/A\n\nnon_diegetic_music: N/A";
+        var form = new FullTransferForm(new('f', 32), source.Id, take.Id, ulong.MaxValue, prompt, references, pictures, "Поворот", "Один план");
+        var project = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        var refusal = await Assert.ThrowsAsync<BackendCommandException>(() =>
+            api.PrepareFullTransferAsync(form with { Prompt = prompt.Replace("overall_soundscape: N/A", "overall_soundscape: шум") },
+                baseline, CancellationToken.None));
+        Assert.Equal("transfer_prompt_sound", refusal.Code);
+        var receipt = await api.PrepareFullTransferAsync(form, baseline, CancellationToken.None);
+        Assert.Equal((56, false, false), (receipt.Frames, receipt.Staged, receipt.Enqueued));
+        Assert.Equal(receipt, await api.PrepareFullTransferAsync(form, baseline, CancellationToken.None));
+        var job = Path.Combine(Path.GetDirectoryName(files.ProjectPath)!, BackendFullTransfer.JobReference(receipt.Id));
+        var preview = Path.Combine(job, "Preview");
+        var graph = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, "Prepared.api.json")))!;
+        var build = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, "Build.json")))!;
+        Assert.Equal("studio-csharp", (string?)build["preparation"]);
+        Assert.True((bool?)build["motion_video"]!["has_audio"]);
+        Assert.False((bool?)build["motion_video"]!["audio_connected"]);
+        Assert.Equal(pictures + 1, build["source_input_hashes"]!.AsArray().Count);
+        for (var index = 0; index < pictures; index++)
+        {
+            Assert.Equal((1001 + index).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                (string?)graph["136"]!["inputs"]![$"ref_images.ref_image_{index}"]![0]);
+            Assert.Equal(references[index].Role, (string?)build["source_input_hashes"]![index]!["role"]);
+        }
+        Assert.Equal((1000 + pictures).ToString(System.Globalization.CultureInfo.InvariantCulture), (string?)graph["170"]!["inputs"]!["image"]![0]);
+        Assert.Equal(55, (int?)graph["201"]!["inputs"]!["batch_index"]);
+        Assert.Empty(Directory.GetFiles(job, "*Submission*", SearchOption.AllDirectories));
+        Assert.False(Directory.Exists(Path.Combine(job, "Run")));
+        Assert.Equal("keep", File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input")))));
+        files.AssertProject(project, history);
+    }
+
     [BackendMediaFact]
     public async Task FullTransfer_FromRaster_StagesRunsStopsRecoversAndRegistersAtMostOnce()
     {
@@ -1909,7 +1967,7 @@ public sealed class BackendExportEndToEndTests
         Click("Подготовить");
         Assert.True(scenario.HasDraft);
         Assert.Contains("Проверьте шесть разделов", scenario.Status);
-        Assert.Empty(Directory.GetDirectories(jobs));
+        Assert.False(Directory.Exists(jobs));
         Fill("Промпт Ref2VA", prompt);
         Click("Подготовить");
         Assert.False(scenario.HasDraft, scenario.Status);
@@ -1939,6 +1997,28 @@ public sealed class BackendExportEndToEndTests
                 api.PrepareFullTransferAsync(recorded.Form, baseline, CancellationToken.None).GetAwaiter().GetResult()).Code);
         }
         finally { File.WriteAllBytes(config, originalConfig); }
+        var pythonPreview = Path.Combine(files.OutputDirectory, "python-oracle");
+        var pythonPrepare = Path.Combine(Path.GetDirectoryName(exe)!, "FullTransferWorker", "prepare.py");
+        BackendTrimFixture.RunAsync(Environment.GetEnvironmentVariable("STUDIO_TEST_PYTHON")!,
+            ["-I", "-B", pythonPrepare, config, pythonPreview], 8192).GetAwaiter().GetResult();
+        foreach (var name in new[] { "Prepared.api.json", "Workflow.ui.json", "Inputs.prepared.json", "Job.json" })
+        {
+            var actual = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, name)))!;
+            var expected = JsonNode.Parse(File.ReadAllBytes(Path.Combine(pythonPreview, name)))!;
+            if (name == "Workflow.ui.json")
+            {
+                Assert.True(Guid.TryParse((string?)actual["id"], out _));
+                actual.AsObject().Remove("id");
+                expected.AsObject().Remove("id");
+            }
+            Assert.True(JsonNode.DeepEquals(expected, actual), $"{name} differs from the Python workflow.");
+        }
+        var actualBuild = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, "Build.json")))!;
+        var expectedBuild = JsonNode.Parse(File.ReadAllBytes(Path.Combine(pythonPreview, "Build.json")))!;
+        Assert.Equal("studio-csharp", (string?)actualBuild["preparation"]);
+        foreach (var field in new[] { "motion_video", "source_input_hashes", "model_files", "template_hashes", "implementation_hashes" })
+            Assert.True(JsonNode.DeepEquals(expectedBuild[field], actualBuild[field]), $"{field} differs from the Python manifest.");
+        Assert.Equal(File.ReadAllBytes(Path.Combine(pythonPreview, "Prompt.txt")), File.ReadAllBytes(Path.Combine(preview, "Prompt.txt")));
         Assert.Equal("keep", File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input")))));
         Assert.Empty(Directory.GetFiles(job, "*Submission*", SearchOption.AllDirectories));
         files.AssertProject(bytes, history);

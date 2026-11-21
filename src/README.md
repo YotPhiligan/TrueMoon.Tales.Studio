@@ -22,7 +22,7 @@ Mithril/Enerit с schema2, переносом клипа и медиапредп
 [Диагностика native-падения и повторные проверки](NativeCrash.md).
 
 Версия Studio указана в [Directory.Build.props](Directory.Build.props). SDK **11.0.100**,
-`runtime-async=on`, TrueMoon **1.2611.17.1-alpha**, SkiaSharp **4.156.1**.
+`runtime-async=on`, TrueMoon **1.2611.21.9-alpha**, SkiaSharp **4.157.0**.
 [Переход на .NET 11](Verification/DotNet11.md) · [перенос целого клипа](Verification/ClipMove.md). Старые датированные
 проверки ниже относятся к своим версиям.
 
@@ -265,17 +265,17 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 
 ## Пакеты TrueMoon
 
-Текущий набор — двенадцать пакетов **1.2611.17.1-alpha**, собранных из
-зафиксированного ENE6e commit22d7f11. [Источник, SHA, strict XML/IPC/raster и
-границы consumer-приёмки](Verification/FrameworkRequests.md). Пакеты локальные;
-публикация на внешнем feed не заявлена.
+Текущий локальный набор — двенадцать пакетов **1.2611.21.9-alpha** из
+поставки TrueMoon.Tales.Game, коммит фреймворка `499f5fa`.
+[Проверка текущего набора](../Status.md#studio-csharp-workflow-prepare) ·
+[Приёмка предыдущего ENE6e](Verification/FrameworkRequests.md).
 
 Source-режим строит четыре root: TrueMoon, Alloy.Hosting, Enerit и Mithril, затем
 упаковывает полный набор. При новой подготовке использовать подтверждённый
 checkout/snapshot нужной версии, все build/pack outputs сохранять вне framework:
 
 ```powershell
-./Update-TrueMoonPackages.ps1 -FrameworkRoot <подтверждённый-каталог-версии-1.2611.17.1-alpha>
+./Update-TrueMoonPackages.ps1 -FrameworkRoot <подтверждённый-каталог-версии-1.2611.21.9-alpha>
 ```
 
 Более новый рабочий checkout не пересобирать под старым номером: скрипт требует

@@ -144,6 +144,32 @@ internal sealed partial class BackendMediaDecoder(string ffmpegExecutable, strin
         return streams.GetArrayLength() == 1 && streams[0].GetProperty("codec_type").GetString() == "audio";
     }
 
+    internal async Task<bool> CheckTransferMotionAsync(string path, TakeVideoSnapshot draft, CancellationToken token)
+    {
+        // Decode timestamps through the existing bounded local FFprobe runner.
+        var arguments = new List<string> { "-v", "error", "-threads", "1", "-max_alloc", "67108864" };
+        arguments.AddRange(Input(path));
+        arguments.AddRange(["-select_streams", "v", "-show_frames", "-show_streams", "-show_entries",
+            "frame=best_effort_timestamp_time:stream=avg_frame_rate,width,height", "-of", "json"]);
+        using var document = JsonDocument.Parse(await RunAsync(ffprobeExecutable, arguments, MaxProbeBytes, token).ConfigureAwait(false));
+        var streams = document.RootElement.GetProperty("streams");
+        var frames = document.RootElement.GetProperty("frames");
+        if (streams.GetArrayLength() != 1 || frames.GetArrayLength() != draft.Frames ||
+            Rate(streams[0].GetProperty("avg_frame_rate").GetString()) != 24 ||
+            streams[0].GetProperty("width").GetInt32() != draft.Width || streams[0].GetProperty("height").GetInt32() != draft.Height)
+            throw new InvalidDataException("The motion reference must have exactly one matching 24 fps video stream.");
+        double? previous = null;
+        foreach (var frame in frames.EnumerateArray())
+        {
+            if (!frame.TryGetProperty("best_effort_timestamp_time", out var timestamp) ||
+                !double.TryParse(timestamp.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ||
+                !double.IsFinite(seconds) || previous is { } before && Math.Abs(seconds - before - 1d / 24) >= .0001)
+                throw new InvalidDataException("The motion reference must have constant presentation timestamps.");
+            previous = seconds;
+        }
+        return await HasAudioAsync(path, 0, token).ConfigureAwait(false);
+    }
+
     internal async Task<double> ProbeAudioDurationAsync(string path, int stream, CancellationToken token)
     {
         if (stream is < 0 or > 63) throw new InvalidDataException("Invalid audio stream ordinal.");

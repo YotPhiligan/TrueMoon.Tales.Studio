@@ -452,6 +452,9 @@ public sealed class ProjectPickerTests
         {
             host.PumpUntil(() => host.Window.ProjectsFolderButton.IsEnabled);
             Assert.DoesNotContain(host.Window.Rows, row => row.Entry.Id == "next");
+            var previousRow = Assert.Single(host.Window.Rows, row => row.Entry.Id == "prior" && row.Entry.Recent);
+            host.Click(previousRow.Button);
+            Assert.Same(previousRow.Entry, host.Window.Selected);
             host.Click(host.Window.ProjectsFolderButton);
             host.PumpUntil(() => host.Window.ProjectsFolderInput.IsFocused);
             Assert.Equal(files.Projects, host.Window.ProjectsFolderInput.Value);
@@ -461,7 +464,9 @@ public sealed class ProjectPickerTests
             host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
             host.PumpUntil(() => host.Window.Status == "Папка проектов сохранена.");
             Assert.Single(host.Window.Rows, row => row.Entry.Id == "next");
-            Assert.Contains(host.Window.Rows, row => row.Entry.Id == "prior" && row.Entry.Recent);
+            var refreshedRow = Assert.Single(host.Window.Rows, row => row.Entry.Id == "prior" && row.Entry.Recent);
+            Assert.Same(refreshedRow.Entry, host.Window.Selected);
+            Assert.True(refreshedRow.Button.IsFocused);
             host.Capture("saved", new { rootChanged = true });
         }
 

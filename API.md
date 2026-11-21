@@ -96,6 +96,9 @@
   конфигурации — `transfer_damaged`. Ответ содержит SHA черновика, запроса,
   конфигурации и Build, а также `staged: false`, `enqueued: false`.
   Проектная ревизия и история записи не меняются.
+  С **1.2611.21.17-alpha** графы и квитанцию строит C# backend. FFprobe
+  подтверждает один видеопоток и сетку 24 fps. Маршруты staging и запуска
+  используют тот же формат артефактов. [Настройка](Workspace.md#workspace-full-transfer).
 - Enerit protocol22 добавляет `FullTransferJobAsync` для текущего проекта.
   `jobId` состоит из `ft-` и 32 строчных hex-цифр. При `expectedRequestSha: null`
   возвращается проверенная квитанция по сохранённому снимку. Указанный SHA

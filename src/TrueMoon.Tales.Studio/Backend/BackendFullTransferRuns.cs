@@ -18,7 +18,7 @@ internal sealed class BackendFullTransferRuns : IDisposable
     {
         if (_active is { Completion.IsCompleted: false }) throw new ScenarioEditException("transfer_run_busy");
         Reap();
-        var script = Path.Combine(Path.GetDirectoryName(worker.Script)!, "ManagedRun.py");
+        var script = worker.Script;
         BackendMediaResolver.CheckNoLinks(script);
         var scratch = new StudioReviewSession(StudioReviewSession.FullTransferRoot);
         try

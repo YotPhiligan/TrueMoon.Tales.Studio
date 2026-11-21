@@ -40,10 +40,12 @@ EXE и `Start-Studio.cmd` по умолчанию используют `%LOCALAP
 Для кадров, воспроизведения, рабочего просмотра и CPU-экспорта schema2 укажите
 `ffmpeg_executable` и `ffprobe_executable` или добавьте инструменты в `PATH`.
 Для экспорта настройте отдельный `exports_root`. Python нужен для Web и
-«Генерации по черновику». [Настройка медиа](Workspace.md#backend-media-tools--17112026) ·
+запуска генерации в ComfyUI. [Настройка медиа](Workspace.md#backend-media-tools--17112026) ·
 [Настройка экспорта](src/Verification/BackendExport.md#настройка)
 
-Генерация по черновику использует установленный ComfyUI и веса Omni.v2. Открытие проекта и подготовка графа работают без GPU-генерации. Её запускает отдельная команда в библиотеке. [Настройка генерации](Workspace.md#workspace-full-transfer)
+Генерация по черновику использует установленный ComfyUI и веса Omni.v2.
+Studio готовит граф на C# с FFprobe. Генерацию запускает отдельная команда
+в библиотеке. [Настройка генерации](Workspace.md#workspace-full-transfer)
 
 ### Веб-интерфейс и автоматизация
 

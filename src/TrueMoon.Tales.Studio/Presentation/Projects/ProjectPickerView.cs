@@ -109,6 +109,7 @@ internal sealed class ProjectPickerView : View, IUiFrameParticipant, IUiInputObs
     private void StartRead()
     {
         if (_loading is not null || _changing is not null || _form.IsVisible) return;
+        _restoreFocus = false;
         var token = _closing.Token;
         _loading = Task.Run(() => _catalog.ReadAsync(token), token);
         _status.Value = "Читаю список проектов…";
