@@ -58,7 +58,7 @@ public sealed class BackendMediaUiCliTests
 
         (int Code, string Output, string Error) Cli(params string[] arguments)
         {
-            using var cli = new BackendCliProcess(backend.Http.Address, backend.Http.Token, arguments);
+            using var cli = BackendCliProcess.Native(backend.Http.Address, backend.Http.Token, arguments);
             host.PumpUntil(() => cli.Completed, TimeSpan.FromSeconds(20));
             return cli.Result();
         }
@@ -76,7 +76,11 @@ public sealed class BackendMediaUiCliTests
         Assert.False(File.Exists(fixture.PngPath));
         var frame = Cli("backend-frame", "--asset", "video-a", "--frame", "20", "--revision", "12", "--sha256", fixture.Baseline.Fingerprint, "--output", fixture.PngPath);
         Assert.True(frame.Code == 0, frame.Error);
-        var exported = Media(JsonNode.Parse(frame.Output)!);
+        var receipt = JsonNode.Parse(frame.Output)!;
+        var exported = Media(receipt);
+        Assert.False(exported.AsObject().ContainsKey("pixels"));
+        Assert.Equal(fixture.PngPath, receipt["output_path"]!.GetValue<string>());
+        Assert.Equal(Hash(File.ReadAllBytes(fixture.PngPath)), receipt["png_sha256"]!.GetValue<string>(), ignoreCase: true);
         Assert.Equal(Hash(middle), exported["pixel_sha256"]!.GetValue<string>().ToUpperInvariant());
         Assert.Equal(20, exported["frame_index"]!.GetValue<int>());
         Assert.True(File.Exists(fixture.PngPath));
@@ -113,7 +117,7 @@ public sealed class BackendMediaUiCliTests
         Assert.Equal("video-a", first.AssetId); Assert.Equal("video-b", second.AssetId);
         Assert.NotEqual(first.PixelSha256, second.PixelSha256);
         Assert.Equal(Hash(expectedB), second.PixelSha256);
-        using var cli = new BackendCliProcess(fixture.Backend.Http.Address, fixture.Backend.Http.Token,
+        using var cli = BackendCliProcess.Native(fixture.Backend.Http.Address, fixture.Backend.Http.Token,
             "backend-frame", "--asset", "video-b", "--frame", "20", "--revision", "12", "--sha256", baseline.Fingerprint, "--output", fixture.PngPath);
         var result = await cli.WaitAsync();
         Assert.True(result.Code == 0, result.Error);

@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -8,9 +8,13 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SkiaSharp;
+using TrueMoon.Alloy.Rendering.Skia;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Persistence;
+using TrueMoon.Tales.Studio.Tests.Persistence;
+using TrueMoon.Tales.Studio.Tests.Support;
 using Xunit;
 
 namespace TrueMoon.Tales.Studio.Tests.Backend;
@@ -92,19 +96,118 @@ public sealed class BackendNativeCliTests
             "--clip", "clip-main", "--start-frame", "14", "--revision", "12"), 2, "invalid_arguments", reconcile: false);
     }
 
+    [BackendMediaFact]
+    public async Task NativeMediaAndFrame_RejectStaleBaselineAndUnavailableFrameWithoutWriting()
+    {
+        await using var fixture = new BackendMediaFixture();
+        await fixture.StartAsync();
+        var (address, token) = (fixture.Backend.Http.Address, fixture.Backend.Http.Token);
+        var revision = fixture.Baseline.Project.Revision.ToString(CultureInfo.InvariantCulture);
+        AssertError(await RunAsync(address, token, "backend-media", "--asset", "video-a", "--revision", revision,
+            "--sha256", Fingerprint), 3, "revision_conflict", reconcile: true);
+        var result = await RunAsync(address, token, "backend-frame", "--asset", "video-a", "--revision", revision,
+            "--sha256", fixture.Baseline.Fingerprint, "--frame", "90", "--output", fixture.PngPath);
+        AssertError(result, 1, "invalid_frame", reconcile: true);
+        Assert.False(File.Exists(fixture.PngPath));
+
+        byte[] existing = [11, 22, 33];
+        File.WriteAllBytes(fixture.PngPath, existing);
+        AssertError(await RunAsync(address, token, "backend-frame", "--asset", "video-a", "--revision", revision,
+            "--sha256", fixture.Baseline.Fingerprint, "--frame", "20", "--output", fixture.PngPath),
+            2, "invalid_arguments", reconcile: false);
+        Assert.Equal(existing, File.ReadAllBytes(fixture.PngPath));
+        fixture.AssertUnchanged();
+    }
+
+    [Theory]
+    [InlineData("bad-pixels", false, "invalid_response")]
+    [InlineData("wrong-asset", false, "invalid_response")]
+    [InlineData("wrong-index", false, "invalid_response")]
+    [InlineData("pixels-in-metadata", true, "invalid_response")]
+    [InlineData("output-race", false, "output_exists")]
+    public async Task NativeMedia_ValidatesIdentityAndPixelsBeforePublishing(string mode, bool metadata, string error)
+    {
+        using var files = new PersistenceFixture();
+        var output = Path.Combine(files.Root, "кадр с пробелом.png");
+        byte[] competing = [3, 7, 11];
+        var pixels = new byte[BackendMediaDecoder.FrameBytes];
+        var media = new BackendMediaReply
+        {
+            AssetId = mode == "wrong-asset" ? "video-b" : "video-a",
+            Revision = 12,
+            Fingerprint = Fingerprint,
+            Fps = 24,
+            FrameCount = 90,
+            SourceWidth = 320,
+            SourceHeight = 240,
+            FrameIndex = metadata ? -1 : mode == "wrong-index" ? 21 : 20,
+            Width = 480,
+            Height = 270,
+            Pixels = pixels,
+            PixelSha256 = Convert.ToHexString(SHA256.HashData(pixels))
+        };
+        if (mode == "bad-pixels") pixels[0] ^= 1;
+        var requests = 0;
+        await WithStubAsync(async context =>
+        {
+            Interlocked.Increment(ref requests);
+            await context.Request.Body.CopyToAsync(Stream.Null, context.RequestAborted);
+            if (mode == "output-race") File.WriteAllBytes(output, competing);
+            await context.Response.WriteAsJsonAsync(new BackendHttpMediaSnapshot(1, 2, media), BackendHttpServer.Json);
+        }, async address =>
+        {
+            string[] args = metadata
+                ? ["backend-media", "--asset", "video-a", "--revision", "12", "--sha256", Fingerprint]
+                : ["backend-frame", "--asset", "video-a", "--revision", "12", "--sha256", Fingerprint,
+                    "--frame", "20", "--output", output];
+            AssertError(await RunAsync(address, Fingerprint, args), 1, error, reconcile: false);
+            Assert.Equal(1, Volatile.Read(ref requests));
+        });
+        if (mode == "output-race") Assert.Equal(competing, File.ReadAllBytes(output));
+        else Assert.False(File.Exists(output));
+        Assert.Empty(Directory.GetFiles(files.Root, ".studio-frame-*.tmp"));
+    }
+
+    [Fact]
+    public async Task NativeFrame_PngPreservesBgraIncludingNonopaquePixels()
+    {
+        using var files = new PersistenceFixture();
+        var output = Path.Combine(files.Root, "кадр с прозрачностью.png");
+        var pixels = new byte[BackendMediaDecoder.FrameBytes];
+        new byte[] { 20, 91, 231, 0, 18, 42, 197, 128, 19, 71, 186, 255 }.CopyTo(pixels, 0);
+        var media = new BackendMediaReply
+        {
+            AssetId = "video-a", Revision = 12, Fingerprint = Fingerprint, Fps = 24, FrameCount = 1,
+            SourceWidth = 480, SourceHeight = 270, FrameIndex = 0, Width = 480, Height = 270,
+            Pixels = pixels, PixelSha256 = Convert.ToHexString(SHA256.HashData(pixels))
+        };
+        await WithStubAsync(async context =>
+        {
+            await context.Request.Body.CopyToAsync(Stream.Null, context.RequestAborted);
+            await context.Response.WriteAsJsonAsync(new BackendHttpMediaSnapshot(1, 2, media), BackendHttpServer.Json);
+        }, async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, "backend-frame", "--asset", "video-a", "--revision", "12",
+                "--sha256", Fingerprint, "--frame", "0", "--output", output);
+            Assert.True(result.Code == 0, result.Error);
+            using var receipt = JsonDocument.Parse(result.Output);
+            Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(output))), receipt.RootElement.GetProperty("png_sha256").GetString());
+            SkiaNativeLibrary.Initialize();
+            using var decoded = SKBitmap.Decode(output, new SKImageInfo(480, 270, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+            Assert.NotNull(decoded);
+            Assert.Equal(pixels, decoded.GetPixelSpan().ToArray());
+        });
+    }
+
     [Theory]
     [InlineData("redirect", "backend_http_error")]
     [InlineData("lost", "backend_unavailable")]
     [InlineData("duplicate-json", "invalid_response")]
     public async Task NativeWrite_SendsOnePostAndRequiresReconciliationWhenTheReplyIsUnknown(string mode, string error)
     {
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
-        builder.Logging.ClearProviders();
-        builder.WebHost.UseKestrel(options => options.Listen(System.Net.IPAddress.Loopback, 0));
-        await using var app = builder.Build();
         var count = 0;
         string? method = null, route = null;
-        app.Run(async context =>
+        await WithStubAsync(async context =>
         {
             Interlocked.Increment(ref count);
             method = context.Request.Method;
@@ -119,18 +222,30 @@ public sealed class BackendNativeCliTests
             }
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("""{"api_version":1,"api_version":1}""");
-        });
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
-        await app.StartAsync(deadline.Token);
-        try
+        }, async address =>
         {
-            var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!;
-            var result = await RunAsync(new Uri(addresses.Addresses.Single()), Fingerprint,
+            var result = await RunAsync(address, Fingerprint,
                 "backend-move", "--clip", "clip-main", "--start-frame", "14", "--revision", "12", "--sha256", Fingerprint);
             AssertError(result, 1, error, reconcile: true);
             Assert.Equal(1, Volatile.Read(ref count));
             Assert.Equal(HttpMethods.Post, method);
             Assert.Equal(BackendHttpServer.MoveRoute, route);
+        });
+    }
+
+    private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
+    {
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseKestrel(options => options.Listen(System.Net.IPAddress.Loopback, 0));
+        await using var app = builder.Build();
+        app.Run(handler);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+        await app.StartAsync(deadline.Token);
+        try
+        {
+            var addresses = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!;
+            await test(new Uri(addresses.Addresses.Single()));
         }
         finally { await app.StopAsync(deadline.Token); }
     }
@@ -154,26 +269,9 @@ public sealed class BackendNativeCliTests
 
     private static async Task<CliResult> RunAsync(Uri address, string token, params string[] args)
     {
-        var start = new ProcessStartInfo(BackendWriteFixture.Executable())
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true
-        };
-        foreach (var arg in args.Concat(["--url", address.OriginalString])) start.ArgumentList.Add(arg);
-        start.Environment["STUDIO_BACKEND_HTTP_TOKEN"] = token;
-        using var child = Process.Start(start) ?? throw new IOException("Studio CLI did not start.");
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var output = child.StandardOutput.ReadToEndAsync(deadline.Token);
-        var error = child.StandardError.ReadToEndAsync(deadline.Token);
-        try
-        {
-            await child.WaitForExitAsync(deadline.Token);
-            return new(child.ExitCode, await output, await error);
-        }
-        finally
-        {
-            if (!child.HasExited) child.Kill(entireProcessTree: true);
-            await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-        }
+        using var cli = BackendCliProcess.Native(address, token, args);
+        var result = await cli.WaitAsync();
+        return new(result.Code, result.Output, result.Error);
     }
 
     private sealed record CliResult(int Code, string Output, string Error);

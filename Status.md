@@ -17,9 +17,12 @@
 - **Проверки поставки 1.2611.21.11-alpha.** Полный Release-прогон .NET 11
   перед отправкой дал 869 пройденных, 5 пропущенных и 0 упавших тестов.
   TRX и raster сохранены в `src/.local/delivery-20261121-1.2611.21.11/`.
-- **C# CLI.** В рабочей копии **1.2611.21.12-alpha** чтение schema2, перенос
-  и обрезка клипа доступны через тот же EXE как клиент уже запущенного
-  backend. [Команды и проверки](#studio-native-cli).
+- **C# CLI.** Чтение schema2, перенос и обрезка клипа опубликованы в
+  `origin/main` коммитом `8940116` (**1.2611.21.12-alpha**).
+  [Команды и проверки](#studio-native-cli).
+- **Медиа из CLI.** В рабочей копии **1.2611.21.13-alpha** тот же EXE читает
+  метаданные ассета и сохраняет выбранный кадр в PNG через общую сессию
+  backend. [Проверки](#studio-native-media-cli).
 - **Рабочий просмотр.** Одноразовые MP4 диапазона и аниматика хранятся в
   `%TEMP%\TrueMoon.Tales\Studio`. Постоянные каталоги текущего профиля
   перенесены в AppData. [Перенос и проверки](#studio-review-temp).
@@ -66,6 +69,31 @@ SHA, проверяет ответ и выводит JSON. Команда отп
 существующий тест освобождения writer после аварии застал занятую блокировку.
 Он прошёл при отдельной проверке и в итоговом полном прогоне.
 TRX и raster находятся в `src/.local/native-cli-20261121/`.
+
+<a id="studio-native-media-cli"></a>
+## Метаданные и кадр из C# CLI, 21.11.2026
+
+Версия **1.2611.21.13-alpha** добавляет `backend-media` и `backend-frame`.
+Команды используют HTTPv1 существующей сессии и сверяют ассет, ожидаемую
+ревизию и SHA проекта. Перед сохранением кадра CLI проверяет индекс, размеры
+и SHA пикселей BGRA. PNG публикуется в указанной папке без перезаписи. JSON
+содержит путь и SHA файла. Портирование использует существующие HTTP/IPC
+контракты и разрешение алиасов на backend.
+[Команды и примеры](src/Verification/BackendHttp.md#studio-native-cli).
+
+| Проверка | Сценарий |
+|---|---|
+| Один backend для UI и EXE, алиасы, отсутствие изменений проекта и истории | `UiAndCli_ResolveAliasesAndReadExactSourceFrames_ThroughOneBackendWithoutWriting` |
+| Выбор второго ассета и попиксельное совпадение PNG с независимым декодированием | `DistinctAssetIds_SelectTheirOwnFile_AndCliPngMatchesIndependentSecondAssetDecode` |
+| Отказ при устаревшей ревизии, SHA или недоступном кадре | `NativeMediaAndFrame_RejectStaleBaselineAndUnavailableFrameWithoutWriting` |
+| Неверный ассет или индекс, повреждённые пиксели и конкурентная запись PNG | `NativeMedia_ValidatesIdentityAndPixelsBeforePublishing` |
+| Сохранение BGRA, включая полупрозрачные и полностью прозрачные пиксели | `NativeFrame_PngPreservesBgraIncludingNonopaquePixels` |
+
+Целевой Debug-прогон дал 33 пройденных теста, включая CPU raster, IPC,
+loopback HTTP и отдельный процесс EXE. Полный Release-прогон .NET 11 дал
+886 пройденных, 5 пропущенных и 0 упавших тестов. В этом прогоне пропущены
+отдельные проверки нативного окна, Windows-ссылок и интеграционных фикстур.
+TRX и raster сохранены в `src/.local/native-media-cli-20261121/`.
 
 <a id="studio-full-transfer-storage"></a>
 ## Публикация и удаление дублей Full Transfer, 21.11.2026

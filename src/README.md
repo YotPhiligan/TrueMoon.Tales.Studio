@@ -83,8 +83,9 @@ Python HTTP продолжает обслуживать schema 1 и отклон
 
 HTTP/CLI schema2: `--serve-project <каталог> --config <config.json>` запускает
 loopback API, `--with-ui` подключает окно к тому же writer. Возьмите URL и токен
-из ready JSON. Тот же EXE поддерживает `backend-project`, `backend-move` и
-`backend-trim` с ожидаемой ревизией и SHA для записи.
+из ready JSON. Тот же EXE поддерживает `backend-project`, `backend-move`,
+`backend-trim`, `backend-media` и `backend-frame`. Правки и запросы
+медиа используют ожидаемую ревизию и SHA.
 [Примеры команд C# CLI](Verification/BackendHttp.md#studio-native-cli).
 Все роли C# EXE требуют .NET11 **и ASP.NET Core11 runtime**; новых NuGet-пакетов нет.
 [Контракт, запуск и проверки](Verification/BackendHttp.md).

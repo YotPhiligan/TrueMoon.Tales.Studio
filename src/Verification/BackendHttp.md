@@ -107,7 +107,21 @@ $snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom
 Ошибки печатаются как JSON в stderr. Коды выхода: 0 — успех, 2 — параметры,
 3 — HTTP 409, 1 — прочие ошибки, 130 — прерывание пользователем.
 Один запрос на команду. При `reconciliation_required: true` сначала перечитайте
-проект. Python CLI продолжает обслуживать schema1, медиа и экспорт.
+проект. Python CLI продолжает обслуживать schema1 и экспорт.
+
+С **1.2611.21.13-alpha** метаданные и кадр тоже можно получить из EXE.
+Используйте `asset_id` материала и актуальный снимок.
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-media --url $url --asset video-a --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+.\TrueMoon.Tales.Studio.exe backend-frame --url $url --asset video-a --frame 20 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint --output .\frame-20.png
+```
+
+`--frame` — индекс кадра исходника с нуля. `backend-media` возвращает FPS,
+размер и число кадров, поле пикселей пустое. `backend-frame` сверяет SHA
+пикселей, записывает PNG размером 480 × 270 в существующую папку и возвращает
+`output_path` и `png_sha256`. Путь должен указывать на новый файл.
 
 ## Проверки
 
