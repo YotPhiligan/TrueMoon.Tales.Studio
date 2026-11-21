@@ -26,9 +26,12 @@
 - **CPU-экспорт из CLI.** Запуск, статус, отмена и скачивание MP4
   опубликованы в `origin/main` коммитом `e9a2365` (**1.2611.21.14-alpha**).
   [Проверки](#studio-native-export-cli).
-- **Восстановление CPU-экспорта.** В рабочей копии **1.2611.21.15-alpha**
-  `backend-export-recover` восстанавливает статус по ID и подтверждает
-  сохранившийся MP4 без повторного рендера. [Проверки](#studio-native-export-recover).
+- **Восстановление CPU-экспорта.** `backend-export-recover` опубликован
+  в `origin/main` коммитом `2d83f03` (**1.2611.21.15-alpha**).
+  [Проверки](#studio-native-export-recover).
+- **CPU-воркер на C#.** В рабочей копии **1.2611.21.16-alpha** экспорт
+  schema2, рабочий просмотр и аниматик используют тот же EXE с FFmpeg и FFprobe.
+  [Проверки](#studio-csharp-export-worker).
 - **Рабочий просмотр.** Одноразовые MP4 диапазона и аниматика хранятся в
   `%TEMP%\TrueMoon.Tales\Studio`. Постоянные каталоги текущего профиля
   перенесены в AppData. [Перенос и проверки](#studio-review-temp).
@@ -155,6 +158,36 @@ H.264/AAC, 72 кадра при 24 fps, ожидаемые участки изо
 `dotnet test TrueMoon.Tales.Studio.slnx -c Release --no-restore` дал
 901 пройденный, 5 пропущенных и 0 упавших тестов. TRX, журналы и raster
 сохранены в `src/.local/native-export-recover-20261121/`.
+
+<a id="studio-csharp-export-worker"></a>
+## CPU-воркер на C#, 21.11.2026
+
+В **1.2611.21.16-alpha** backend запускает отдельный процесс того же EXE.
+C# читает замороженный запрос, выбирает кадры по исходным временным
+меткам, накладывает переходы и титры через Skia и строит звуковой микс.
+FFmpeg декодирует источники и пишет H.264/AAC. Перед сохранением квитанции
+воркер повторно сверяет входы, проверяет потоки и SHA MP4.
+При отмене backend закрывает канал воркера. На Windows Job Object также
+завершает воркер и его FFmpeg-процессы при аварии владельца. Форматы запроса,
+квитанции и recovery сохранены. Python по-прежнему используется в Web и
+«Генерации по черновику». Раннер генерации теперь сам управляет блокировкой
+и временем жизни своих процессов. Первый Release-прогон обнаружил его
+зависимость от снятого с поставки `RunExport.py`; перенос этих функций
+в раннер устранил отказ.
+[Настройка](src/Verification/BackendExport.md#настройка).
+
+| Проверка | Сценарий |
+|---|---|
+| Выбор 12 исходных кадров при дробной обрезке и скорости 1,25× | `Export_CSharpWorker_UsesTheExactSourceFramesForFractionalTrimAndRetime` |
+| H.264/AAC, 72 кадра при 24 fps, паузы и RMS звука, скачивание по SHA | `Export_TrimmedMontageViaNativeCli_DownloadsVerifiedMp4_AndRecoversAfterRestart` |
+| Кириллические титры, переход и PCM, субтитры, аниматик и диапазон | `Tracks_FromRaster_SaveCyrillicTitleAndMusic_AndReviewBeforeExport`, `Speech_FromRaster_KeepsVersionsAndRendersVerifiedSubtitle`, `Animatic_RasterPlaysFullTimelineWithVideoStillCardGapAndTemporarySound`, `RangeReview_FromRaster_PreservesProjectCoordinatesAndMatchesFullExport` |
+| Отмена из CLI и окна, освобождение воркера после сбоя, восстановление без повторного рендера | `Export_ActiveWorkerIsReaped_AfterNativeCliCancelOrCrash_AndJobDoesNotReplay`, `Export_ActiveWorkspaceJobCancels_AndReopenDoesNotSubmit`, `Export_NativeRecoverWithLostTerminalStatus_PreservesOriginalMp4AndDoesNotReplay` |
+
+Финальный `dotnet test TrueMoon.Tales.Studio.slnx -c Release --no-restore`
+дал 902 пройденных, 5 пропущенных и 0 упавших тестов. Чистый publish
+**1.2611.21.16-alpha** прошёл 5 проверок экспорта с FFmpeg и FFprobe 9.0.2
+без настроенного Python. В поставке сохранён `FullTransferWorker`.
+TRX, журналы и raster сохранены в `src/.local/csharp-export-worker-20261121/`.
 
 <a id="studio-full-transfer-storage"></a>
 ## Публикация и удаление дублей Full Transfer, 21.11.2026

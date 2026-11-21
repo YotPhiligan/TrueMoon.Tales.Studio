@@ -27,7 +27,7 @@ internal sealed class BackendExportStorage
 {
     internal const int MaxRequestBytes = 1024 * 1024;
     internal const int MaxStatusBytes = 16 * 1024;
-    // Python and its native codecs must all be able to open the worker's longest temporary filename.
+    // Keep room for the longest temporary filename within the native media tool path limit.
     private const int MaxWindowsPath = 259;
     private static readonly int WorkerSuffixLength = 1 + "InputHashes.json.".Length + 32 + ".pending".Length;
     internal static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -150,7 +150,7 @@ internal sealed class BackendExportStorage
 
     internal FileStream AcquireWorkerLock(string directory)
     {
-        // The Python worker takes the same byte-range lock before its READY handshake.
+        // The worker takes the same byte-range lock before its READY handshake.
         if (OperatingSystem.IsMacOS() || !OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
             throw new BackendExportException("export_unavailable");
         var stream = new FileStream(Check(Path.Combine(directory, "Worker.lock")), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);

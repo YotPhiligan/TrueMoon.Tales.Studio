@@ -145,22 +145,28 @@ internal sealed class BackendMediaFixture : IAsyncDisposable
 
 public sealed class BackendMediaTheoryAttribute : TheoryAttribute
 {
-    public BackendMediaTheoryAttribute()
+    public BackendMediaTheoryAttribute(bool requirePython = true)
     {
-        if (BackendMediaEnvironment.Missing) Skip = "Requires STUDIO_TEST_PYTHON, STUDIO_TEST_FFMPEG and STUDIO_TEST_FFPROBE.";
+        Skip = BackendMediaEnvironment.SkipReason(requirePython);
     }
 }
 
 public sealed class BackendMediaFactAttribute : FactAttribute
 {
-    public BackendMediaFactAttribute()
+    public BackendMediaFactAttribute(bool requirePython = true)
     {
-        if (BackendMediaEnvironment.Missing) Skip = "Requires STUDIO_TEST_PYTHON, STUDIO_TEST_FFMPEG and STUDIO_TEST_FFPROBE.";
+        Skip = BackendMediaEnvironment.SkipReason(requirePython);
     }
 }
 
 internal static class BackendMediaEnvironment
 {
-    internal static bool Missing => new[] { "STUDIO_TEST_PYTHON", "STUDIO_TEST_FFMPEG", "STUDIO_TEST_FFPROBE" }
-        .Any(key => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(key)));
+    internal static bool Missing => SkipReason(requirePython: true) is not null;
+
+    internal static string? SkipReason(bool requirePython)
+    {
+        string[] keys = requirePython ? ["STUDIO_TEST_PYTHON", "STUDIO_TEST_FFMPEG", "STUDIO_TEST_FFPROBE"] : ["STUDIO_TEST_FFMPEG", "STUDIO_TEST_FFPROBE"];
+        var missing = keys.Where(key => string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(key))).ToArray();
+        return missing.Length == 0 ? null : "Set " + string.Join(", ", missing) + ".";
+    }
 }

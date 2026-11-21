@@ -21,11 +21,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="../../workers/export/studio/**/*.py;../../legacy/web/studio/**/*.py"
-                 Exclude="../../legacy/web/studio/__init__.py" Link="ExportWorker/studio/%(RecursiveDir)%(Filename)%(Extension)"
-                 CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-        <Content Include="../../workers/export/RunExport.py" Link="ExportWorker/RunExport.py"
-                 CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Include="../../workers/full-transfer/Omni.v2/prepare.py;../../workers/full-transfer/Omni.v2/common.py;../../workers/full-transfer/Omni.v2/validate.py;../../workers/full-transfer/Omni.v2/server.py;../../workers/full-transfer/Omni.v2/driver.py;../../workers/full-transfer/Omni.v2/collect.py"
                  Link="FullTransferWorker/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
         <Content Include="../../workers/full-transfer/Omni.v2/Templates/*.json"

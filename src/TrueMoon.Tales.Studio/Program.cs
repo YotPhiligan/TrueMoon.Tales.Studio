@@ -5,6 +5,9 @@ using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Presentation;
 
+if (args.FirstOrDefault() == BackendExportWorker.Command)
+    return await BackendExportWorker.RunChildAsync(args);
+
 if (BackendHttpCli.Handles(args.FirstOrDefault()))
     return await BackendHttpCli.RunAsync(args);
 

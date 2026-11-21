@@ -35,7 +35,7 @@ internal sealed class BackendExportJobs : IDisposable
             : BackendExportPlan.CreateAsync(document.Project, document.Fingerprint, profile, directory,
                 new BackendMediaResolver(options), BackendMediaReader.Decoder(options), token, range, animatic,
                 proxies: working && !animatic ? proxies : null);
-        _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options.ConfigPath, directory, sha, _storage.Value.WorkerScope, token));
+        _run = run ?? ((directory, sha, token) => BackendExportWorker.RunAsync(options, directory, sha, _storage.Value.WorkerScope, token));
     }
 
     internal async Task<BackendExportReply> StartAsync(string clientKey, string profile, long expectedRevision, string fingerprint,

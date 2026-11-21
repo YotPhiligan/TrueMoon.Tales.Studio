@@ -14,12 +14,12 @@ HTTPv1, schema2 и ProjectContractv1. Экспорт идёт в том же bac
 выберите короткий путь для временных файлов CPU worker. Ссылки и точки
 повторной обработки в пути к хранилищу отклоняются.
 
-В конфигурации задайте `python_executable` для установленных PyAV, Pillow, NumPy
-и imageio-ffmpeg. `ffmpeg_executable` и `ffprobe_executable` задают пути
-к доверенным инструментам. EXE и publish содержат скрипты текущей версии
-исполнителя, среда Python устанавливается отдельно. Путь к файлу назначения
-выбирается на стороне клиента. Найти конфигурацию schema2 и правила запуска
-можно в [приёмке HTTP/CLI](BackendHttp.md#cli-и-запуск).
+С **1.2611.21.16-alpha** экспорт schema2, рабочий просмотр и аниматик
+запускают C#-воркер из того же EXE. Укажите `ffmpeg_executable` и
+`ffprobe_executable` или добавьте инструменты в `PATH`. Для экспорта
+нужна сборка с libx264, AAC, PCM/WAV и стандартными аудио- и видеофильтрами.
+Проверено на FFmpeg и FFprobe 9.0.2. Клиент выбирает путь для скачанного MP4.
+[Конфигурация schema2 и запуск](BackendHttp.md#cli-и-запуск).
 
 <a id="native-export-cli"></a>
 ## Цикл задания в C# CLI
@@ -66,7 +66,7 @@ ASCII-букв, цифр, знаков `_` и `-`. Команды ниже пр�
 рендера после принятия задания видна в terminal status. Частичный MP4
 не выдаётся клиенту.
 
-## Область приёмки
+## Область первой приёмки 18.11.2026
 
 C# проецирует сохранённые placements schema2 в immutable request и
 переиспользует CPU DraftRenderer для H.264/AAC. Первый срез покрывает монтаж
@@ -88,9 +88,10 @@ PCM, источники и результат по SHA, отсутствие з�
 
 ## Воспроизведение
 
-Задайте `STUDIO_TEST_PYTHON`, `STUDIO_TEST_FFMPEG` и `STUDIO_TEST_FFPROBE`
-на локальные исполняемые файлы, а `STUDIO_BACKEND_EXE` на собранный или
-опубликованный EXE текущей конфигурации. Тесты `BackendExportEndToEndTests`
+Задайте `STUDIO_TEST_FFMPEG` и `STUDIO_TEST_FFPROBE` на локальные
+исполняемые файлы, а `STUDIO_BACKEND_EXE` на собранный или опубликованный
+EXE текущей конфигурации. Для полного прогона с Web и Full Transfer также
+задайте `STUDIO_TEST_PYTHON`. Тесты `BackendExportEndToEndTests`
 создают и удаляют собственные проекты и процессы. В полном прогоне
 используются `BackendExportPlanTests`, `BackendExportJobsTests`,
 `BackendExportHttpContractTests` и Python `test_backend_export_cli`.
