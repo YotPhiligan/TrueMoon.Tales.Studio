@@ -7,7 +7,7 @@ namespace TrueMoon.Tales.Studio.Presentation.Projects;
 
 internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInputObserver
 {
-    private enum FormMode { Create, OpenFolder, Maintenance }
+    private enum FormMode { Create, OpenFolder, ProjectsFolder, Maintenance }
 
     private static readonly ViewStyleRole<Border> RowRole = new("studio.projects.row");
     private static readonly ViewStyleRole<Text> LocationRole = new("studio.projects.location");
@@ -22,12 +22,16 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
     private readonly Text _formTitle = new(), _formPath = new(), _confirmation = new();
     private readonly VStack _newFields;
     private readonly VStack _folderFields;
+    private readonly VStack _projectsFolderFields;
     private readonly StudioHeading _browseActions;
     private readonly HStack _formActions;
     private readonly List<(ProjectEntry Entry, Button Button)> _rows = [];
     private Task<ProjectListing>? _loading;
-    private Task<ProjectEntry>? _changing;
+    private Task<ProjectEntry?>? _changing;
     private ProjectEntry? _selected;
+    private string? _projectsRoot;
+    private bool _canChangeProjectsRoot;
+    private bool _projectsRootSaved;
     private string? _openingError;
     private bool _restoreFocus;
     private FormMode _mode;
@@ -38,11 +42,13 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
     internal Button OpenButton { get; } = Button.Simple("Открыть");
     internal Button NewButton { get; } = Button.Simple("Создать проект");
     internal Button OpenExistingButton { get; } = Button.Simple("Открыть существующий проект");
+    internal Button ProjectsFolderButton { get; } = Button.Simple("Папка проектов");
     internal Button MaintenanceButton { get; } = Button.Simple("");
     internal Button ConfirmButton { get; } = Button.Simple("");
     internal Button CancelButton { get; } = Button.Simple("Отмена");
     internal TextBox NameInput { get; } = new() { AccessibleName = "Название проекта" };
     internal TextBox FolderInput { get; } = new() { AccessibleName = "Путь к папке проекта или файлу .studio" };
+    internal TextBox ProjectsFolderInput { get; } = new() { AccessibleName = "Путь к папке проектов" };
     internal TextBox WidthInput { get; } = new() { Value = "1280", AccessibleName = "Ширина" };
     internal TextBox HeightInput { get; } = new() { Value = "736", AccessibleName = "Высота" };
     internal TextBox FpsInput { get; } = new() { Value = "24", AccessibleName = "FPS" };
@@ -67,6 +73,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         OpenButton.Click += Open;
         NewButton.Click += () => ShowForm(FormMode.Create);
         OpenExistingButton.Click += () => ShowForm(FormMode.OpenFolder);
+        ProjectsFolderButton.Click += () => ShowForm(FormMode.ProjectsFolder);
         MaintenanceButton.Click += () => ShowForm(FormMode.Maintenance);
         ConfirmButton.Tone = ControlTone.Accent;
         ConfirmButton.Click += Confirm;
@@ -75,7 +82,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         title.FontSize = 26;
         var configuration = PathLabel(catalog.ConfigPath);
         configuration.AccessibleName = "Конфигурация: " + catalog.ConfigPath;
-        var actions = HStack.Create().Configure(stack => stack.Spacing = 10).WithChildren(NewButton, OpenExistingButton);
+        var actions = HStack.Create().Configure(stack => stack.Spacing = 10).WithChildren(NewButton, OpenExistingButton, ProjectsFolderButton);
         var header = Stack(12, new StudioHeading(title, RefreshButton), actions, configuration, _notices);
         _browseActions = new(_details, HStack.Create().WithChildren(OpenButton, MaintenanceButton));
         _formActions = HStack.Create().Configure(stack => stack.Spacing = 10).WithChildren(ConfirmButton, CancelButton);
@@ -86,8 +93,10 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
             new StudioHeading(Text.Plain("Высота, пикселей"), HeightInput),
             new StudioHeading(Text.Plain("Кадров в секунду"), FpsInput));
         _folderFields = Stack(10, Text.Plain("Полный путь к папке проекта или файлу .studio"), FolderInput);
+        _projectsFolderFields = Stack(10, Text.Plain("Полный путь к существующей папке"), ProjectsFolderInput,
+            Text.Plain("Studio сможет создавать проекты и сохранять изменения в этой папке."));
         _formTitle.FontSize = 20;
-        _form = Stack(14, _formTitle, _formPath.WithRole(LocationRole), _newFields, _folderFields, _confirmation);
+        _form = Stack(14, _formTitle, _formPath.WithRole(LocationRole), _newFields, _folderFields, _projectsFolderFields, _confirmation);
         _form.IsVisible = false;
         _scroll = ScrollViewer.Create().Content(Stack(0, _list, _form));
         Closing += _ => Task.FromResult(_changing is null);
@@ -112,6 +121,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         OpenButton.IsEnabled = false;
         NewButton.IsEnabled = false;
         OpenExistingButton.IsEnabled = false;
+        ProjectsFolderButton.IsEnabled = false;
         MaintenanceButton.IsEnabled = false;
     }
 
@@ -124,6 +134,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
             {
                 FormMode.Create => NameInput,
                 FormMode.OpenFolder => FolderInput,
+                FormMode.ProjectsFolder => ProjectsFolderInput,
                 _ => CancelButton
             });
         }
@@ -131,7 +142,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         {
             _changing = null;
             _form.IsEnabled = _formActions.IsEnabled = true;
-            ProjectEntry entry;
+            ProjectEntry? entry;
             try { entry = change.GetAwaiter().GetResult(); }
             catch (Exception error)
             {
@@ -147,7 +158,13 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
             }
             var open = _mode != FormMode.Maintenance;
             HideForm();
-            if (open) _openProject(entry);
+            if (_mode == FormMode.ProjectsFolder)
+            {
+                _openingError = null;
+                _projectsRootSaved = true;
+                StartRead();
+            }
+            else if (open) _openProject(entry!);
             else
             {
                 _selected = entry;
@@ -165,9 +182,15 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         if (_loading is not { IsCompleted: true } task) return;
         _loading = null;
         ProjectListing listing;
-        try { listing = task.GetAwaiter().GetResult(); }
+        try
+        {
+            listing = task.GetAwaiter().GetResult();
+            _canChangeProjectsRoot = true;
+            _projectsRoot = listing.ProjectsRoot;
+        }
         catch (Exception error) when (ProjectCatalog.IsDataError(error))
         {
+            _canChangeProjectsRoot = false;
             listing = new([], [$"Не удалось прочитать рабочее пространство — {error.Message}"]);
         }
 
@@ -190,7 +213,9 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         _scroll.IsEnabled = true;
         RefreshButton.IsEnabled = true;
 
-        ShowStatus(_openingError ?? (_rows.Count == 0 ? "Проекты не найдены." : ""), _openingError is not null);
+        ShowStatus(_openingError ?? (_projectsRootSaved ? "Папка проектов сохранена." : _rows.Count == 0 ? "Проекты не найдены." : ""),
+            _openingError is not null);
+        _projectsRootSaved = false;
         UpdateSelection();
     }
 
@@ -242,6 +267,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         MaintenanceButton.Value = _selected?.Availability == ProjectAvailability.MigrationRequired ? "Миграция…" : "Восстановление…";
         NewButton.IsEnabled = browsing && _loading is null;
         OpenExistingButton.IsEnabled = (browsing || _mode == FormMode.Create) && _loading is null && _changing is null;
+        ProjectsFolderButton.IsEnabled = browsing && _loading is null && _canChangeProjectsRoot;
         RefreshButton.IsEnabled = browsing && _loading is null;
     }
 
@@ -257,6 +283,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         {
             FormMode.Create => "Новый проект",
             FormMode.OpenFolder => OpenExistingButton.Value,
+            FormMode.ProjectsFolder => ProjectsFolderButton.Value,
             _ => _selected!.Name
         };
         _formPath.IsVisible = mode == FormMode.Maintenance;
@@ -264,6 +291,8 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         _formPath.AccessibleName = _selected?.Location ?? "";
         _newFields.IsVisible = mode == FormMode.Create;
         _folderFields.IsVisible = mode == FormMode.OpenFolder;
+        _projectsFolderFields.IsVisible = mode == FormMode.ProjectsFolder;
+        if (mode == FormMode.ProjectsFolder) ProjectsFolderInput.Value = _projectsRoot ?? "";
         _confirmation.IsVisible = mode == FormMode.Maintenance;
         var migration = _selected?.Availability == ProjectAvailability.MigrationRequired;
         _confirmation.Value = migration ? "Миграция сохранит исходный JSON в истории проекта." :
@@ -272,6 +301,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         {
             FormMode.Create => "Создать и открыть",
             FormMode.OpenFolder => "Открыть",
+            FormMode.ProjectsFolder => "Сохранить",
             _ => migration ? "Мигрировать" : "Восстановить"
         };
         _list.IsVisible = false;
@@ -304,15 +334,25 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
                 return;
             }
             var draft = new NewProject(NameInput.Value, width, height, fps);
-            _changing = Task.Run(() => _catalog.CreateAsync(draft, token), token);
+            _changing = Task.Run<ProjectEntry?>(async () => await _catalog.CreateAsync(draft, token).ConfigureAwait(false), token);
         }
         else if (_mode == FormMode.OpenFolder)
         {
             var path = FolderInput.Value;
-            _changing = Task.Run(() => _catalog.InspectFolderAsync(path, token), token);
+            _changing = Task.Run<ProjectEntry?>(async () => await _catalog.InspectFolderAsync(path, token).ConfigureAwait(false), token);
+        }
+        else if (_mode == FormMode.ProjectsFolder)
+        {
+            var path = ProjectsFolderInput.Value;
+            var expectedRoot = _projectsRoot;
+            _changing = Task.Run<ProjectEntry?>(async () =>
+            {
+                await _catalog.SaveProjectsRootAsync(path, expectedRoot, token).ConfigureAwait(false);
+                return null;
+            }, token);
         }
         else if (_selected is { } entry)
-            _changing = Task.Run(() => _maintain(entry, token), token);
+            _changing = Task.Run<ProjectEntry?>(async () => await _maintain(entry, token).ConfigureAwait(false), token);
         if (_changing is null) return;
         _form.IsEnabled = false;
         _formActions.IsEnabled = false;
@@ -321,6 +361,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         {
             FormMode.Create => "Создаю проект…",
             FormMode.OpenFolder => "Проверяю расположение проекта…",
+            FormMode.ProjectsFolder => "Сохраняю папку проектов…",
             _ => "Выполняю операцию…"
         }, error: false);
     }
@@ -342,7 +383,8 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         if (_form.IsVisible)
         {
             if (input.Kind == InputKind.KeyDown && input.Key == UiKey.Escape) { HideForm(); return true; }
-            if (_mode == FormMode.OpenFolder && FolderInput.IsFocused && input.Kind == InputKind.KeyDown && input.Key == UiKey.Enter)
+            if (input.Kind == InputKind.KeyDown && input.Key == UiKey.Enter &&
+                (_mode == FormMode.OpenFolder && FolderInput.IsFocused || _mode == FormMode.ProjectsFolder && ProjectsFolderInput.IsFocused))
             { Confirm(); return true; }
             return false;
         }

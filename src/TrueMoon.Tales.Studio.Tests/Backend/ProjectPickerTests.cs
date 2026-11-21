@@ -312,6 +312,83 @@ public sealed class ProjectPickerTests
     }
 
     [Fact]
+    public async Task Picker_SavesProjectsFolder_ReloadsListAndCreatesInNewRootWithoutMovingRecents()
+    {
+        using var files = new PickerFixture(canCreate: true);
+        var before = await files.ProjectAsync("prior");
+        var original = File.ReadAllBytes(PickerFixture.FileAt(before));
+        files.Catalog.Remember(Assert.Single((await files.Catalog.ReadAsync(default)).Items));
+        var nextRoot = Path.Combine(files.Root, "Новые проекты");
+        await files.ProjectAsync("next", location: nextRoot);
+        var configBefore = File.ReadAllText(files.Catalog.ConfigPath);
+
+        using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+            "picker-projects-folder", 740, 480, 1.5f))
+        {
+            host.PumpUntil(() => host.Window.ProjectsFolderButton.IsEnabled);
+            Assert.DoesNotContain(host.Window.Rows, row => row.Entry.Id == "next");
+            host.Click(host.Window.ProjectsFolderButton);
+            host.PumpUntil(() => host.Window.ProjectsFolderInput.IsFocused);
+            Assert.Equal(files.Projects, host.Window.ProjectsFolderInput.Value);
+            Fill(host, host.Window.ProjectsFolderInput, $"\"{nextRoot}\"");
+            Assert.Equal(configBefore, File.ReadAllText(files.Catalog.ConfigPath));
+            host.Capture("draft", new { rootChanged = false });
+            host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
+            host.PumpUntil(() => host.Window.Status == "Папка проектов сохранена.");
+            Assert.Single(host.Window.Rows, row => row.Entry.Id == "next");
+            Assert.Contains(host.Window.Rows, row => row.Entry.Id == "prior" && row.Entry.Recent);
+            host.Capture("saved", new { rootChanged = true });
+        }
+
+        var saved = await WorkspaceProfile.ReadAsync(files.Catalog.ConfigPath);
+        Assert.Equal(nextRoot, saved.ProjectsRoot);
+        Assert.Equal(new[] { files.Projects, nextRoot }, saved.ProjectWriteRoots);
+        Assert.Equal(files.State, saved.StateRoot);
+        var created = await new ProjectCatalog(files.Catalog.ConfigPath).CreateAsync(new("Проект после настройки", 1280, 736, 24), default);
+        Assert.Equal(nextRoot, Path.GetDirectoryName(created.Directory));
+        Assert.True(File.Exists(Path.Combine(created.Directory!, ProjectStore.DefaultProjectFileName)));
+        Assert.Equal(original, File.ReadAllBytes(PickerFixture.FileAt(before)));
+    }
+
+    [Fact]
+    public async Task Picker_RejectsSettingsOverlapAndConflictAndCancelsWithoutWriting()
+    {
+        using var files = new PickerFixture(canCreate: true);
+        var state = Directory.CreateDirectory(files.State).FullName;
+        var next = Directory.CreateDirectory(Path.Combine(files.Root, "Next")).FullName;
+        var external = Directory.CreateDirectory(Path.Combine(files.Root, "External")).FullName;
+        var config = files.Catalog.ConfigPath;
+        var original = File.ReadAllText(config);
+        using var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, _ => throw new InvalidOperationException("Unexpected open")),
+            "picker-projects-folder-errors", 740, 480);
+        host.PumpUntil(() => host.Window.ProjectsFolderButton.IsEnabled);
+        host.Click(host.Window.ProjectsFolderButton);
+        host.PumpUntil(() => host.Window.ProjectsFolderInput.IsFocused);
+        Fill(host, host.Window.ProjectsFolderInput, state);
+        host.Click(host.Window.ConfirmButton);
+        host.PumpUntil(() => host.Window.Status.Contains("пересекается с конфигурацией", StringComparison.Ordinal));
+        Assert.Equal(state, host.Window.ProjectsFolderInput.Value);
+        Assert.Equal(original, File.ReadAllText(config));
+        Fill(host, host.Window.ProjectsFolderInput, next);
+        host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+        Assert.True(host.Window.ProjectsFolderButton.IsEnabled);
+        Assert.Equal(original, File.ReadAllText(config));
+
+        host.Click(host.Window.ProjectsFolderButton);
+        host.PumpUntil(() => host.Window.ProjectsFolderInput.IsFocused);
+        Fill(host, host.Window.ProjectsFolderInput, next);
+        var edited = JsonNode.Parse(original)!;
+        edited["projects_root"] = external;
+        var externalText = edited.ToJsonString();
+        File.WriteAllText(config, externalText);
+        host.Click(host.Window.ConfirmButton);
+        host.PumpUntil(() => host.Window.Status.Contains("Папка проектов уже изменена", StringComparison.Ordinal));
+        Assert.Equal(next, host.Window.ProjectsFolderInput.Value);
+        Assert.Equal(externalText, File.ReadAllText(config));
+        Assert.Empty(Directory.GetFiles(files.Root, ".studio-config-*.tmp"));
+    }
+
+    [Fact]
     public async Task LinkedStateDirectory_DoesNotGrantRegistryReadsOrRecentWrites()
     {
         using var files = new PickerFixture();

@@ -42,7 +42,7 @@ internal sealed record ProjectEntry(string Name, string Location, ProjectAvailab
     }
 }
 
-internal sealed record ProjectListing(ProjectEntry[] Items, string[] Notices);
+internal sealed record ProjectListing(ProjectEntry[] Items, string[] Notices, string? ProjectsRoot = null);
 
 internal sealed partial class ProjectCatalog(string configPath)
 {
@@ -73,7 +73,7 @@ internal sealed partial class ProjectCatalog(string configPath)
 
         var ordered = entries.OrderByDescending(item => item.Recent)
             .ThenBy(item => item.Recent ? "" : item.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
-        return new(ordered, notices.ToArray());
+        return new(ordered, notices.ToArray(), access.ProjectsRoot);
 
         async Task AddAsync(string reference, string name, string? id, bool recent = false)
         {

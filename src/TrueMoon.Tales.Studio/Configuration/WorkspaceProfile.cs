@@ -32,9 +32,12 @@ internal sealed record WorkspaceAlias(
     [property: JsonPropertyName("from")] string From,
     [property: JsonPropertyName("to")] string To);
 
-internal static class WorkspaceProfile
+internal static partial class WorkspaceProfile
 {
     private const string Section = "workspace";
+    internal const string SourceId = "studio-json";
+    internal const string ProjectsRootKey = Section + ":projects_root";
+    internal const string ProjectWriteRootsKey = Section + ":project_write_roots";
 
     internal static readonly IConfigurationSchema<WorkspaceSettings> Schema = ConfigurationSchemas.Create(
         Section, () => new WorkspaceSettings(),
@@ -72,10 +75,10 @@ internal static class WorkspaceProfile
     private static JsonCodec<bool> BooleanCodec => new(JsonValueKind.True, JsonValueKind.False);
     private static JsonCodec<string[]> PathsCodec => new(JsonValueKind.Array, validate: values => values.All(IsPath));
 
-    internal static IConfigurationProfile Create(string configPath) => ConfigurationProfiles.Create(profile =>
+    internal static IConfigurationProfile Create(string configPath, string? observedText = null) => ConfigurationProfiles.Create(profile =>
     {
         profile.AddSchema(Schema);
-        profile.AddSource("studio-json", ConfigurationSourcePriority.Files, new WorkspaceJsonSource(configPath));
+        profile.AddSource(SourceId, ConfigurationSourcePriority.Files, new WorkspaceJsonSource(configPath, observedText));
     });
 
     internal static WorkspaceSettings Read(string configPath) => ReadAsync(configPath).AsTask().GetAwaiter().GetResult();
@@ -95,12 +98,13 @@ internal static class WorkspaceProfile
 
     private static bool IsPath(string? text) => !string.IsNullOrWhiteSpace(text);
 
-    private sealed class WorkspaceJsonSource(string configPath) : IConfigurationSource
+    private sealed partial class WorkspaceJsonSource(string configPath, string? observedText) : IConfigurationMutableSource
     {
         public async ValueTask<IReadOnlyList<ConfigurationEntry>> ReadAsync(IReadOnlyList<ConfigurationKey> keys,
             CancellationToken cancellationToken = default)
         {
-            using var json = JsonDocument.Parse(await File.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false));
+            var text = observedText ?? await File.ReadAllTextAsync(configPath, cancellationToken).ConfigureAwait(false);
+            using var json = JsonDocument.Parse(text);
             if (json.RootElement.ValueKind != JsonValueKind.Object) throw Error("JsonRoot");
             var known = keys.ToDictionary(key => key.Path[(Section.Length + 1)..], StringComparer.Ordinal);
             var result = new List<ConfigurationEntry>();

@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using TrueMoon.Configuration;
+using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Persistence;
 
@@ -11,6 +14,46 @@ internal sealed record NewProject(string Name, int Width, int Height, int Fps);
 
 internal sealed partial class ProjectCatalog
 {
+    internal async Task SaveProjectsRootAsync(string selection, string? expectedRoot, CancellationToken token)
+    {
+        var input = selection.Trim();
+        if (input is ['"', .., '"']) input = input[1..^1];
+        if (!Path.IsPathFullyQualified(input))
+            throw new ArgumentException("Укажите полный путь к папке проектов.");
+        BackendMediaResolver.Validate(input, trustedConfiguration: true);
+        var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(input));
+        var observed = await File.ReadAllTextAsync(ConfigPath, token).ConfigureAwait(false);
+        try
+        {
+            await using var app = App.Build(context => context.UseConfiguration(WorkspaceProfile.Create(ConfigPath, observed)));
+            var settings = app.Services.Resolve<IConfigurationReader>()!.Current.GetOptions(WorkspaceProfile.Schema);
+            var access = new BackendProjectAccess(ConfigPath, settings);
+            if (!PathComparer.Equals(access.ProjectsRoot, expectedRoot))
+                throw new IOException("Папка проектов уже изменена. Отмените правку и обновите список.");
+            if (PathComparer.Equals(access.ProjectsRoot, folder)) return;
+
+            var edits = new List<ConfigurationEdit> { new(WorkspaceProfile.ProjectsRootKey, JsonSerializer.SerializeToElement(folder)) };
+            settings.ProjectsRoot = folder;
+            if (!access.AllowsProjectWrite(folder))
+            {
+                settings.ProjectWriteRoots = [.. settings.ProjectWriteRoots, folder];
+                edits.Add(new(WorkspaceProfile.ProjectWriteRootsKey, JsonSerializer.SerializeToElement(settings.ProjectWriteRoots)));
+            }
+            var candidate = new BackendProjectAccess(ConfigPath, settings);
+            var root = candidate.ValidateProjectsFolder(ConfigPath);
+            if (!PathComparer.Equals(Resolver(candidate).ResolveReference(root), root))
+                throw new UnauthorizedAccessException("Псевдоним workspace меняет путь папки проектов.");
+            await app.Services.Resolve<IConfigurationWriter>()!.WriteAsync(WorkspaceProfile.SourceId, edits, token).ConfigureAwait(false);
+        }
+        catch (ConfigurationException error) when (error.Issues.Any(issue => issue.Code == "SourceWrite"))
+        {
+            if (!File.Exists(ConfigPath) || !string.Equals(observed, await File.ReadAllTextAsync(ConfigPath, token).ConfigureAwait(false), StringComparison.Ordinal))
+                throw new IOException("Конфигурация изменилась. Отмените правку и обновите список.", error);
+            throw new IOException("Не удалось сохранить настройки. Проверьте права записи и повторите попытку.", error);
+        }
+        catch (ConfigurationException error) { throw new InvalidDataException(WorkspaceProfile.Describe(error), error); }
+    }
+
     internal async Task<ProjectEntry> CreateAsync(NewProject draft, CancellationToken token)
     {
         var name = draft.Name.Trim();

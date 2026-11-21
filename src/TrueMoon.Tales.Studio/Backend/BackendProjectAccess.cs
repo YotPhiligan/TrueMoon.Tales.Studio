@@ -27,7 +27,8 @@ internal sealed class BackendProjectAccess
         BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
     }
 
-    internal BackendProjectAccess(string configPath) : this(configPath, WorkspaceProfile.Read(configPath), picker: true, write: true) { }
+    internal BackendProjectAccess(string configPath, WorkspaceSettings? settings = null)
+        : this(configPath, settings ?? WorkspaceProfile.Read(configPath), picker: true, write: true) { }
 
     private BackendProjectAccess(string configPath, WorkspaceSettings settings, bool picker, bool write)
     {
@@ -101,13 +102,25 @@ internal sealed class BackendProjectAccess
 
     internal string RestoreRoot()
     {
-        if (ProjectsRoot is not { } root || root == Path.GetPathRoot(root) || !_writes.Any(grant => Within(root, grant)) ||
+        if (ProjectsRoot is not { } root || root == Path.GetPathRoot(root) || !AllowsProjectWrite(root) ||
             _denied.Concat(_codeRoots).Any(path => Within(root, path) || Within(path, root)))
             throw new UnauthorizedAccessException("Для восстановления нужен разрешённый каталог projects_root вне исходников Studio.");
         BackendMediaResolver.CheckNoLinks(root);
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException("Каталог projects_root не найден.");
         if (new ProjectStore(ForProject(root, write: false)).HasProjectFile())
             throw new UnauthorizedAccessException("projects_root должен быть родительским каталогом для новой копии проекта.");
+        return root;
+    }
+
+    internal bool AllowsProjectWrite(string folder) => _writes.Any(grant => Within(folder, grant));
+
+    internal string ValidateProjectsFolder(string configPath)
+    {
+        var root = RestoreRoot();
+        var separate = new[] { Settings.StateRoot, Settings.CacheRoot, Settings.ExportsRoot }.OfType<string>()
+            .Select(path => WorkspaceProfile.ResolvePath(path, configPath)).Append(configPath);
+        if (separate.Any(path => Within(root, path) || Within(path, root)))
+            throw new UnauthorizedAccessException("Папка проектов пересекается с конфигурацией, состоянием, кэшем или экспортами Studio.");
         return root;
     }
 

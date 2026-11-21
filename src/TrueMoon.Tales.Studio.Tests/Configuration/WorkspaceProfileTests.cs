@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrueMoon.Configuration;
 using TrueMoon.Dependencies;
 using TrueMoon.Tales.Studio.Configuration;
@@ -8,6 +10,63 @@ namespace TrueMoon.Tales.Studio.Tests.Configuration;
 
 public sealed class WorkspaceProfileTests
 {
+    [Fact]
+    public async Task Writer_SavesFlatV1AndFreshAppReadsItWhileActiveSnapshotStaysUnchanged()
+    {
+        using var fixture = new PersistenceFixture();
+        var config = Path.Combine(fixture.Root, "config.json");
+        const string text = """
+            {"version":1,"projects_root":"Projects","state_root":"State","mounts":{"arts":"Art"},
+             "path_aliases":[{"from":"Old/a.png","to":"@arts/a.png"}],"protected_roots":["Keep"]}
+            """;
+        File.WriteAllText(config, text);
+        await using var app = App.Build(context => context.UseConfiguration(WorkspaceProfile.Create(config)));
+        var reader = app.Services.Resolve<IConfigurationReader>()!;
+        var writer = app.Services.Resolve<IConfigurationWriter>()!;
+
+        await writer.WriteAsync(WorkspaceProfile.SourceId, [RootEdit("Other")]);
+        var actual = JsonNode.Parse(File.ReadAllText(config));
+        var expected = JsonNode.Parse(text)!;
+        expected["projects_root"] = "Other";
+        Assert.True(JsonNode.DeepEquals(expected, actual));
+        Assert.Equal("Projects", reader.Current.GetOptions(WorkspaceProfile.Schema).ProjectsRoot);
+
+        var reload = await app.Services.Resolve<IConfigurationReloader>()!.ReloadAsync();
+        Assert.True(reload.RestartRequired);
+        Assert.False(reload.Published);
+        Assert.Equal("Projects", reader.Current.GetOptions(WorkspaceProfile.Schema).ProjectsRoot);
+        await using var reopened = App.Build(context => context.UseConfiguration(WorkspaceProfile.Create(config)));
+        Assert.Equal("Other", reopened.Services.Resolve<IConfigurationReader>()!.Current.GetOptions(WorkspaceProfile.Schema).ProjectsRoot);
+        Assert.Empty(Directory.GetFiles(fixture.Root, ".studio-config-*.tmp"));
+    }
+
+    [Fact]
+    public async Task Writer_RejectsInvalidCancelledAndStaleChangesWithoutOverwritingProfile()
+    {
+        using var fixture = new PersistenceFixture();
+        var config = Path.Combine(fixture.Root, "config.json");
+        const string original = """{"version":1,"projects_root":"Projects","state_root":"State"}""";
+        File.WriteAllText(config, original);
+        await using var app = App.Build(context => context.UseConfiguration(WorkspaceProfile.Create(config, original)));
+        var writer = app.Services.Resolve<IConfigurationWriter>()!;
+        await Assert.ThrowsAsync<ConfigurationException>(() => writer.WriteAsync(WorkspaceProfile.SourceId, [RootEdit(" ")]).AsTask());
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            writer.WriteAsync(WorkspaceProfile.SourceId, [RootEdit("Other")], cancelled.Token).AsTask());
+        Assert.Equal(original, File.ReadAllText(config));
+
+        const string external = """{"version":1,"projects_root":"Projects","state_root":"OtherState"}""";
+        File.WriteAllText(config, external);
+        var error = await Assert.ThrowsAsync<ConfigurationException>(() => writer.WriteAsync(WorkspaceProfile.SourceId, [RootEdit("Other")]).AsTask());
+        Assert.Contains(error.Issues, issue => issue.Code == "SourceWrite");
+        Assert.Equal(external, File.ReadAllText(config));
+        Assert.Empty(Directory.GetFiles(fixture.Root, ".studio-config-*.tmp"));
+    }
+
+    private static ConfigurationEdit RootEdit(string path) =>
+        new(WorkspaceProfile.ProjectsRootKey, JsonSerializer.SerializeToElement(path));
+
     [Fact]
     public async Task AppAndStandaloneReadFlatV1WithDetachedSettings()
     {
