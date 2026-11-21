@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -19,18 +18,8 @@ internal static partial class WorkspaceProfile
             cancellationToken.ThrowIfCancellationRequested();
             if (edits.Count == 0) return ValueTask.CompletedTask;
 
-            // The framework serializes one App. A path-scoped mutex serializes all Studio writers.
             var path = Path.GetFullPath(configPath);
-            var mutexKey = OperatingSystem.IsWindows() ? path.ToUpperInvariant() : path;
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(mutexKey)));
-            using var gate = new Mutex(false, "TrueMoon.Studio.Config." + hash);
-            try
-            {
-                if (!gate.WaitOne(TimeSpan.FromSeconds(2))) throw new IOException("The workspace configuration is busy.");
-            }
-            catch (AbandonedMutexException) { }
-            try { Commit(path, edits, cancellationToken); }
-            finally { gate.ReleaseMutex(); }
+            StudioConfigurationWriteGate.Run(path, () => Commit(path, edits, cancellationToken));
             return ValueTask.CompletedTask;
         }
 

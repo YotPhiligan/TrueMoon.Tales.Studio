@@ -4,7 +4,6 @@ using TrueMoon.Dependencies;
 using TrueMoon.Mithril;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Backend.Http;
-using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Presentation;
 using TrueMoon.Tales.Studio.Presentation.Project;
 
@@ -12,9 +11,6 @@ namespace TrueMoon.Tales.Studio.Configuration;
 
 internal static class StudioApplicationExtensions
 {
-    internal static IAppConfigurationContext UseStudioUi(this IAppConfigurationContext context, string[] args) =>
-        StudioOptions.TryParse(args, out _) ? context.UseStudioServices().UseStudioWindow() : context;
-
     public static async Task<int> RunStudioAsync(this IAppBuilder builder, string[] args, CancellationToken token = default)
     {
         // Preserve the existing configurable HTTP runner, including exception propagation and ownership.
@@ -43,11 +39,13 @@ internal static class StudioApplicationExtensions
             }
             if (BackendOptions.TryParse(args, launch, out var backendOptions, out var child, out var inspect))
             {
+                var showUi = !child && !inspect && (backendOptions!.Action != "serve" || backendOptions.HttpWithUi);
+                await using var preferences = showUi ? StudioUiPreferences.OpenDefault() : null;
                 builder.Setup(context => context.UseProjectBackend(backendOptions!, child));
-                if (!child && !inspect) builder.Setup(context =>
+                if (showUi) builder.Setup(context =>
                 {
-                    if (backendOptions!.Action == "edit" || backendOptions.Action == "serve" && backendOptions.HttpWithUi) context.UseBackendScene().UseStudioWindow();
-                    else if (backendOptions.Action != "serve") context.UseProjectWindow();
+                    if (backendOptions!.Action is "edit" or "serve") context.UseBackendScene(preferences: preferences).UseStudioWindow(preferences);
+                    else context.UseProjectWindow(preferences: preferences);
                 });
                 await using var app = builder.Build();
                 await using var http = !child && backendOptions!.Action == "serve"

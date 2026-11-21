@@ -7,6 +7,7 @@ using TrueMoon.Tales.Studio.Presentation;
 using TrueMoon.Tales.Studio.Presentation.Shell;
 using TrueMoon.Tales.Studio.Presentation.Scenario;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Configuration;
 
 namespace TrueMoon.Tales.Studio.Presentation.Scene;
 
@@ -22,6 +23,9 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private readonly MontageTools? _montageTools;
     private readonly ScenarioWorkspace? _scenario;
     private readonly BackendConnection? _backend;
+    private readonly StudioUiPreferences? _preferences;
+    private Task<(string Theme, string? Notice)>? _themeChange;
+    private string? _themeNotice;
     private readonly Button? _tracksButton;
     private readonly Button? _readinessButton;
     private readonly TimelineReadiness? _readiness;
@@ -74,9 +78,12 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     internal Text ProjectTitle => _project;
 
     public SceneView(SceneViewModel model, IViewStyle<SceneView> style, IFactory<StudioTitleBar, StudioTitleBarArguments> headers,
-        SceneExport? export = null, Action<string?>? initialOpen = null, ScenarioWorkspace? scenario = null, BackendConnection? backend = null)
+        SceneExport? export = null, Action<string?>? initialOpen = null, ScenarioWorkspace? scenario = null, BackendConnection? backend = null,
+        StudioUiPreferences? preferences = null)
     {
         _model = model; _headers = headers; _commands = new(Refresh); _export = export; _initialOpen = initialOpen; _scenario = scenario; _backend = backend;
+        _preferences = preferences;
+        _themeNotice = preferences?.Notice;
         Title = "TrueMoon · Tales Studio"; ClientSize = new(1280, 820);
         RegisterCommands();
         _exportButton = Command("Экспорт MP4", StudioCommand.Export);
@@ -160,6 +167,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         Content(model, _ => _page);
         this.WithViewStyle(style);
         Closing += ConfirmClose;
+        preferences?.Attach(this, StudioUiWindow.Editor);
         model.Open(); Refresh();
     }
 
@@ -357,7 +365,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _commands.Add(StudioCommand.PreviewSource, _model.PreviewSource, () => _model.CanChangePreview && !_model.ViewingSource);
         _commands.Add(StudioCommand.FocusPreview, _panels.ToggleFocus);
         _commands.Add(StudioCommand.ResetLayout, () => { _panels.Reset(); _panels.WideTimeline = true; _layout.ResetSizes(); });
-        _commands.Add(StudioCommand.Theme, ToggleTheme);
+        _commands.Add(StudioCommand.Theme, ToggleTheme, () => _themeChange is null);
         _commands.Add(StudioCommand.Close, () => _requestClose?.Invoke(), () => !_model.Saving);
         _commands.Add(StudioCommand.Stay, () => { _closePrompt = false; _exportClosePrompt = false; });
         _commands.Add(StudioCommand.DiscardClose, () => { _model.Cancel(); _closePrompt = false; _requestClose?.Invoke(); }, () => _model.Idle);
@@ -375,12 +383,20 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
     private static Border ValueBox(Text value) => Border.Create().Configure(x =>
     { x.ColorRole = EditorColorRole.Number; x.Padding = new(8, 5, 8, 5); }).Content(value);
 
-    public bool NeedsFrame => _model.NeedsFrame || _openExport || _export?.NeedsFrame == true || _readiness?.NeedsFrame == true;
+    public bool NeedsFrame => _themeChange is not null || _model.NeedsFrame || _openExport || _export?.NeedsFrame == true || _readiness?.NeedsFrame == true;
     public void AdvanceFrame(TimeSpan elapsed, IInputContext context)
     {
         var sceneChanged = _model.Poll(elapsed);
         var exportChanged = _export?.Poll(elapsed) == true;
         var readinessChanged = _readiness?.Poll() == true;
+        var themeChanged = _themeChange is { IsCompleted: true };
+        if (themeChanged)
+        {
+            var result = _themeChange!.GetAwaiter().GetResult();
+            _themeChange = null;
+            _themeNotice = result.Notice;
+            StudioUiPreferences.ApplyTheme(this, result.Theme);
+        }
         if (_initialOpen is { } notify && (_model.ProjectReady || _model.HasError))
         {
             _initialOpen = null;
@@ -400,7 +416,7 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
                 panel.FocusFirst(context);
             }
         }
-        if (!sceneChanged && !exportChanged && !readinessChanged) return;
+        if (!sceneChanged && !exportChanged && !readinessChanged && !themeChanged) return;
         if (sceneChanged && _closeAfterSave)
         {
             _closeAfterSave = false;
@@ -438,9 +454,9 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
 
     private void ToggleTheme()
     {
-        Element root = this; while (root.Parent is { } parent) root = parent;
-        root.ApplyTheme((Theme.Surface == Theme.Dark.Surface ? Theme.Light : Theme.Dark) with
-        { FontSize = Theme.FontSize, FontFamily = Theme.FontFamily });
+        var choice = Theme.Surface == Theme.Dark.Surface ? "light" : "dark";
+        if (_preferences is null) StudioUiPreferences.ApplyTheme(this, choice);
+        else _themeChange = _preferences.SaveThemeAsync(choice);
     }
 
     public int InputPriority => -10;
@@ -613,8 +629,10 @@ internal sealed class SceneView : Window<SceneViewModel>, IUiFrameParticipant, I
         _previewMontage.AccessibleName = _model.StoryboardPlan is not null ? "Вернуться к клипам" :
             _model.ViewingSource ? "Перейти к монтажу" : "Монтаж · выбран";
         _previewSource.AccessibleName = _model.ViewingSource ? "Исходник · выбран" : "Просмотреть исходник";
-        _edit.Value = _model.EditLabel; _status.Value = _model.Status; _status.HasError = _model.HasError;
-        _status.AccessibleName = _model.Status;
+        _edit.Value = _model.EditLabel;
+        _status.Value = string.Join(" · ", new[] { _model.Status, _themeNotice }.Where(value => !string.IsNullOrEmpty(value)));
+        _status.HasError = _model.HasError;
+        _status.AccessibleName = _status.Value;
         Inspector.IsModified = _model.Modified; Inspector.HasError = _model.HasError;
         _sourceStart.Value = _model.Loaded ? $"{_model.Start:0.###}" : "—";
         _sourceEnd.Value = _model.Loaded ? $"{_model.End:0.###}" : "—";

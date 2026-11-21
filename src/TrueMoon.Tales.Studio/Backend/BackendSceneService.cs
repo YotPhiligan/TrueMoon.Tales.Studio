@@ -1,4 +1,5 @@
 using TrueMoon.Argentis;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Media;
 using TrueMoon.Tales.Studio.Models;
@@ -96,7 +97,8 @@ internal sealed class BackendSceneService(BackendConnection backend, string? ini
 
 internal static class BackendScenePresentation
 {
-    internal static IAppConfigurationContext UseBackendScene(this IAppConfigurationContext context, Action<string?>? initialOpen = null) =>
+    internal static IAppConfigurationContext UseBackendScene(this IAppConfigurationContext context, Action<string?>? initialOpen = null,
+        StudioUiPreferences? preferences = null) =>
         context.Services(r => r
         .Singleton<ISceneService>(resolver => new BackendSceneService(resolver.Resolve<BackendConnection>()!,
             resolver.Resolve<BackendOptions>()!.InitialFingerprint))
@@ -109,6 +111,6 @@ internal static class BackendScenePresentation
         .Singleton<IFactory<SceneView>>(resolver => new SceneViewFactory(resolver.Resolve<SceneViewModel>()!,
             resolver.Resolve<IViewStyle<SceneView>>()!, resolver.Resolve<IFactory<StudioTitleBar, StudioTitleBarArguments>>()!,
             () => new SceneExport(resolver.Resolve<BackendConnection>()!, resolver.Resolve<BackendOptions>()!), initialOpen,
-            () => new ScenarioWorkspace(resolver.Resolve<BackendConnection>()!), resolver.Resolve<BackendConnection>())));
+            () => new ScenarioWorkspace(resolver.Resolve<BackendConnection>()!), resolver.Resolve<BackendConnection>(), preferences)));
 
 }

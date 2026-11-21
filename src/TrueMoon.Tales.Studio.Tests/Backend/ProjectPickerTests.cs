@@ -206,6 +206,8 @@ public sealed class ProjectPickerTests
             Assert.Equal(selected.Name, window.ProjectTitle.Value);
             Assert.Contains($"схема {(migrated ? 2 : 1)}", window.RevisionText.Value);
             Assert.Contains("только чтение", window.StatusText.Value);
+            Assert.Equal(canMigrate, window.UpgradeButton.IsVisible);
+            if (!migrated && !canMigrate) Assert.Contains("нужен доступ на запись", window.UpgradeStatus);
             Assert.False(File.Exists(Path.Combine(path, ".Studio.project.writer.lock")));
             view.Capture("read-only", new { selected.Id, selected.Revision });
             opened = true;
@@ -216,6 +218,128 @@ public sealed class ProjectPickerTests
         Assert.True(opened);
         Assert.Equal(before, files.Snapshot([path]));
         Assert.True(Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items).Recent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Viewer_ExplicitUpgradeKeepsOriginalHistoryAndHandsOffToEditor(bool blockEditor)
+    {
+        using var files = new PickerFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(65));
+        var directory = await files.ProjectAsync("schema1", migrate: false);
+        var store = new ProjectStore(files.Storage(directory));
+        var before = await store.OpenAsync(deadline.Token);
+        var bytes = File.ReadAllBytes(PickerFixture.FileAt(directory));
+        var selected = Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items);
+        BackendProcess? reader = null;
+        BackendProcess? editor = null;
+        ProjectWriterLease? busy = null;
+        var sessions = new List<string>();
+        string? notice;
+
+        try
+        {
+            notice = await ProjectPickerApplication.OpenSelectedAsync(files.Catalog, selected, deadline.Token, app =>
+            {
+                var services = app.Services;
+                var options = services.Resolve<BackendOptions>()!;
+                sessions.Add(options.Action);
+                if (!options.WriteEnabled)
+                {
+                    var view = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
+                    using var host = new RasterWindow<ProjectWindow>(view, "upgrade-from-viewer", 1000, 720);
+                    host.PumpUntil(() => view.UpgradeButton.IsVisible && view.UpgradeButton.IsEnabled);
+                    reader = Assert.IsType<BackendProcess>(services.Resolve<BackendProcessFactory>()!.Owned);
+                    using (ProjectWriterLease.Acquire(files.Storage(directory))) { }
+                    host.Click(view.UpgradeButton);
+                    Assert.Equal(directory, view.UpgradePath);
+                    Assert.Contains("Ревизия 11", view.UpgradeDetails);
+                    host.Capture("confirmation", new { schema = 1, revision = 11 });
+                    host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
+                    Assert.True(view.UpgradeButton.IsVisible);
+                    Assert.Equal(bytes, File.ReadAllBytes(PickerFixture.FileAt(directory)));
+                    Assert.False(Directory.Exists(Path.Combine(directory, "Production", "History")));
+
+                    host.Click(view.UpgradeButton);
+                    host.Click(view.ConfirmUpgradeButton);
+                    host.PumpUntil(() => view.UpgradeStatus.StartsWith("Формат обновлён", StringComparison.Ordinal),
+                        TimeSpan.FromSeconds(18));
+                    if (blockEditor) busy = ProjectWriterLease.Acquire(files.Storage(directory));
+                    return;
+                }
+
+                Assert.NotNull(reader);
+                Assert.False(reader.IsAlive);
+                if (blockEditor)
+                {
+                    var view = services.Resolve<IFactory<SceneView>>()!.Create()!;
+                    using var host = new RasterWindow<SceneView>(view, "upgrade-editor-busy", 1160, 760);
+                    host.PumpUntil(() => services.Resolve<SceneViewModel>()!.HasError, TimeSpan.FromSeconds(16));
+                }
+                else RasterEditor(app, (scope, _) =>
+                {
+                    editor = Assert.IsType<BackendProcess>(scope.Resolve<BackendProcessFactory>()!.Owned);
+                    Assert.Equal(12, scope.Resolve<SceneViewModel>()!.Scene!.Revision);
+                    Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(files.Storage(directory)));
+                });
+            }, BackendWriteFixture.Executable());
+        }
+        finally { busy?.Dispose(); }
+
+        Assert.Equal(new[] { "read", "edit" }, sessions);
+        if (blockEditor) Assert.StartsWith("Формат обновлён. Откройте редактор из списка проектов.", notice);
+        else
+        {
+            Assert.Null(notice);
+            Assert.NotNull(editor);
+            Assert.False(editor.IsAlive);
+        }
+        var after = await store.OpenAsync(deadline.Token);
+        Assert.Equal(2, after.SchemaVersion);
+        Assert.Equal(12, after.Project.Revision);
+        Assert.Equal(before.Project.Id, after.Project.Id);
+        Assert.Equal(before.Project.Montage.Clips.Select(clip => clip.Id), after.Project.Montage.Clips.Select(clip => clip.Id));
+        Assert.Equal(before.Project.Sources.Select(source => source.Id), after.Project.Sources.Select(source => source.Id));
+        var history = Assert.Single(Directory.GetFiles(Path.Combine(directory, "Production", "History"), "*.json"));
+        Assert.Equal(bytes, File.ReadAllBytes(history));
+        using (ProjectWriterLease.Acquire(files.Storage(directory))) { }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Viewer_UpgradeRejectsBusyWriterAndChangedShaWithoutLeavingPreview(bool conflict)
+    {
+        using var files = new PickerFixture();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+        var directory = await files.ProjectAsync("schema1", migrate: false);
+        var path = PickerFixture.FileAt(directory);
+        var selected = Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items);
+        var calls = 0;
+        var notice = await ProjectPickerApplication.OpenSelectedAsync(files.Catalog, selected, deadline.Token, app =>
+        {
+            calls++;
+            var services = app.Services;
+            Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
+            var view = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
+            using var host = new RasterWindow<ProjectWindow>(view, "upgrade-rejected", 1000, 720);
+            host.PumpUntil(() => view.UpgradeButton.IsVisible && view.UpgradeButton.IsEnabled);
+            host.Click(view.UpgradeButton);
+            // Change only the file bytes, keeping the shown revision and model valid.
+            if (conflict) File.AppendAllText(path, " ");
+            using var lease = conflict ? null : ProjectWriterLease.Acquire(files.Storage(directory));
+            var unchanged = File.ReadAllBytes(path);
+            host.Click(view.ConfirmUpgradeButton);
+            var expected = conflict ? "изменился" : "открыт на запись в другой сессии";
+            host.PumpUntil(() => view.UpgradeStatus.Contains(expected, StringComparison.OrdinalIgnoreCase), TimeSpan.FromSeconds(18));
+            Assert.Contains("схема 1", view.RevisionText.Value);
+            Assert.Equal(unchanged, File.ReadAllBytes(path));
+            Assert.False(Directory.Exists(Path.Combine(directory, "Production", "History")));
+            services.Resolve<IAppLifetime>()!.Cancel();
+        }, BackendWriteFixture.Executable());
+        Assert.Null(notice);
+        Assert.Equal(1, calls);
     }
 
     [Theory]

@@ -1,13 +1,14 @@
 using TrueMoon.Alloy.Hosting;
 using TrueMoon.Alloy.Runtime;
 using TrueMoon.Argentis;
+using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Presentation.Scene;
 
 namespace TrueMoon.Tales.Studio.Presentation;
 
 internal static class StudioPresentation
 {
-    public static IAppConfigurationContext UseStudioWindow(this IAppConfigurationContext context) =>
+    public static IAppConfigurationContext UseStudioWindow(this IAppConfigurationContext context, StudioUiPreferences? preferences = null) =>
         context.UsePresentationFactory<SceneView>(options => options.UseSkiaOpenGL().UseSilkWindow(window =>
         {
             window.Title = "TrueMoon · Tales Studio";
@@ -16,7 +17,11 @@ internal static class StudioPresentation
             window.Appearance = new WindowAppearance { Decorated = false };
             window.UseSystemAccentBorder = true;
             window.TitleBarOverContent = true;
-            window.ConfigureDefaultTitleBar = (title, content, requestClose) => title.SetHeader(((SceneView)content).CreateTitleBar(requestClose));
+            window.ConfigureDefaultTitleBar = (title, content, requestClose) =>
+            {
+                title.SetHeader(((SceneView)content).CreateTitleBar(requestClose));
+                if (preferences is not null) StudioUiPreferences.ApplyTheme(content, preferences.Current.Theme);
+            };
             window.Chrome = new WindowChromeOptions { NativeDrag = true, NativeSnapLayouts = true, MinimumSize = new Size(880, 640) };
         }));
 }

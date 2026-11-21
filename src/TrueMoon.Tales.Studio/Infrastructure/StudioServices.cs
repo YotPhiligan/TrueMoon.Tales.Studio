@@ -9,7 +9,7 @@ namespace TrueMoon.Tales.Studio.Infrastructure;
 internal static class StudioServices
 {
     // Cobalt owns the services; StudioHttpClient owns its transport. The UI host owns factory-created views.
-    public static IAppConfigurationContext UseStudioServices(this IAppConfigurationContext context)
+    public static IAppConfigurationContext UseStudioServices(this IAppConfigurationContext context, StudioUiPreferences? preferences = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         return context.Services(services => services
@@ -22,6 +22,7 @@ internal static class StudioServices
             .Singleton<IViewStyle<StudioTitleBar>, StudioTitleBarStyle>()
             .Singleton<IFactory<StudioTitleBar, StudioTitleBarArguments>, StudioTitleBarFactory>()
             .Singleton<IFactory<SceneView>>(resolver => new SceneViewFactory(resolver.Resolve<SceneViewModel>()!,
-                resolver.Resolve<IViewStyle<SceneView>>()!, resolver.Resolve<IFactory<StudioTitleBar, StudioTitleBarArguments>>()!)));
+                resolver.Resolve<IViewStyle<SceneView>>()!, resolver.Resolve<IFactory<StudioTitleBar, StudioTitleBarArguments>>()!,
+                preferences: preferences)));
     }
 }
