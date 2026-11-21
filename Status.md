@@ -17,6 +17,9 @@
 - **Проверки поставки 1.2611.21.11-alpha.** Полный Release-прогон .NET 11
   перед отправкой дал 869 пройденных, 5 пропущенных и 0 упавших тестов.
   TRX и raster сохранены в `src/.local/delivery-20261121-1.2611.21.11/`.
+- **C# CLI.** В рабочей копии **1.2611.21.12-alpha** чтение schema2, перенос
+  и обрезка клипа доступны через тот же EXE как клиент уже запущенного
+  backend. [Команды и проверки](#studio-native-cli).
 - **Рабочий просмотр.** Одноразовые MP4 диапазона и аниматика хранятся в
   `%TEMP%\TrueMoon.Tales\Studio`. Постоянные каталоги текущего профиля
   перенесены в AppData. [Перенос и проверки](#studio-review-temp).
@@ -39,6 +42,30 @@
   ввод, DPI и вывод звука проверяются отдельно.
   [Full Transfer на фикстурах](#studio-full-transfer-run) ·
   [Ближайшая очередь](Plan.md#ближайшая-очередь).
+
+<a id="studio-native-cli"></a>
+## Чтение проекта и правка клипа из C# CLI, 21.11.2026
+
+Версия **1.2611.21.12-alpha** добавляет `backend-project`, `backend-move` и
+`backend-trim`. Тот же EXE обращается к уже запущенной сессии
+`--serve-project` по loopback HTTPv1, передаёт токен, ожидаемую ревизию и
+SHA, проверяет ответ и выводит JSON. Команда отправляет один запрос. При
+конфликте или потере ответа требуется перечитать проект. Протоколы хранения
+и IPC совместимы с предыдущей поставкой.
+[Запуск и коды выхода](src/Verification/BackendHttp.md#studio-native-cli).
+
+| Проверка | Сценарий |
+|---|---|
+| Чтение, один writer, запись истории и операция без изменений | `NativeMove_UsesExistingWriter_AndConflictsAndNoopDoNotWrite` |
+| Обрезка и сверка сохранённого участка с итоговым SHA | `NativeTrim_ReturnsCommittedExtent_AndRejectsAStaleRepeat` |
+| Отказ перед подключением при неверном URL или без SHA | `NativeProject_RefusesNoncanonicalServerAddresses`, `NativeMove_RequiresBaselineBeforeContactingServer` |
+| Один POST при redirect, оборванном или недостоверном ответе | `NativeWrite_SendsOnePostAndRequiresReconciliationWhenTheReplyIsUnknown` |
+
+Целевой Debug-прогон дал 10 пройденных тестов. Итоговый полный Release-прогон
+дал 879 пройденных, 5 пропущенных и 0 упавших тестов. В одном из прогонов
+существующий тест освобождения writer после аварии застал занятую блокировку.
+Он прошёл при отдельной проверке и в итоговом полном прогоне.
+TRX и raster находятся в `src/.local/native-cli-20261121/`.
 
 <a id="studio-full-transfer-storage"></a>
 ## Публикация и удаление дублей Full Transfer, 21.11.2026

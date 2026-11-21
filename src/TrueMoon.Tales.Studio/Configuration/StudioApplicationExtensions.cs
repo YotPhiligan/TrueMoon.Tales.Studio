@@ -82,7 +82,7 @@ internal static class StudioApplicationExtensions
                 "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог или файл .studio> --config <Studio.config.json>" + Environment.NewLine +
                 "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "HTTP/CLI: --serve-project <каталог> --config <Studio.config.json> [--http-port <0..65535>] [--with-ui]" +
-                Environment.NewLine + EpisodeArchiveCommand.Usage);
+                Environment.NewLine + BackendHttpCli.Usage + Environment.NewLine + EpisodeArchiveCommand.Usage);
             return 2;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return 0; }

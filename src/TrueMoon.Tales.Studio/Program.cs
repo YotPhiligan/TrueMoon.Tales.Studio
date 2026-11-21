@@ -1,8 +1,12 @@
 using TrueMoon;
 using TrueMoon.Tales.Studio.Backend.Export;
+using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Configuration;
 using TrueMoon.Tales.Studio.Infrastructure;
 using TrueMoon.Tales.Studio.Presentation;
+
+if (BackendHttpCli.Handles(args.FirstOrDefault()))
+    return await BackendHttpCli.RunAsync(args);
 
 await StudioReviewSession.CleanAbandonedAsync(StudioReviewSession.DefaultRoot);
 await StudioReviewSession.CleanAbandonedAsync(StudioReviewSession.FullTransferRoot, preserveCompleted: true);

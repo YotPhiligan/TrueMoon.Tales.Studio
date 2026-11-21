@@ -83,6 +83,32 @@ exit0, conflict409 — exit3, прочая ошибка — exit1 с automatic_r
 Старые CLI-команды и Python HTTP для schema1 сохраняются. Legacy Web UI ещё не
 читает canonical schema2; он не объявляется переключённым на новый HTTP API.
 
+<a id="studio-native-cli"></a>
+## C# CLI в том же EXE · 21.11.2026
+
+В **1.2611.21.12-alpha** чтение проекта, перенос и обрезка клипа выполняются
+через существующую сессию `--serve-project`. Передайте её адрес
+`http://127.0.0.1:<порт>/` из ready JSON. Команды работают в отдельном процессе
+того же EXE, без чтения локального профиля или захвата writer.
+
+```powershell
+$env:STUDIO_BACKEND_HTTP_TOKEN = '<token из ready JSON>'
+$url = '<url из ready JSON>'
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+# Выберите ID клипа и координаты для своего проекта.
+.\TrueMoon.Tales.Studio.exe backend-move --url $url --clip clip-main --start-frame 14 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+# Перед другой правкой прочитайте актуальную ревизию и SHA.
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-trim --url $url --clip clip-main --start-frame 14 --source-in 8 --source-out 48 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Токен можно также задать через `--token`. `backend-trim` принимает `--start`
+как прежнее имя `--start-frame`. При успехе stdout содержит JSON снимка HTTPv1.
+Ошибки печатаются как JSON в stderr. Коды выхода: 0 — успех, 2 — параметры,
+3 — HTTP 409, 1 — прочие ошибки, 130 — прерывание пользователем.
+Один запрос на команду. При `reconciliation_required: true` сначала перечитайте
+проект. Python CLI продолжает обслуживать schema1, медиа и экспорт.
+
 ## Проверки
 
 | Требование | Тест |
