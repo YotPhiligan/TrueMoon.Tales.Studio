@@ -35,7 +35,7 @@ internal sealed class BackendProcess(IUnitConfiguration configuration, IEventsSo
     protected override void ProcessLaunchArguments(Collection<string> arguments)
     {
         arguments.Add("--backend");
-        arguments.Add(options.ProjectDirectory);
+        arguments.Add(options.ProjectPathArgument);
         arguments.Add(options.ConfigPath);
         arguments.Add(options.Endpoint);
         arguments.Add(options.SessionKey);

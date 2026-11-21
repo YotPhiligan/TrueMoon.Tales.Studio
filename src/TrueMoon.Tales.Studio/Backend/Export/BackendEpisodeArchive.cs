@@ -149,7 +149,8 @@ internal static partial class BackendEpisodeArchive
         {
             foreach (var file in manifest.Entries)
             {
-                var path = Path.Combine(stage, file.Name.Replace('/', Path.DirectorySeparatorChar));
+                var relative = file.Name == ProjectName ? ProjectStore.DefaultProjectFileName : file.Name.Replace('/', Path.DirectorySeparatorChar);
+                var path = Path.Combine(stage, relative);
                 BackendMediaResolver.CheckNoLinks(path, allowMissing: true);
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 await using var input = zip.GetEntry(file.Name)!.Open();
@@ -158,7 +159,7 @@ internal static partial class BackendEpisodeArchive
                     throw Invalid();
                 output.Flush(flushToDisk: true);
             }
-            var snapshot = ProjectFileCodec.Read(await File.ReadAllBytesAsync(Path.Combine(stage, ProjectName), token).ConfigureAwait(false));
+            var snapshot = ProjectFileCodec.Read(await File.ReadAllBytesAsync(Path.Combine(stage, ProjectStore.DefaultProjectFileName), token).ConfigureAwait(false));
             if (snapshot.SchemaVersion != 2 || snapshot.Project.Id != manifest.ProjectId || snapshot.Project.Revision != manifest.Revision ||
                 !BackendExportStorage.EqualHash(snapshot.Fingerprint, manifest.ProjectSha256)) throw Invalid();
             var entries = manifest.Entries.ToDictionary(row => row.Name, StringComparer.Ordinal);

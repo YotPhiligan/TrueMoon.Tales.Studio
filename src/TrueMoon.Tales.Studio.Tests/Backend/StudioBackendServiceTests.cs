@@ -55,7 +55,7 @@ public sealed class StudioBackendServiceTests
     [InlineData("missing", "project_not_found")]
     [InlineData("invalid", "invalid_project")]
     [InlineData("pending", "recovery_required")]
-    [InlineData("ambiguous", "invalid_project")]
+    [InlineData("ambiguous", "project_file_conflict")]
     public async Task Open_ClassifiesFailureWithoutMutationOrAutomaticRecovery(string mode, string expected)
     {
         using var fixture = new BackendFixture();

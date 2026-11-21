@@ -185,15 +185,18 @@ public sealed class ProjectStoreTests
         Assert.Empty(other.HistoryFiles);
     }
 
-    [Fact]
-    public async Task Open_AmbiguousFileLocations_AreRejectedWithoutMutation()
+    [Theory]
+    [InlineData("Studio.project.json", "Production/Studio.project.json")]
+    [InlineData("Claire.studio", "Production/Studio.project.json")]
+    [InlineData("Project.studio", "Claire.STUDIO")]
+    public async Task Open_AmbiguousFileLocations_AreRejectedWithoutMutation(string firstName, string secondName)
     {
-        using var fixture = new PersistenceFixture();
-        var otherPath = Path.Combine(fixture.ProjectDirectory, "Production", "Studio.project.json");
+        using var fixture = new PersistenceFixture(fileName: firstName);
+        var otherPath = Path.GetFullPath(Path.Combine(fixture.ProjectDirectory, secondName));
         Directory.CreateDirectory(Path.GetDirectoryName(otherPath)!);
         await File.WriteAllBytesAsync(otherPath, fixture.InitialBytes);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Store().OpenAsync());
+        await Assert.ThrowsAsync<ProjectFileConflictException>(() => fixture.Store().OpenAsync());
 
         Assert.Equal(fixture.InitialBytes, await File.ReadAllBytesAsync(fixture.ProjectPath));
         Assert.Equal(fixture.InitialBytes, await File.ReadAllBytesAsync(otherPath));
@@ -336,10 +339,12 @@ public sealed class ProjectStoreTests
         Assert.Equal(12, (await fixture.Store().MigrateAsync(baseline, 11, "author")).Project.Revision);
     }
 
-    [Fact]
-    public async Task ReplacementFailure_RequiresExplicitRecoveryAndRollsForwardOnce()
+    [Theory]
+    [InlineData("Studio.project.json")]
+    [InlineData("Клэр.studio")]
+    public async Task ReplacementFailure_RequiresExplicitRecoveryAndRollsForwardOnce(string fileName)
     {
-        using var fixture = new PersistenceFixture();
+        using var fixture = new PersistenceFixture(fileName: fileName);
         var store = fixture.Store(replacement: new FailReplacement(false));
         var baseline = await store.OpenAsync();
 

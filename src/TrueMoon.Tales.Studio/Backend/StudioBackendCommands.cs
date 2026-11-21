@@ -107,6 +107,7 @@ internal sealed partial class StudioBackendService
         }
         catch (WriterRequiredException error) { return Failure(error.Message); }
         catch (ProjectRevisionConflictException) { return Failure("revision_conflict"); }
+        catch (ProjectFileConflictException) { return Failure("project_file_conflict"); }
         catch (ProjectMigrationRequiredException) { return Failure("migration_required"); }
         catch (ProjectRecoveryConflictException) { return Failure("recovery_conflict"); }
         catch (ProjectRecoveryRequiredException) { return Failure("recovery_required"); }

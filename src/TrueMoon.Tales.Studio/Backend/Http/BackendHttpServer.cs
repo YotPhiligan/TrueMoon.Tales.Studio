@@ -154,7 +154,7 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
         {
             var status = error.Code switch
             {
-                "revision_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or
+                "revision_conflict" or "project_file_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or
                     "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" => 422,
                 "access_denied" or "write_not_enabled" => 403,

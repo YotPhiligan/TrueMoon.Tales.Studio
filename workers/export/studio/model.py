@@ -102,11 +102,21 @@ class Store:
         return self.safe(self.project_dir(project_id)/'Production',False)
 
     def project_file(self,root):
-        current=self.safe(root/'Studio.project.json',False)
-        legacy=self.safe(root/'Production/Studio.project.json',False)
-        if current.exists() and legacy.exists():
-            raise StudioError('В проекте два файла Studio.project.json. Устраните конфликт расположений.',409)
-        return legacy if legacy.exists() or (self.paths.legacy_mode and not current.exists()) else current
+        root = self.safe(root, False)
+        legacy = self.safe(root / 'Production/Studio.project.json', False)
+        previous = self.safe(root / 'Studio.project.json', False)
+        matches = [file for file in (previous, legacy) if file.exists()]
+        if root.is_dir():
+            for candidate in root.iterdir():
+                if candidate.suffix.lower() == '.studio':
+                    file = self.safe(candidate, False)
+                    if file.is_file():
+                        matches.append(file)
+        if len(matches) > 1:
+            raise StudioError('Найдено несколько файлов проекта. Оставьте один файл.', 409)
+        if matches:
+            return matches[0]
+        return legacy if self.paths.legacy_mode else self.safe(root / 'Project.studio', False)
 
     def location(self,project_id):
         return self.project_file(self.project_dir(project_id))

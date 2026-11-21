@@ -45,7 +45,9 @@ public sealed class MoveHttpIntegrationTests
             expected_revision = initial["revision"]!.GetValue<int>(), actor = "qa:move-setup", action = "add_clip",
             payload = new { segment_id = segmentId, block_id = first["block_id"]!.GetValue<string>(), take_id = "take-B", start_frame = 8, duration_frames = 4, source_in_frame = 0 }
         }, token))) setup.EnsureSuccessStatusCode();
-        var projectPath = Path.Combine(run, "copy", "projects", "argentis-qa", "Studio.project.json");
+        var projectRoot = Path.Combine(run, "copy", "projects", "argentis-qa");
+        var projectPath = Path.Combine(projectRoot, "Project.studio");
+        if (!File.Exists(projectPath)) projectPath = Path.Combine(projectRoot, "Studio.project.json");
         var beforeBytes = File.ReadAllBytes(projectPath);
         var before = JsonNode.Parse(beforeBytes)!;
         var history = Path.Combine(Path.GetDirectoryName(projectPath)!, "Production", "History");

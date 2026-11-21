@@ -32,6 +32,7 @@ internal sealed partial class StudioBackendService(BackendOptions options, Proje
             return Reply(await store.OpenAsync(cancellationToken).ConfigureAwait(false));
         }
         catch (ProjectRecoveryRequiredException) { return Failure("recovery_required"); }
+        catch (ProjectFileConflictException) { return Failure("project_file_conflict"); }
         catch (UnauthorizedAccessException) { return Failure("access_denied"); }
         catch (FileNotFoundException) { return Failure("project_not_found"); }
         catch (DirectoryNotFoundException) { return Failure("project_not_found"); }

@@ -27,8 +27,9 @@ def audit(run):
     relative = Path("projects/argentis-qa")
     baseline = run / "baseline" / relative
     current = run / "copy" / relative
-    before = (baseline / "Studio.project.json").read_bytes()
-    assert (current / "Studio.project.json").read_bytes() == before
+    name = "Project.studio" if (baseline / "Project.studio").is_file() else "Studio.project.json"
+    before = (baseline / name).read_bytes()
+    assert (current / name).read_bytes() == before
     project = json.loads(before)
     assert project["name"] == "Playback QA"
     hashes = {}

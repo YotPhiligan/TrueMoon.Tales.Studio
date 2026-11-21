@@ -12,7 +12,7 @@ internal enum ProjectAvailability
 
 internal sealed record ProjectEntry(string Name, string Location, ProjectAvailability Availability,
     string? Directory = null, string? Id = null, int? Schema = null, long? Revision = null,
-    string? Fingerprint = null, bool Recent = false)
+    string? Fingerprint = null, bool Recent = false, string? ProjectFileName = null)
 {
     internal bool OpensReadOnly => Availability == ProjectAvailability.MigrationRequired ||
         Availability == ProjectAvailability.WriteDenied && Schema is 1 or 2;
@@ -25,7 +25,7 @@ internal sealed record ProjectEntry(string Name, string Location, ProjectAvailab
         ProjectAvailability.MigrationRequired => "Только чтение. Для редактирования выполните миграцию.",
         ProjectAvailability.Unsupported => "Неподдерживаемая схема проекта",
         ProjectAvailability.RecoveryRequired => "Обнаружена незавершённая запись. Требуется восстановление.",
-        ProjectAvailability.DuplicateLocation => "Найдены два Studio.project.json: в корне и в Production",
+        ProjectAvailability.DuplicateLocation => "Найдено несколько файлов проекта. Оставьте один файл.",
         ProjectAvailability.AccessDenied => "Путь запрещён или содержит ссылку",
         ProjectAvailability.WriteDenied when Schema == 1 => "Только чтение. Для миграции настройте project_write_roots.",
         ProjectAvailability.WriteDenied when OpensReadOnly => "Только чтение. Для редактирования настройте project_write_roots.",
@@ -89,12 +89,14 @@ internal sealed partial class ProjectCatalog(string configPath)
         if (!(maintenance ? selected.CanMaintain : selected.CanOpen) || selected.Directory is null)
             throw new InvalidDataException(selected.Details);
         var access = new BackendProjectAccess(ConfigPath);
-        var current = await InspectAsync(access, Resolver(access), selected.Directory, selected.Name, selected.Id, token)
+        var reference = selected.ProjectFileName is { } name ? Path.Combine(selected.Directory, name) : selected.Directory;
+        var current = await InspectAsync(access, Resolver(access), reference, selected.Name, selected.Id, token,
+                fileOrFolder: selected.ProjectFileName is not null)
             .ConfigureAwait(false);
         if (maintenance ? current.Availability != selected.Availability
             : !current.CanOpen || current.OpensReadOnly != selected.OpensReadOnly)
             throw new InvalidDataException("Состояние проекта изменилось. Перечитайте список.");
-        if (!PathComparer.Equals(selected.Directory, current.Directory))
+        if (!PathComparer.Equals(selected.Directory, current.Directory) || !PathComparer.Equals(selected.ProjectFileName, current.ProjectFileName))
             throw new InvalidDataException("Расположение проекта изменилось. Обновите список.");
         selected.VerifySelection(current.Id, current.Fingerprint!);
         var readOnly = !maintenance && current.OpensReadOnly;
@@ -107,6 +109,7 @@ internal sealed partial class ProjectCatalog(string configPath)
                 ProjectAvailability.RecoveryRequired => "recover",
                 _ => "edit"
             },
+            ProjectFileName = current.ProjectFileName,
             WriteEnabled = !readOnly, InitialFingerprint = current.Fingerprint,
             RecoveryFingerprint = current.Availability == ProjectAvailability.RecoveryRequired ? current.Fingerprint : null
         };
@@ -117,10 +120,10 @@ internal sealed partial class ProjectCatalog(string configPath)
         var path = folder.Trim();
         if (path is ['"', .., '"']) path = path[1..^1];
         if (!Path.IsPathFullyQualified(path))
-            throw new ArgumentException("Укажите полный путь к папке проекта.");
+            throw new ArgumentException("Укажите полный путь к папке или файлу .studio.");
 
         var access = new BackendProjectAccess(ConfigPath);
-        var project = await InspectAsync(access, Resolver(access), path, path, null, token).ConfigureAwait(false);
+        var project = await InspectAsync(access, Resolver(access), path, path, null, token, fileOrFolder: true).ConfigureAwait(false);
         if (!project.CanOpen)
             throw new InvalidDataException(project.Availability == ProjectAvailability.AccessDenied
                 ? "Папка вне разрешённых корней проектов (projects_root, amv_root), защищена или содержит ссылку."
@@ -134,14 +137,15 @@ internal sealed partial class ProjectCatalog(string configPath)
         new(BackendOptions.Create(access.ProjectsRoot ?? Path.GetDirectoryName(ConfigPath)!, ConfigPath));
 
     private static async Task<ProjectEntry> InspectAsync(BackendProjectAccess access, BackendMediaResolver resolver,
-        string reference, string name, string? expectedId, CancellationToken token)
+        string reference, string name, string? expectedId, CancellationToken token, bool fileOrFolder = false)
     {
         var entry = new ProjectEntry(name, reference, ProjectAvailability.Invalid);
         try
         {
-            var storage = access.ForProject(resolver.ResolveReference(reference), write: true);
+            var path = resolver.ResolveReference(reference);
+            var storage = fileOrFolder ? access.ForLocation(path, write: true) : access.ForProject(path, write: true);
             var directory = storage.ProjectDirectory;
-            entry = entry with { Location = directory, Directory = directory };
+            entry = entry with { Location = directory, Directory = directory, ProjectFileName = storage.ProjectFileName };
             var store = new ProjectStore(storage);
             ProjectFileDocument document;
             try { document = await store.OpenAsync(token).ConfigureAwait(false); }
@@ -157,7 +161,7 @@ internal sealed partial class ProjectCatalog(string configPath)
                     Id = recovery.Id, Name = recovery.Name, Fingerprint = recovery.Fingerprint
                 };
             }
-            catch (InvalidDataException) when (store.HasLocationConflict())
+            catch (ProjectFileConflictException)
             { return entry with { Availability = ProjectAvailability.DuplicateLocation }; }
             var project = document.Project;
             entry = entry with

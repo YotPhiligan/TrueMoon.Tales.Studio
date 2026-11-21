@@ -73,8 +73,12 @@ var saved = await store.SaveAsync(migrated, draft, migrated.Project.Revision, "a
 Store ограничивает операции выбранным корнем, проверяет allowlist, protected
 roots и reparse points. Символические ссылки/junction не разрешаются.
 
-Открывается ровно один файл: `Studio.project.json` в корне либо прежний
-`Production/Studio.project.json`. Наличие обоих считается конфликтом.
+Новые проекты получают `Project.studio` в корне. Хранилище открывает один
+файл `.studio` в корне, `Studio.project.json` в корне или
+`Production/Studio.project.json`. Если `ProjectStoreOptions.ProjectFileName`
+задан явно, единственный найденный файл должен совпадать с этим именем.
+Несколько подходящих файлов создают конфликт при любом способе открытия.
+Сохранение и восстановление используют путь найденного документа.
 Миграция версии не перемещает файл между этими расположениями.
 `OpenAsync` не создаёт файлы, не мигрирует и не восстанавливает транзакции.
 

@@ -22,7 +22,7 @@ internal static class EpisodeArchiveCommand
             {
                 case ["--archive-episode", var directory, "--config", var config, "--revision", var number, "--sha256", var sha]
                     when long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var revision) && BackendExportStorage.ValidHash(sha):
-                    receipt = await BackendEpisodeArchive.CreateAsync(BackendOptions.Create(directory, config), revision, sha, operation.Token).ConfigureAwait(false);
+                    receipt = await BackendEpisodeArchive.CreateAsync(BackendOptions.CreateForLocation(directory, config), revision, sha, operation.Token).ConfigureAwait(false);
                     break;
                 case ["--restore-episode", var name, "--config", var config, "--sha256", var sha] when BackendExportStorage.ValidHash(sha):
                     receipt = await BackendEpisodeArchive.RestoreAsync(Path.GetFullPath(config), name, sha, operation.Token).ConfigureAwait(false);

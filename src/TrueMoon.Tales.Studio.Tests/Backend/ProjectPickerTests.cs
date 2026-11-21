@@ -124,7 +124,7 @@ public sealed class ProjectPickerTests
         var project = Assert.IsType<ProjectEntry>(first);
         Assert.Equal(ProjectAvailability.NoClip, project.Availability);
         Assert.StartsWith(personal + Path.DirectorySeparatorChar, project.Directory);
-        var path = PickerFixture.FileAt(project.Directory!);
+        var path = Path.Combine(project.Directory!, "Project.studio");
         var before = File.ReadAllBytes(path);
         var entered = false;
         var error = await ProjectPickerApplication.OpenSelectedAsync(catalog, project, token,
@@ -218,12 +218,16 @@ public sealed class ProjectPickerTests
         Assert.True(Assert.Single((await files.Catalog.ReadAsync(deadline.Token)).Items).Recent);
     }
 
-    [Fact]
-    public async Task Picker_OpenExistingFolder_OpensUnlistedLegacyProjectAndRemembersItWithoutWrites()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Picker_OpenExistingFolder_OpensUnlistedProjectAndRemembersItWithoutWrites(bool namedFile)
     {
         using var files = new PickerFixture();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var path = await files.ProjectAsync("unlisted", migrate: false, location: files.VideoRoot, legacyLayout: true);
+        var path = await files.ProjectAsync("unlisted", migrate: false, location: files.VideoRoot, legacyLayout: !namedFile);
+        var location = namedFile ? Path.Combine(path, "Клэр.STUDIO") : path;
+        if (namedFile) File.Move(PickerFixture.FileAt(path), location);
         var before = files.Snapshot([path]);
         ProjectEntry? selection = null;
         using (var host = new RasterWindow<ProjectPickerWindow>(new(files.Catalog, entry => selection = entry), "picker-open-folder", 740, 480, 1.5f))
@@ -233,7 +237,7 @@ public sealed class ProjectPickerTests
             host.Click(host.Window.NewButton);
             host.Click(host.Window.OpenExistingButton);
             host.PumpUntil(() => host.Window.FolderInput.IsFocused);
-            Fill(host, host.Window.FolderInput, $"\"{path}\"");
+            Fill(host, host.Window.FolderInput, $"\"{location}\"");
             host.Capture("open-folder", new { Schema = 1 });
             host.Input(new(InputKind.KeyDown, Key: UiKey.Enter));
             host.PumpUntil(() => selection is not null);
@@ -249,6 +253,7 @@ public sealed class ProjectPickerTests
         {
             var services = app.Services;
             Assert.False(services.Resolve<BackendOptions>()!.WriteEnabled);
+            Assert.Equal(namedFile ? "Клэр.STUDIO" : null, services.Resolve<BackendOptions>()!.ProjectFileName);
             var window = services.Resolve<IFactory<ProjectWindow>>()!.Create()!;
             using var host = new RasterWindow<ProjectWindow>(window, "picker-open-folder-read-only", 1000, 720);
             host.PumpUntil(() => window.ReloadButton.IsEnabled);
@@ -286,7 +291,11 @@ public sealed class ProjectPickerTests
         Check("relative/path", "полный путь");
         Check(outside, "вне разрешённых корней");
         Check(missing, "Файл проекта не найден");
-        Check(duplicate, "Найдены два Studio.project.json");
+        Check(duplicate, "Найдено несколько файлов проекта");
+        var named = Path.Combine(duplicate, "Claire.studio");
+        File.Move(secondLocation, named);
+        Check(named, "Найдено несколько файлов проекта");
+        Check(Path.Combine(files.Projects, "absent.studio"), "Файл проекта не найден");
         host.Input(new(InputKind.KeyDown, Key: UiKey.Escape));
         Assert.True(host.Window.OpenExistingButton.IsEnabled);
         Assert.True(host.Window.NewButton.IsEnabled);
@@ -418,7 +427,8 @@ public sealed class ProjectPickerTests
         var created = Assert.IsType<ProjectEntry>(selection);
         Assert.Equal(ProjectAvailability.NoClip, created.Availability);
         var directory = created.Directory!;
-        var json = File.ReadAllBytes(PickerFixture.FileAt(directory));
+        var newDocument = Path.Combine(directory, "Project.studio");
+        var json = File.ReadAllBytes(newDocument);
         var initial = ProjectFileCodec.Read(json);
         Assert.Equal(2, initial.SchemaVersion);
         Assert.Equal(1, initial.Project.Revision);
@@ -439,7 +449,7 @@ public sealed class ProjectPickerTests
         Assert.Equal(created.Id, recent.Id);
         await Open(recent);
         Assert.Equal(2, openedCount);
-        Assert.Equal(json, File.ReadAllBytes(PickerFixture.FileAt(directory)));
+        Assert.Equal(json, File.ReadAllBytes(newDocument));
         Assert.False(Directory.Exists(Path.Combine(directory, "Production", "History")));
         Assert.Equal(registry, Hash(File.ReadAllBytes(files.RegistryPath)));
         await Assert.ThrowsAsync<InvalidDataException>(() =>
@@ -498,7 +508,7 @@ public sealed class ProjectPickerTests
         Assert.Single(results.OfType<ProjectFileDocument>());
         var directory = Assert.Single(Directory.GetDirectories(files.Projects));
         Assert.Equal("project-race", Path.GetFileName(directory));
-        Assert.Equal("project-race", ProjectFileCodec.Read(File.ReadAllBytes(PickerFixture.FileAt(directory))).Project.Id);
+        Assert.Equal("project-race", ProjectFileCodec.Read(File.ReadAllBytes(Path.Combine(directory, "Project.studio"))).Project.Id);
         Assert.False(Directory.Exists(files.State));
     }
 
@@ -775,8 +785,10 @@ public sealed class ProjectPickerTests
         internal static string FileAt(string directory, bool legacy = false) =>
             legacy ? Path.Combine(directory, "Production", "Studio.project.json") : Path.Combine(directory, "Studio.project.json");
 
-        internal string[] Snapshot(string[] projects) => projects.SelectMany(directory => Directory.EnumerateFiles(directory, "*.json",
-            SearchOption.AllDirectories).Order(StringComparer.Ordinal).Select(path => path + ":" + Hash(File.ReadAllBytes(path)))).ToArray();
+        internal string[] Snapshot(string[] projects) => projects.SelectMany(directory => Directory.EnumerateFiles(directory, "*",
+            SearchOption.AllDirectories).Where(path => path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                ProjectStore.IsStudioFileName(Path.GetFileName(path)))
+            .Order(StringComparer.Ordinal).Select(path => path + ":" + Hash(File.ReadAllBytes(path)))).ToArray();
 
         internal void Registry(params object[] projects)
         {

@@ -90,7 +90,7 @@ def ui_command(ui, endpoint, run, backend_ui=False):
         config = run / "copy/Studio.config.json"
         data = json.loads(config.read_text(encoding="utf-8"))
         root = (config.parent / data["projects_root"]).resolve()
-        projects = list(root.rglob("Studio.project.json"))
+        projects = [*root.rglob("Project.studio"), *root.rglob("Studio.project.json")]
         if len(projects) != 1:
             raise ValueError("Expected one project in the disposable QA projects root")
         return [str(ui), "--project", str(projects[0].parent), "--config", str(config)]

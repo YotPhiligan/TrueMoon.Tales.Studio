@@ -1,4 +1,5 @@
 using TrueMoon.Mithril;
+using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
@@ -6,6 +7,9 @@ namespace TrueMoon.Tales.Studio.Backend;
 internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath, string Endpoint, string SessionKey)
 {
     internal bool WriteEnabled { get; init; }
+    internal string? ProjectFileName { get; init; }
+    internal string ProjectPathArgument => ProjectFileName is { } name ? Path.Combine(ProjectDirectory, name) :
+        ProjectStore.IsStudioFileName(Path.GetFileName(ProjectDirectory)) ? ProjectDirectory + Path.DirectorySeparatorChar : ProjectDirectory;
     internal string? ExecutablePath { get; init; }
     internal string Action { get; init; } = "read";
     internal int HttpPort { get; init; }
@@ -15,6 +19,14 @@ internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath
     internal string? RecoveryFingerprint { get; init; }
     internal static BackendOptions Create(string directory, string config) => new(
         Path.GetFullPath(directory), Path.GetFullPath(config), "studio-" + Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"));
+
+    internal static BackendOptions CreateForLocation(string location, string config)
+    {
+        var options = Create(location, config);
+        if (!ProjectStore.IsStudioFileName(Path.GetFileName(options.ProjectDirectory))) return options;
+        var path = new BackendProjectAccess(options.ConfigPath).ForLocation(options.ProjectDirectory, write: false);
+        return options with { ProjectDirectory = path.ProjectDirectory, ProjectFileName = path.ProjectFileName };
+    }
 
     internal static bool TryParse(string[] args, UnitLaunchSettings launch, out BackendOptions? options,
         out bool backend, out bool inspect)
@@ -29,8 +41,13 @@ internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath
                 launch.UnitId != 1 || launch.ParentProcessId is null || launch.ControlPipe is null ||
                 !args[3].StartsWith("studio-", StringComparison.Ordinal) || args[3].Length != 39 ||
                 !Guid.TryParseExact(args[3][7..], "N", out _) || !Guid.TryParseExact(args[4], "N", out _)) return false;
-            options = new(Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), args[3], args[4])
+            var location = Path.GetFullPath(args[1]);
+            var name = Path.GetFileName(location);
+            var explicitFile = ProjectStore.IsStudioFileName(name);
+            options = new(explicitFile ? Path.GetDirectoryName(location)! : Path.TrimEndingDirectorySeparator(location),
+                Path.GetFullPath(args[2]), args[3], args[4])
             {
+                ProjectFileName = explicitFile ? name : null,
                 WriteEnabled = args.Length >= 6, RecoveryFingerprint = args.Length == 8 ? args[7] : null
             };
             return true;
@@ -48,7 +65,7 @@ internal sealed record BackendOptions(string ProjectDirectory, string ConfigPath
             else return false;
         }
         inspect |= action is "migrate" or "recover";
-        options = Create(args[1], args[3]) with { WriteEnabled = action != "read", Action = action, HttpPort = port, HttpWithUi = withUi };
+        options = CreateForLocation(args[1], args[3]) with { WriteEnabled = action != "read", Action = action, HttpPort = port, HttpWithUi = withUi };
         return true;
     }
 }

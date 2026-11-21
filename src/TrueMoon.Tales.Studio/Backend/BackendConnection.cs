@@ -112,9 +112,12 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
     }
 }
 
-internal sealed class BackendCommandException(string code, BackendReadinessIssue? issue = null) : IOException(code == "revision_conflict"
-    ? "Конфликт ревизии или содержимого. Отмените черновик и перечитайте проект."
-    : $"Backend: {code}. Операция не повторяется автоматически.")
+internal sealed class BackendCommandException(string code, BackendReadinessIssue? issue = null) : IOException(code switch
+{
+    "revision_conflict" => "Конфликт ревизии или содержимого. Отмените черновик и перечитайте проект.",
+    "project_file_conflict" => "Найдено несколько файлов проекта. Оставьте один файл.",
+    _ => $"Backend: {code}. Операция не повторяется автоматически."
+})
 {
     internal string Code { get; } = code;
     internal BackendReadinessIssue? Issue { get; } = issue;

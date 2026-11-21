@@ -42,7 +42,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
     internal Button ConfirmButton { get; } = Button.Simple("");
     internal Button CancelButton { get; } = Button.Simple("Отмена");
     internal TextBox NameInput { get; } = new() { AccessibleName = "Название проекта" };
-    internal TextBox FolderInput { get; } = new() { AccessibleName = "Путь к папке проекта" };
+    internal TextBox FolderInput { get; } = new() { AccessibleName = "Путь к папке проекта или файлу .studio" };
     internal TextBox WidthInput { get; } = new() { Value = "1280", AccessibleName = "Ширина" };
     internal TextBox HeightInput { get; } = new() { Value = "736", AccessibleName = "Высота" };
     internal TextBox FpsInput { get; } = new() { Value = "24", AccessibleName = "FPS" };
@@ -85,7 +85,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
             new StudioHeading(Text.Plain("Ширина, пикселей"), WidthInput),
             new StudioHeading(Text.Plain("Высота, пикселей"), HeightInput),
             new StudioHeading(Text.Plain("Кадров в секунду"), FpsInput));
-        _folderFields = Stack(10, Text.Plain("Полный путь к папке проекта"), FolderInput);
+        _folderFields = Stack(10, Text.Plain("Полный путь к папке проекта или файлу .studio"), FolderInput);
         _formTitle.FontSize = 20;
         _form = Stack(14, _formTitle, _formPath.WithRole(LocationRole), _newFields, _folderFields, _confirmation);
         _form.IsVisible = false;
@@ -320,7 +320,7 @@ internal sealed class ProjectPickerWindow : Window, IUiFrameParticipant, IUiInpu
         ShowStatus(_mode switch
         {
             FormMode.Create => "Создаю проект…",
-            FormMode.OpenFolder => "Проверяю папку проекта…",
+            FormMode.OpenFolder => "Проверяю расположение проекта…",
             _ => "Выполняю операцию…"
         }, error: false);
     }

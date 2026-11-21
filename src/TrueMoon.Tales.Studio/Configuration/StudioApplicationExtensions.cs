@@ -79,8 +79,8 @@ internal static class StudioApplicationExtensions
             }
             Console.Error.WriteLine(StudioOptions.Usage + Environment.NewLine +
                 "Запуск Studio: TrueMoon.Tales.Studio (или --projects --config <Studio.config.json>)" + Environment.NewLine +
-                "Чтение через backend: TrueMoon.Tales.Studio --project <каталог> --config <Studio.config.json>" + Environment.NewLine +
-                "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
+                "Чтение через backend: TrueMoon.Tales.Studio --project <каталог или файл .studio> --config <Studio.config.json>" + Environment.NewLine +
+                "Без окна: TrueMoon.Tales.Studio --inspect-project <каталог или файл .studio> --config <Studio.config.json>" + Environment.NewLine +
                 "Запись: --edit-project, явные --migrate-project / --recover-project <каталог> --config <Studio.config.json>" + Environment.NewLine +
                 "HTTP/CLI: --serve-project <каталог> --config <Studio.config.json> [--http-port <0..65535>] [--with-ui]" +
                 Environment.NewLine + EpisodeArchiveCommand.Usage);

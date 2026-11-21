@@ -44,7 +44,7 @@ class WorkspaceIntegrationTests(ScenarioFixture):
     def test_store_external_project_asset_serialization_and_read_only_mount_do_not_touch_framework(self):
         store = self.configured();before = self.tree(self.framework)
         p = store.create('External project',project_id='external')
-        self.assertEqual('@projects/external',p['root']);self.assertEqual(self.ext_projects/'external/Studio.project.json',store.location(p['id']))
+        self.assertEqual('@projects/external',p['root']);self.assertEqual(self.ext_projects/'external/Project.studio',store.location(p['id']))
         image = self.ext_arts/'Claire.png';image.write_bytes(b'new external image')
         aid = store.asset(p,image)
         self.assertEqual('@arts/Claire.png',p['assets'][aid]['path']);self.assertEqual(image,store.resolve_asset(p,aid))
@@ -58,7 +58,7 @@ class WorkspaceIntegrationTests(ScenarioFixture):
         p = store.create('Project to relocate')
         root = store.project_dir(p['id'])
         current = store.location(p['id'])
-        legacy = store.production_dir(p['id']) / current.name
+        legacy = store.production_dir(p['id']) / 'Studio.project.json'
         legacy.parent.mkdir()
         current.rename(legacy)
         before = legacy.read_bytes()

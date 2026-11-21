@@ -15,6 +15,9 @@ public sealed class ProjectRevisionConflictException(long expected, long actual)
 /// <summary>Legacy storage requires a separate explicit migration operation.</summary>
 public sealed class ProjectMigrationRequiredException() : InvalidOperationException("Explicit schema 1 migration is required before saving.");
 
+/// <summary>The project folder contains more than one supported document.</summary>
+public sealed class ProjectFileConflictException() : IOException("More than one project file exists in this folder.");
+
 /// <summary>A durable pending commit requires an explicit recovery operation.</summary>
 public sealed class ProjectRecoveryRequiredException() : IOException("A pending project transaction requires explicit recovery.");
 

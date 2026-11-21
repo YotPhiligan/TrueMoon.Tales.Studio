@@ -18,7 +18,9 @@ def check(run):
     run.relative_to(QA_ROOT.resolve())
     if not re.fullmatch(r"[0-9a-f]{32}", run.name):
         raise ValueError("Expected a registered QA session folder")
-    relative = Path("projects/argentis-qa/Studio.project.json")
+    project = Path("projects/argentis-qa")
+    name = "Project.studio" if (run / "baseline" / project / "Project.studio").is_file() else "Studio.project.json"
+    relative = project / name
     original = read(run / "baseline" / relative)
     current = read(run / "copy" / relative)
     right = read(run / "project-after-right.json")

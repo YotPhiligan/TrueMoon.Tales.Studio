@@ -26,7 +26,7 @@ public sealed class EpisodeArchiveTests
         var restored = await Cli<EpisodeRestoreReceipt>("--restore-episode", Path.GetFileName(receipt.File), "--config", files.Config, "--sha256", receipt.Sha256);
         Assert.Equal((receipt.Revision, receipt.ProjectSha256, 1, 3), (restored.Revision, restored.ProjectSha256, restored.History, restored.Media));
         Assert.Equal([restored.Directory], Directory.GetDirectories(files.Destination));
-        Assert.Equal(before, File.ReadAllBytes(Path.Combine(restored.Directory, "Studio.project.json")));
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(restored.Directory, "Project.studio")));
         Assert.Equal(before, File.ReadAllBytes(files.ProjectFile));
         foreach (var (name, bytes) in history)
         {
@@ -47,7 +47,7 @@ public sealed class EpisodeArchiveTests
         Assert.Throws<UnauthorizedAccessException>(() => resolver.Resolve(Path.Combine(files.Materials, "clip-a.mp4")));
         var another = await BackendEpisodeArchive.RestoreAsync(files.Config, Path.GetFileName(receipt.File), receipt.Sha256, CancellationToken.None);
         Assert.NotEqual(restored.Directory, another.Directory);
-        Assert.Equal(before, File.ReadAllBytes(Path.Combine(restored.Directory, "Studio.project.json")));
+        Assert.Equal(before, File.ReadAllBytes(Path.Combine(restored.Directory, "Project.studio")));
 
         static async Task<T> Cli<T>(params string[] args) => JsonSerializer.Deserialize<T>(
             await BackendTrimFixture.RunAsync(BackendWriteFixture.Executable(), args, 64 * 1024), BackendAdaptation.Json)!;

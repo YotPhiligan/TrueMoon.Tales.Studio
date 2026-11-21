@@ -14,7 +14,7 @@ internal sealed class BackendProjectAccess
 
     internal static ProjectStoreOptions Read(BackendOptions options) =>
         new BackendProjectAccess(options.ConfigPath, picker: false, options.WriteEnabled)
-            .ForProject(options.ProjectDirectory, options.WriteEnabled);
+            .ForProject(options.ProjectDirectory, options.WriteEnabled) with { ProjectFileName = options.ProjectFileName };
 
     internal static void CheckProductionWrite(ProjectStoreOptions project, string path)
     {
@@ -72,6 +72,17 @@ internal sealed class BackendProjectAccess
         return new() { ProjectDirectory = project, AllowedWriteRoots = write ? _writes : [], ProtectedRoots = _denied };
     }
 
+    internal ProjectStoreOptions ForLocation(string path, bool write)
+    {
+        var options = ForProject(path, write);
+        var name = Path.GetFileName(options.ProjectDirectory);
+        if (!ProjectStore.IsStudioFileName(name)) return options;
+
+        BackendMediaResolver.CheckNoLinks(options.ProjectDirectory, allowMissing: true);
+        return Directory.Exists(options.ProjectDirectory) ? options :
+            ForProject(Path.GetDirectoryName(options.ProjectDirectory)!, write) with { ProjectFileName = name };
+    }
+
     internal string StatePath(string name)
     {
         if (StateRoot is null) throw new InvalidDataException("Настройте state_root для списка проектов.");
@@ -101,12 +112,8 @@ internal sealed class BackendProjectAccess
             throw new UnauthorizedAccessException("Для восстановления нужен разрешённый каталог projects_root вне исходников Studio.");
         BackendMediaResolver.CheckNoLinks(root);
         if (!Directory.Exists(root)) throw new DirectoryNotFoundException("Каталог projects_root не найден.");
-        foreach (var candidate in new[] { Path.Combine(root, "Studio.project.json"), Path.Combine(root, "Production", "Studio.project.json") })
-        {
-            BackendMediaResolver.CheckNoLinks(candidate, allowMissing: true);
-            if (Path.Exists(candidate))
-                throw new UnauthorizedAccessException("projects_root должен быть родительским каталогом для новой копии проекта.");
-        }
+        if (new ProjectStore(ForProject(root, write: false)).HasProjectFile())
+            throw new UnauthorizedAccessException("projects_root должен быть родительским каталогом для новой копии проекта.");
         return root;
     }
 

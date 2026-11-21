@@ -17,11 +17,11 @@ internal sealed class PersistenceFixture : IDisposable
     internal string[] HistoryFiles => Directory.Exists(HistoryDirectory) ? Directory.GetFiles(HistoryDirectory, "*.json") : [];
     internal byte[] InitialBytes { get; } = LegacyBytes();
 
-    internal PersistenceFixture(bool legacyLayout = false)
+    internal PersistenceFixture(bool legacyLayout = false, string fileName = "Studio.project.json")
     {
         _allocatedRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "studio-store-" + Guid.NewGuid().ToString("N")));
         ProjectDirectory = Path.Combine(_allocatedRoot, "project");
-        ProjectPath = legacyLayout ? Path.Combine(ProjectDirectory, "Production", "Studio.project.json") : Path.Combine(ProjectDirectory, "Studio.project.json");
+        ProjectPath = Path.Combine(legacyLayout ? Path.Combine(ProjectDirectory, "Production") : ProjectDirectory, fileName);
         Directory.CreateDirectory(Path.GetDirectoryName(ProjectPath)!);
         File.WriteAllBytes(ProjectPath, InitialBytes);
     }

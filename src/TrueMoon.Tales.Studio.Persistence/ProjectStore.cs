@@ -13,7 +13,11 @@ public sealed class ProjectStore
 {
     /// <summary>Reserved prefix for incomplete publications. Catalogs ignore these directories.</summary>
     public const string CreationStagingPrefix = ".studio-create-";
-    private const string FileName = "Studio.project.json";
+    /// <summary>The filename assigned to new projects.</summary>
+    public const string DefaultProjectFileName = "Project.studio";
+    private const string LegacyFileName = "Studio.project.json";
+    private const string LegacyProductionFile = "Production/" + LegacyFileName;
+    private const string StudioExtension = ".studio";
     private const string JournalName = ".Studio.project.transaction.json";
     private const string LeaseName = ".Studio.project.lock";
     private static readonly JsonSerializerOptions JournalOptions = new()
@@ -24,6 +28,7 @@ public sealed class ProjectStore
     private readonly ProjectPathPolicy _paths;
     private readonly IAtomicFileReplacement _replacement;
     private readonly TimeProvider _time;
+    private readonly string? _requestedFileName;
 
     /// <summary>Creates a store using local atomic replacement and the system clock.</summary>
     /// <param name="options">Trusted project location and explicit filesystem grants.</param>
@@ -38,6 +43,9 @@ public sealed class ProjectStore
         ArgumentNullException.ThrowIfNull(replacement);
         ArgumentNullException.ThrowIfNull(timeProvider);
         _paths = new(options);
+        _requestedFileName = options.ProjectFileName;
+        if (_requestedFileName is not null && !IsStudioFileName(_requestedFileName))
+            throw new ArgumentException("Expected a .studio project filename.", nameof(options));
         _replacement = replacement;
         _time = timeProvider;
     }
@@ -60,13 +68,13 @@ public sealed class ProjectStore
         cancellationToken.ThrowIfCancellationRequested();
         _paths.Check(_paths.Root, true);
         var target = _paths.At(directoryName);
-        var file = _paths.At(directoryName, FileName);
+        var file = _paths.At(directoryName, DefaultProjectFileName);
         _paths.Check(target, true);
         if (Path.Exists(target)) throw new IOException("Каталог нового проекта уже занят.");
         var bytes = ProjectFileCodec.SerializeNew(project);
         var result = ProjectFileCodec.Read(bytes).AtPath(file);
         var staging = _paths.At(CreationStagingPrefix + Guid.NewGuid().ToString("N"));
-        var pending = _paths.At(staging, FileName);
+        var pending = _paths.At(staging, DefaultProjectFileName);
         _paths.CreateDirectory(staging);
         var created = new List<string>(1);
         var published = false;
@@ -98,8 +106,8 @@ public sealed class ProjectStore
     public async Task<ProjectFileDocument> OpenAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        RequireNoPendingCommit();
         var path = Locate();
+        RequireNoPendingCommit();
         var bytes = await ReadBytesAsync(path, cancellationToken).ConfigureAwait(false);
         // A writer may have published its intent during this read; do not expose uncertain state.
         RequireNoPendingCommit();
@@ -152,13 +160,18 @@ public sealed class ProjectStore
         ProjectWriterLease.CheckAccess(_paths);
     }
 
-    /// <summary>Reports whether both supported project document locations are present.</summary>
+    /// <summary>Tests whether a basename can identify a project file in the root directory.</summary>
+    /// <param name="name">The filename without directory components.</param>
+    public static bool IsStudioFileName(string name) => name.Length > StudioExtension.Length &&
+        name.EndsWith(StudioExtension, StringComparison.OrdinalIgnoreCase) &&
+        !name.Any(character => char.IsControl(character) || "/\\:<>\"|?*".Contains(character));
+
+    /// <summary>Reports whether this directory already contains a project document.</summary>
+    public bool HasProjectFile() => FindLocations().Any();
+
+    /// <summary>Reports whether more than one supported project document is present.</summary>
     /// <returns>Whether opening requires resolving the ambiguity outside the store.</returns>
-    public bool HasLocationConflict()
-    {
-        var locations = FindLocations();
-        return locations.HasRoot && locations.HasLegacy;
-    }
+    public bool HasLocationConflict() => FindLocations().Skip(1).Any();
 
     /// <summary>Explicitly migrates schema 1, with one revision advance and an exact-byte history snapshot.</summary>
     /// <param name="baseline">A document opened by this project location.</param>
@@ -300,7 +313,8 @@ public sealed class ProjectStore
         audit["transaction_id"] = transactionId;
         if (envelope["last_write"] is null) envelope["last_write"] = audit;
         encoded = JsonSerializer.SerializeToUtf8Bytes(envelope);
-        var journal = new Journal(1, path == _paths.At(FileName) ? FileName : "Production/" + FileName,
+        var projectFile = Path.GetRelativePath(_paths.Root, path).Replace('\\', '/');
+        var journal = new Journal(1, projectFile,
             transactionId, current.Project.Id, expected, current.Fingerprint, Hash(encoded));
         var projectTemp = ProjectTemp(journal);
         var historyTemp = HistoryTemp(journal);
@@ -314,6 +328,8 @@ public sealed class ProjectStore
             await WriteNewAsync(historyTemp, previousBytes, cancellationToken, created).ConfigureAwait(false);
             var journalBytes = JsonSerializer.SerializeToUtf8Bytes(journal, JournalOptions);
             await WriteNewAsync(journalTemp, journalBytes, cancellationToken, created).ConfigureAwait(false);
+            if (!string.Equals(path, Locate(), ProjectPathPolicy.Comparison))
+                throw new ProjectRevisionConflictException(expected, current.Project.Revision);
             if (Hash(await ReadBytesAsync(path, cancellationToken).ConfigureAwait(false)) != current.Fingerprint)
                 throw new ProjectRevisionConflictException(expected, current.Project.Revision);
             cancellationToken.ThrowIfCancellationRequested();
@@ -380,16 +396,26 @@ public sealed class ProjectStore
 
     private string Locate()
     {
-        var (root, legacy, hasRoot, hasLegacy) = FindLocations();
-        if (hasRoot && hasLegacy) throw new InvalidDataException("Both root and Production project files exist.");
-        return hasRoot ? root : hasLegacy ? legacy : throw new FileNotFoundException("Project file was not found.", root);
+        var locations = FindLocations().Take(2).ToArray();
+        if (locations.Length > 1) throw new ProjectFileConflictException();
+        if (locations.Length == 0 || _requestedFileName is not null &&
+            !string.Equals(locations[0], Path.Combine(_paths.Root, _requestedFileName), ProjectPathPolicy.Comparison))
+            throw new FileNotFoundException("Project file was not found.", Path.Combine(_paths.Root, _requestedFileName ?? DefaultProjectFileName));
+        return locations[0];
     }
 
-    private (string Root, string Legacy, bool HasRoot, bool HasLegacy) FindLocations()
+    private IEnumerable<string> FindLocations()
     {
-        var root = _paths.At(FileName);
-        var legacy = _paths.At("Production", FileName);
-        return (root, legacy, File.Exists(root), File.Exists(legacy));
+        var root = _paths.At(LegacyFileName);
+        var legacy = _paths.At("Production", LegacyFileName);
+        if (File.Exists(root)) yield return root;
+        if (File.Exists(legacy)) yield return legacy;
+        foreach (var path in Directory.EnumerateFiles(_paths.Root))
+        {
+            if (!IsStudioFileName(Path.GetFileName(path))) continue;
+            _paths.Check(path);
+            yield return path;
+        }
     }
 
     private void RequireNoPendingCommit()
@@ -431,14 +457,15 @@ public sealed class ProjectStore
         _paths.Check(path, true);
         File.Delete(path);
     }
-    private string ProjectPath(Journal journal) => journal.ProjectFile == FileName ? _paths.At(FileName) : _paths.At("Production", FileName);
+    private string ProjectPath(Journal journal) => _paths.At(journal.ProjectFile);
     private string ProjectTemp(Journal journal) => Path.Combine(Path.GetDirectoryName(ProjectPath(journal))!, $".Studio.project.{journal.TransactionId}.pending");
     private string HistoryPath(Journal journal) => _paths.At("Production", "History", $"r{journal.PreviousRevision:D6}-{journal.TransactionId}.json");
     private string HistoryTemp(Journal journal) => _paths.At("Production", "History", $".r{journal.PreviousRevision:D6}-{journal.TransactionId}.pending");
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
     private static void ValidateJournal(Journal journal)
     {
-        if (journal.Version != 1 || journal.ProjectFile is not (FileName or "Production/Studio.project.json") ||
+        if (journal.Version != 1 || journal.ProjectFile is not (LegacyFileName or LegacyProductionFile) &&
+            (journal.ProjectFile is null || !IsStudioFileName(journal.ProjectFile)) ||
             !Regex.IsMatch(journal.TransactionId ?? "", "\\A[0-9a-f]{32}\\z") || string.IsNullOrWhiteSpace(journal.ProjectId) ||
             journal.PreviousRevision < 0 || journal.PreviousRevision == long.MaxValue ||
             !Regex.IsMatch(journal.OldHash ?? "", "\\A[0-9A-F]{64}\\z") || !Regex.IsMatch(journal.NewHash ?? "", "\\A[0-9A-F]{64}\\z") || journal.OldHash == journal.NewHash)
