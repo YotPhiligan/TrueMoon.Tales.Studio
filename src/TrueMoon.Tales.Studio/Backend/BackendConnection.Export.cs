@@ -156,13 +156,7 @@ internal sealed partial class BackendConnection
         BackendExportStatus? job;
         try { job = JsonSerializer.Deserialize<BackendExportStatus>(reply.JobJson, ExportJson); }
         catch (JsonException error) { throw new InvalidDataException("Invalid export job JSON.", error); }
-        if (job is null || job.Version != 1 || !IsExportId(job.Id) || string.IsNullOrWhiteSpace(job.ProjectId) ||
-            job.ProjectRevision < 0 || job.Revision < 1 || job.Profile is not ("draft" or "project" or "final") ||
-            job.State is not ("running" or "stopping" or "completed" or "cancelled" or "failed" or "interrupted") ||
-            !IsHash(job.ProjectFingerprint) || !IsHash(job.RequestSha256) ||
-            job.Frames <= 0 || job.RangeStart is < 0 || (long)(job.RangeStart ?? 0) + job.Frames > int.MaxValue ||
-            !double.IsFinite(job.Fps) || job.Fps is <= 0 or > 240 ||
-            job.ProgressPercent is < 0 or > 100 || !ValidArtifact(job))
+        if (job is null || !ValidExportStatus(job))
             throw new InvalidDataException("Invalid export job metadata.");
         return (job, reply.Data);
     }
@@ -184,6 +178,15 @@ internal sealed partial class BackendConnection
         }
         return reply;
     }
+
+    internal static bool ValidExportStatus(BackendExportStatus job) =>
+        job.Version == 1 && IsExportId(job.Id) && !string.IsNullOrWhiteSpace(job.ProjectId) &&
+        job.ProjectRevision >= 0 && job.Revision >= 1 && job.Profile is ("draft" or "project" or "final") &&
+        job.State is ("running" or "stopping" or "completed" or "cancelled" or "failed" or "interrupted") &&
+        IsHash(job.ProjectFingerprint) && IsHash(job.RequestSha256) &&
+        job.Frames > 0 && job.RangeStart is not < 0 && (long)(job.RangeStart ?? 0) + job.Frames <= int.MaxValue &&
+        double.IsFinite(job.Fps) && job.Fps is > 0 and <= 240 &&
+        job.ProgressPercent is not (< 0 or > 100) && ValidArtifact(job);
 
     private static bool ValidArtifact(BackendExportStatus job) => job.State == "completed"
         ? job.ArtifactSizeBytes is > 0 and <= BackendExportJobs.MaxArtifactSize && IsHash(job.ArtifactSha256)

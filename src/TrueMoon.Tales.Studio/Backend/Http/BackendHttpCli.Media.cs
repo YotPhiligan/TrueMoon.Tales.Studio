@@ -26,7 +26,7 @@ internal static partial class BackendHttpCli
             return true;
         }
         if (!options.Remove("--frame", out var number) || !int.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var frame) ||
-            !options.Remove("--output", out var destination) || options.Count != 0 || !TryNewPngPath(destination, out output))
+            !options.Remove("--output", out var destination) || options.Count != 0 || !TryNewOutputPath(destination, ".png", out output))
             return false;
         route = BackendHttpServer.FrameRoute;
         content = JsonContent.Create(new BackendHttpFrameQuery
@@ -58,7 +58,14 @@ internal static partial class BackendHttpCli
         try { png = EncodePng(reply); }
         catch (Exception error) when (error is InvalidDataException or DllNotFoundException or TypeInitializationException or EntryPointNotFoundException)
         { return Fail("frame_encode_failed", "Не удалось преобразовать кадр в PNG."); }
-        try { await PublishPngAsync(output, png, token).ConfigureAwait(false); }
+        try
+        {
+            await PublishOutputAsync(output, ".studio-frame-", async file =>
+            {
+                await file.WriteAsync(png, token).ConfigureAwait(false);
+                return 0;
+            }, token).ConfigureAwait(false);
+        }
         catch (IOException) when (Path.Exists(output))
         { return Fail("output_exists", "По указанному пути уже есть файл или каталог."); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -75,43 +82,6 @@ internal static partial class BackendHttpCli
         return 0;
     }
 
-    private static bool TryNewPngPath(string value, out string? path)
-    {
-        path = null;
-        if (string.IsNullOrWhiteSpace(value)) return false;
-        try
-        {
-            if (value.StartsWith("~/", StringComparison.Ordinal) || OperatingSystem.IsWindows() && value.StartsWith("~\\", StringComparison.Ordinal))
-                value = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), value[2..]);
-            if (OperatingSystem.IsWindows())
-            {
-                value = value.Replace('/', '\\');
-                if (value.StartsWith(@"\\.\", StringComparison.Ordinal) || value.StartsWith(@"\\?\", StringComparison.Ordinal) ||
-                    value.EndsWith(' ') || value.EndsWith('.'))
-                    return false;
-            }
-            var candidate = Path.GetFullPath(value);
-            if (!Path.GetExtension(candidate).Equals(".png", StringComparison.OrdinalIgnoreCase) ||
-                !Directory.Exists(Path.GetDirectoryName(candidate)) || Path.Exists(candidate))
-                return false;
-            if (OperatingSystem.IsWindows())
-            {
-                var relative = candidate.AsSpan(Path.GetPathRoot(candidate)!.Length);
-                var file = Path.GetFileName(candidate);
-                var stem = file[..file.IndexOf('.')].TrimEnd(' ').ToUpperInvariant();
-                if (relative.Contains(':') || file.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
-                    stem is "CON" or "PRN" or "AUX" or "NUL" ||
-                    stem.Length == 4 && (stem.StartsWith("COM", StringComparison.Ordinal) || stem.StartsWith("LPT", StringComparison.Ordinal)) &&
-                    "0123456789¹²³".Contains(stem[3]))
-                    return false;
-            }
-            path = candidate;
-            return true;
-        }
-        catch (Exception error) when (error is IOException or ArgumentException or NotSupportedException or UnauthorizedAccessException)
-        { return false; }
-    }
-
     private static byte[] EncodePng(BackendMediaReply frame)
     {
         SkiaNativeLibrary.Initialize();
@@ -123,24 +93,5 @@ internal static partial class BackendHttpCli
         using var encoded = bitmap.Encode(SKEncodedImageFormat.Png, 100) ??
             throw new InvalidDataException("Could not encode the backend frame as PNG.");
         return encoded.ToArray();
-    }
-
-    private static async Task PublishPngAsync(string output, byte[] png, CancellationToken token)
-    {
-        var stage = Path.Combine(Path.GetDirectoryName(output)!, $".studio-frame-{Guid.NewGuid():N}.tmp");
-        var created = false;
-        try
-        {
-            await using (var file = new FileStream(stage, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous))
-            {
-                created = true;
-                await file.WriteAsync(png, token).ConfigureAwait(false);
-                file.Flush(flushToDisk: true);
-            }
-            token.ThrowIfCancellationRequested();
-            File.Move(stage, output);
-            created = false;
-        }
-        finally { if (created) File.Delete(stage); }
     }
 }

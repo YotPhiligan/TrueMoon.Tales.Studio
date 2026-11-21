@@ -3348,7 +3348,7 @@ public sealed class BackendExportEndToEndTests
     }
 
     [BackendMediaFact]
-    public async Task Export_TrimmedMontageViaCli_DownloadsVerifiedMp4_AndRecoversAfterRestart()
+    public async Task Export_TrimmedMontageViaNativeCli_DownloadsVerifiedMp4_AndRecoversAfterRestart()
     {
         using var files = new ExportFixture();
         await files.PrepareAsync();
@@ -3364,6 +3364,9 @@ public sealed class BackendExportEndToEndTests
             Assert.Equal(13, saved.Project.Revision);
             var projectBytes = File.ReadAllBytes(files.ProjectPath);
             var history = files.History();
+            await session.AssertCliConflictAsync("revision_conflict", "backend-export-start", "--client-key", "trimmed-export-stale",
+                "--profile", "project", "--revision", "13", "--sha256", opened.Fingerprint);
+            Assert.Empty(files.Requests());
             var start = await session.CliAsync("backend-export-start", "--client-key", "trimmed-export-first",
                 "--profile", "project", "--revision", "13", "--sha256", saved.Fingerprint);
             id = start["id"]!.GetValue<string>();
@@ -3392,13 +3395,18 @@ public sealed class BackendExportEndToEndTests
                 "--profile", "project", "--revision", "13", "--sha256", saved.Fingerprint);
             Assert.Equal(id, same["id"]!.GetValue<string>());
             Assert.Single(files.Requests());
-            var result = await session.UntilAsync(id, row => row["state"]!.GetValue<string>() != "running", jobDirectory);
+            await session.UntilAsync(id, row => row["state"]!.GetValue<string>() != "running", jobDirectory);
+            var result = await session.CliAsync("backend-export-status", "--id", id);
             Assert.True(result["state"]!.GetValue<string>() == "completed", FailureDetails(jobDirectory, result));
             Assert.Equal(13, result["project_revision"]!.GetValue<int>());
             Assert.Equal(72, result["frames"]!.GetValue<int>());
             sha = result["artifact_sha256"]!.GetValue<string>();
-            var output = Path.Combine(files.Files.Files.Root, "verified.mp4");
-            await session.CliAsync("backend-export-download", "--id", id, "--sha256", sha, "--output", output);
+            var output = Path.Combine(files.Files.Files.Root, "Проверенный экспорт.mp4");
+            var receipt = await session.CliAsync("backend-export-download", "--id", id, "--sha256", sha, "--output", output);
+            Assert.Equal(id, receipt["id"]!.GetValue<string>());
+            Assert.Equal(output, receipt["output_path"]!.GetValue<string>());
+            Assert.Equal(sha, receipt["artifact_sha256"]!.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(result["artifact_size_bytes"]!.GetValue<long>(), receipt["artifact_size_bytes"]!.GetValue<long>());
             Assert.Equal(result["artifact_size_bytes"]!.GetValue<long>(), new FileInfo(output).Length);
             Assert.Equal(sha, Hash(File.ReadAllBytes(output)), StringComparer.OrdinalIgnoreCase);
             await files.AssertMediaAsync(output);
@@ -3408,7 +3416,7 @@ public sealed class BackendExportEndToEndTests
 
         await using (var session = await files.OpenAsync())
         {
-            var recovered = await session.CliAsync("backend-export-recover", "--id", id);
+            var recovered = await session.PostAsync("export-recover", new { id });
             Assert.Equal("completed", recovered["state"]!.GetValue<string>());
             Assert.Equal(sha, recovered["artifact_sha256"]!.GetValue<string>());
             Assert.Equal(requestHash, recovered["request_sha256"]!.GetValue<string>());
@@ -3432,7 +3440,7 @@ public sealed class BackendExportEndToEndTests
     [BackendMediaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Export_ActiveWorkerIsReaped_AndJobDoesNotReplay(bool crash)
+    public async Task Export_ActiveWorkerIsReaped_AfterNativeCliCancelOrCrash_AndJobDoesNotReplay(bool crash)
     {
         using var files = new ExportFixture(longRender: true);
         await files.PrepareAsync();
@@ -3444,11 +3452,8 @@ public sealed class BackendExportEndToEndTests
         await using (var session = await files.OpenAsync())
         {
             var observed = await session.Connection.OpenAsync();
-            var started = await session.PostAsync("export-start", new
-            {
-                client_key = "shutdown-test-export", profile = "project",
-                expected_revision = observed.Project.Revision, fingerprint = observed.Fingerprint
-            });
+            var started = await session.CliAsync("backend-export-start", "--client-key", "shutdown-test-export",
+                "--profile", "project", "--revision", "12", "--sha256", observed.Fingerprint);
             id = started["id"]!.GetValue<string>();
             jobDirectory = files.JobDirectory(id);
             request = File.ReadAllBytes(Path.Combine(jobDirectory, "Request.json"));
@@ -3460,7 +3465,7 @@ public sealed class BackendExportEndToEndTests
                     Assert.Fail(FailureDetails(jobDirectory, status));
                 await Task.Delay(20);
             }
-            var active = await session.PostAsync("export-status", new { id });
+            var active = await session.CliAsync("backend-export-status", "--id", id);
             Assert.True(File.Exists(Path.Combine(jobDirectory, "Video.mp4")), FailureDetails(jobDirectory, active));
             Assert.Equal("running", active["state"]!.GetValue<string>());
             if (crash)
@@ -3475,11 +3480,16 @@ public sealed class BackendExportEndToEndTests
             }
             else
             {
-                using var stale = await session.RawAsync("export-cancel", new { id, expected_job_revision = active["revision"]!.GetValue<long>() + 1 });
-                Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
-                await session.CliAsync("backend-export-cancel", "--id", id, "--job-revision",
-                    active["revision"]!.GetValue<long>().ToString(System.Globalization.CultureInfo.InvariantCulture));
-                var cancelled = await session.UntilAsync(id, row => row["state"]!.GetValue<string>() == "cancelled", jobDirectory);
+                var revision = active["revision"]!.GetValue<long>();
+                await session.AssertCliConflictAsync("export_conflict", "backend-export-cancel", "--id", id,
+                    "--job-revision", (revision + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                Assert.Equal("running", (await session.CliAsync("backend-export-status", "--id", id))["state"]!.GetValue<string>());
+                var stopping = await session.CliAsync("backend-export-cancel", "--id", id, "--job-revision",
+                    revision.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                Assert.Equal("stopping", stopping["state"]!.GetValue<string>());
+                await session.UntilAsync(id, row => row["state"]!.GetValue<string>() == "cancelled", jobDirectory);
+                var cancelled = await session.CliAsync("backend-export-status", "--id", id);
+                Assert.Equal("cancelled", cancelled["state"]!.GetValue<string>());
                 Assert.Null(cancelled["artifact_sha256"]);
                 await WaitForWorkerLockAsync(jobDirectory, deadline.Token);
             }
@@ -3487,7 +3497,7 @@ public sealed class BackendExportEndToEndTests
 
         await using (var session = await files.OpenAsync())
         {
-            var recovered = await session.CliAsync("backend-export-recover", "--id", id);
+            var recovered = await session.PostAsync("export-recover", new { id });
             Assert.Equal(crash ? "interrupted" : "cancelled", recovered["state"]!.GetValue<string>());
             var repeated = await session.CliAsync("backend-export-start", "--client-key", "shutdown-test-export", "--profile", "project",
                 "--revision", "12", "--sha256", recovered["project_fingerprint"]!.GetValue<string>());
@@ -3806,10 +3816,22 @@ public sealed class BackendExportEndToEndTests
 
         internal async Task<JsonNode> CliAsync(params string[] args)
         {
-            using var cli = new Support.BackendCliProcess(Http.Address, Http.Token, args);
+            using var cli = Support.BackendCliProcess.Native(Http.Address, Http.Token, args);
             var result = await cli.WaitAsync();
             Assert.True(result.Code == 0, result.Error);
             return JsonNode.Parse(result.Output)!;
+        }
+
+        internal async Task AssertCliConflictAsync(string error, params string[] args)
+        {
+            using var cli = Support.BackendCliProcess.Native(Http.Address, Http.Token, args);
+            var result = await cli.WaitAsync();
+            Assert.Equal(3, result.Code);
+            Assert.Empty(result.Output);
+            var failure = JsonNode.Parse(result.Error)!;
+            Assert.Equal(error, failure["error"]!.GetValue<string>());
+            Assert.True(failure["reconciliation_required"]!.GetValue<bool>());
+            Assert.False(failure["automatic_retry"]!.GetValue<bool>());
         }
 
         internal async Task<JsonNode> UntilAsync(string id, Func<JsonNode, bool> predicate, string jobDirectory)

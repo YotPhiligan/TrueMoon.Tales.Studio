@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using SkiaSharp;
 using TrueMoon.Alloy.Rendering.Skia;
 using TrueMoon.Tales.Studio.Backend;
+using TrueMoon.Tales.Studio.Backend.Export;
 using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Persistence;
 using TrueMoon.Tales.Studio.Tests.Persistence;
@@ -230,6 +231,137 @@ public sealed class BackendNativeCliTests
             Assert.Equal(1, Volatile.Read(ref count));
             Assert.Equal(HttpMethods.Post, method);
             Assert.Equal(BackendHttpServer.MoveRoute, route);
+        });
+    }
+
+    [Theory]
+    [InlineData("ok", 0, null)]
+    [InlineData("running", 3, "export_not_ready")]
+    [InlineData("foreign-sha", 3, "export_not_ready")]
+    [InlineData("wrong-id", 1, "invalid_response")]
+    [InlineData("wrong-type", 1, "invalid_response")]
+    [InlineData("short", 1, "invalid_response")]
+    [InlineData("corrupt", 1, "artifact_sha_mismatch")]
+    [InlineData("collision", 1, "output_exists")]
+    public async Task NativeExportDownload_StreamsExactPartsAndPublishesOnlyVerifiedBytes(string mode, int code, string? error)
+    {
+        using var files = new PersistenceFixture();
+        var output = Path.Combine(files.Root, "Экспорт с пробелом.mp4");
+        var id = BackendExportJobs.JobId("studio-export-test");
+        var bytes = new byte[2 * BackendExportJobs.ChunkSize + 8];
+        new Random(118).NextBytes(bytes);
+        var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        var existing = new byte[] { 7, 18, 34 };
+        List<long> offsets = [];
+        var statusCount = 0;
+        await WithStubAsync(async context =>
+        {
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            Assert.Equal(Fingerprint, context.Request.Headers["X-Studio-Token"].ToString());
+            using var request = await JsonDocument.ParseAsync(context.Request.Body);
+            Assert.Equal(id, request.RootElement.GetProperty("id").GetString());
+            if (context.Request.Path == BackendHttpServer.ExportStatusRoute)
+            {
+                Interlocked.Increment(ref statusCount);
+                var job = mode == "running"
+                    ? new BackendExportStatus(1, id, "project", 12, Fingerprint, "draft", 1, "running", Fingerprint, 72, 24)
+                    : new BackendExportStatus(1, mode == "wrong-id" ? BackendExportJobs.JobId("other-project-test") : id,
+                        "project", 12, Fingerprint, "draft", 2, "completed", Fingerprint, 72, 24,
+                        bytes.Length, mode == "foreign-sha" ? Fingerprint : sha, ProgressPercent: 100);
+                await context.Response.WriteAsJsonAsync(job, BackendHttpServer.Json);
+                return;
+            }
+            Assert.Equal(BackendHttpServer.ExportChunkRoute, context.Request.Path.Value);
+            Assert.Equal(sha, request.RootElement.GetProperty("artifact_sha256").GetString());
+            var offset = request.RootElement.GetProperty("offset").GetInt32();
+            lock (offsets) offsets.Add(offset);
+            Assert.False(File.Exists(output));
+            var chunk = bytes.AsMemory(offset, Math.Min(BackendExportJobs.ChunkSize, bytes.Length - offset));
+            var last = offset + chunk.Length == bytes.Length;
+            context.Response.ContentType = last && mode == "wrong-type" ? "text/plain" : "application/octet-stream";
+            context.Response.ContentLength = chunk.Length;
+            if (last && mode == "collision")
+                File.WriteAllBytes(output, existing);
+            if (last && mode == "short")
+            {
+                await context.Response.Body.WriteAsync(chunk[..^1]);
+                await context.Response.Body.FlushAsync();
+                context.Abort();
+                return;
+            }
+            if (last && mode == "corrupt") chunk = new byte[chunk.Length];
+            await context.Response.Body.WriteAsync(chunk);
+        }, async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, "backend-export-download", "--id", id, "--sha256", sha, "--output", output);
+            Assert.Equal(1, Volatile.Read(ref statusCount));
+            long[] seen;
+            lock (offsets) seen = offsets.ToArray();
+            long[] expected = mode is "running" or "foreign-sha" or "wrong-id" ? [] : [0, BackendExportJobs.ChunkSize, 2 * BackendExportJobs.ChunkSize];
+            Assert.Equal(expected, seen);
+            Assert.Empty(Directory.GetFiles(files.Root, ".studio-export-*.tmp"));
+            if (error is not null)
+            {
+                AssertError(result, code, error, reconcile: false);
+                if (mode == "collision") Assert.Equal(existing, File.ReadAllBytes(output));
+                else Assert.False(File.Exists(output));
+                return;
+            }
+            Assert.True(result.Code == 0, result.Error);
+            using var receipt = JsonDocument.Parse(result.Output);
+            Assert.Equal(sha, receipt.RootElement.GetProperty("artifact_sha256").GetString());
+            Assert.Equal(bytes.LongLength, receipt.RootElement.GetProperty("artifact_size_bytes").GetInt64());
+            Assert.Equal(bytes, File.ReadAllBytes(output));
+        });
+    }
+
+    [Fact]
+    public async Task NativeExportDownload_RejectsExistingDestinationBeforeSendingARequest()
+    {
+        using var files = new PersistenceFixture();
+        var output = Path.Combine(files.Root, "Existing.mp4");
+        File.WriteAllBytes(output, [42]);
+        var result = await RunAsync(new Uri("http://127.0.0.1:1/"), Fingerprint, "backend-export-download",
+            "--id", BackendExportJobs.JobId("studio-export-test"), "--sha256", Fingerprint, "--output", output);
+        AssertError(result, 2, "invalid_arguments", reconcile: false);
+        Assert.Equal(new byte[] { 42 }, File.ReadAllBytes(output));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeExportMutation_LostReplyIdentifiesJobWithoutReplay(bool cancel)
+    {
+        const string key = "lost-reply-export";
+        var id = BackendExportJobs.JobId(key);
+        var requests = 0;
+        await WithStubAsync(async context =>
+        {
+            Interlocked.Increment(ref requests);
+            Assert.Equal(cancel ? BackendHttpServer.ExportCancelRoute : BackendHttpServer.ExportStartRoute, context.Request.Path.Value);
+            using var request = await JsonDocument.ParseAsync(context.Request.Body);
+            if (cancel)
+            {
+                Assert.Equal(id, request.RootElement.GetProperty("id").GetString());
+                Assert.Equal(2, request.RootElement.GetProperty("expected_job_revision").GetInt64());
+            }
+            else
+            {
+                Assert.Equal(key, request.RootElement.GetProperty("client_key").GetString());
+                Assert.Equal(12, request.RootElement.GetProperty("expected_revision").GetInt64());
+                Assert.Equal(Fingerprint, request.RootElement.GetProperty("fingerprint").GetString());
+                Assert.Equal("final", request.RootElement.GetProperty("profile").GetString());
+            }
+            context.Abort();
+        }, async address =>
+        {
+            string[] args = cancel ? ["backend-export-cancel", "--id", id, "--job-revision", "2"] :
+                ["backend-export-start", "--client-key", key, "--revision", "12", "--sha256", Fingerprint, "--profile", "final"];
+            var result = await RunAsync(address, Fingerprint, args);
+            AssertError(result, 1, "backend_unavailable", reconcile: true);
+            using var failure = JsonDocument.Parse(result.Error);
+            Assert.Contains($"backend-export-status --id {id}", failure.RootElement.GetProperty("message").GetString());
+            Assert.Equal(1, Volatile.Read(ref requests));
         });
     }
 

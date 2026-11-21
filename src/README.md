@@ -87,6 +87,8 @@ loopback API, `--with-ui` подключает окно к тому же writer.
 `backend-trim`, `backend-media` и `backend-frame`. Правки и запросы
 медиа используют ожидаемую ревизию и SHA.
 [Примеры команд C# CLI](Verification/BackendHttp.md#studio-native-cli).
+Запуск, статус, отмена и скачивание CPU-экспорта MP4 доступны из того же EXE.
+[Настройка и команды экспорта](Verification/BackendExport.md#native-export-cli).
 Все роли C# EXE требуют .NET11 **и ASP.NET Core11 runtime**; новых NuGet-пакетов нет.
 [Контракт, запуск и проверки](Verification/BackendHttp.md).
 

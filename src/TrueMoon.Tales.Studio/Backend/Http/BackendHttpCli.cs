@@ -17,6 +17,10 @@ internal static partial class BackendHttpCli
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
           backend-frame --url <url> --asset <id> --frame <номер> --revision <номер> --sha256 <fingerprint> --output <новый PNG>
+          backend-export-start --url <url> --client-key <key> --profile <draft|project|final> --revision <номер> --sha256 <fingerprint>
+          backend-export-status --url <url> --id <id>
+          backend-export-cancel --url <url> --id <id> --job-revision <номер>
+          backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output <новый MP4>
         Токен передаётся через STUDIO_BACKEND_HTTP_TOKEN или --token.
         """;
     private const string ProjectCommand = "backend-project", MoveCommand = "backend-move", TrimCommand = "backend-trim";
@@ -25,31 +29,45 @@ internal static partial class BackendHttpCli
     private const int MaxErrorBytes = 4096;
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
-    internal static bool Handles(string? command) => command is ProjectCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand;
+    internal static bool Handles(string? command) => command is ProjectCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
+        IsExportCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
     {
         if (args is [_, "--help"]) { Console.WriteLine(Usage); return 0; }
-        if (!TryRequest(args, out var request, out var output)) return Fail("invalid_arguments", Usage, exitCode: 2);
+        if (!TryRequest(args, out var request, out var secret, out var output, out var artifactSha))
+            return Fail("invalid_arguments", Usage, exitCode: 2);
 
         using (request)
         using (var client = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }))
         using (var interrupt = new CancellationTokenSource())
         using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(interrupt.Token))
         {
-            deadline.CancelAfter(TimeSpan.FromSeconds(15));
-            var token = deadline.Token;
+            client.DefaultRequestHeaders.ConnectionClose = true;
+            client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
+            deadline.CancelAfter(RequestTimeout);
             var payload = (request.Content as JsonContent)?.Value;
-            var write = payload is BackendHttpMove or BackendHttpTrim;
+            var write = payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody;
+            var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
+            var hint = ExportReconciliationHint(payload);
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
             Console.CancelKeyPress += Cancel;
             try
             {
+                var token = deadline.Token;
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.OK)
-                    return await HttpFailureAsync(response, write, token).ConfigureAwait(false);
-                using var json = await ReadJsonAsync(response.Content, MaxSnapshotBytes, token).ConfigureAwait(false);
+                    return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
+                using var json = await ReadJsonAsync(response.Content, export ? MaxExportStatusBytes : MaxSnapshotBytes, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
+                if (export)
+                {
+                    var job = ReadExportStatus(snapshot, payload!);
+                    if (artifactSha is not null)
+                        return await DownloadExportAsync(client, request.RequestUri!, job, artifactSha, output!, interrupt.Token).ConfigureAwait(false);
+                    Console.WriteLine(snapshot.GetRawText());
+                    return 0;
+                }
                 if (payload is BackendHttpMediaQuery media)
                     return await WriteMediaResultAsync(snapshot, media, output, token).ConfigureAwait(false);
                 var project = ReadProject(snapshot, out var fingerprint);
@@ -58,21 +76,25 @@ internal static partial class BackendHttpCli
                 return 0;
             }
             catch (OperationCanceledException) when (interrupt.IsCancellationRequested)
-            { return Fail("cancelled", "Операция отменена.", write, exitCode: 130); }
+            { return Fail("cancelled", "Операция отменена.", write, exitCode: 130, hint: hint); }
             catch (OperationCanceledException)
-            { return Fail("deadline_exceeded", "Истекло время ожидания ответа backend.", write); }
+            { return Fail("deadline_exceeded", "Истекло время ожидания ответа backend.", write, hint: hint); }
             catch (Exception error) when (error is HttpRequestException or IOException)
-            { return Fail("backend_unavailable", "Ответ backend не получен полностью.", write); }
+            { return Fail("backend_unavailable", "Ответ backend не получен полностью.", write, hint: hint); }
             catch (Exception error) when (error is JsonException or InvalidDataException or NotSupportedException or InvalidOperationException)
-            { return Fail("invalid_response", "Получен недостоверный ответ backend.", write); }
+            { return Fail("invalid_response", "Получен недостоверный ответ backend.", write, hint: hint); }
             finally { Console.CancelKeyPress -= Cancel; }
         }
     }
 
-    private static bool TryRequest(string[] args, out HttpRequestMessage request, out string? output)
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+
+    private static bool TryRequest(string[] args, out HttpRequestMessage request, out string? secret, out string? output, out string? artifactSha)
     {
         request = null!;
+        secret = null;
         output = null;
+        artifactSha = null;
         var command = args[0];
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
         if (args.Length % 2 != 1) return false;
@@ -84,15 +106,19 @@ internal static partial class BackendHttpCli
 
         if (!options.Remove("--url", out var url) || !TryAddress(url, out var address)) return false;
         options.Remove("--token", out var supplied);
-        var secret = supplied ?? Environment.GetEnvironmentVariable("STUDIO_BACKEND_HTTP_TOKEN");
+        secret = supplied ?? Environment.GetEnvironmentVariable("STUDIO_BACKEND_HTTP_TOKEN");
         if (!BackendConnection.IsHash(secret)) return false;
 
         var route = BackendHttpServer.ProjectRoute;
         HttpContent? content = null;
-        if (command != ProjectCommand)
+        if (IsExportCommand(command))
         {
-            if (!options.Remove("--revision", out var number) || !long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out var revision) ||
-                !options.Remove("--sha256", out var fingerprint) || !BackendConnection.IsHash(fingerprint))
+            if (!TryExportRequest(command, options, out route, out content, out output, out artifactSha))
+                return false;
+        }
+        else if (command != ProjectCommand)
+        {
+            if (!TryBaseline(options, out var revision, out var fingerprint))
                 return false;
             if (command is MediaCommand or FrameCommand)
             {
@@ -103,9 +129,15 @@ internal static partial class BackendHttpCli
         else if (options.Count != 0) return false;
 
         request = new HttpRequestMessage(content is null ? HttpMethod.Get : HttpMethod.Post, new Uri(address, route)) { Content = content };
-        request.Headers.ConnectionClose = true;
-        request.Headers.Add("X-Studio-Token", secret);
         return true;
+    }
+
+    private static bool TryBaseline(Dictionary<string, string> options, out long revision, out string fingerprint)
+    {
+        revision = 0;
+        fingerprint = options.Remove("--sha256", out var sha) ? sha : "";
+        return BackendConnection.IsHash(fingerprint) && options.Remove("--revision", out var number) &&
+            long.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out revision);
     }
 
     private static bool TryEditRequest(string command, Dictionary<string, string> options, long revision, string fingerprint,
@@ -205,7 +237,7 @@ internal static partial class BackendHttpCli
         }
     }
 
-    private static async Task<int> HttpFailureAsync(HttpResponseMessage response, bool write, CancellationToken token)
+    private static async Task<int> HttpFailureAsync(HttpResponseMessage response, bool write, CancellationToken token, string? hint = null)
     {
         var status = (int)response.StatusCode;
         var code = "backend_http_error";
@@ -222,12 +254,12 @@ internal static partial class BackendHttpCli
             }
         }
         catch (Exception error) when (error is JsonException or InvalidDataException or IOException) { }
-        return Fail(code, $"Backend вернул HTTP {status}.", reconcile, status, status == 409 ? 3 : 1);
+        return Fail(code, $"Backend вернул HTTP {status}.", reconcile, status, status == 409 ? 3 : 1, hint);
     }
 
-    private static int Fail(string error, string message, bool reconcile = false, int? status = null, int exitCode = 1)
+    private static int Fail(string error, string message, bool reconcile = false, int? status = null, int exitCode = 1, string? hint = null)
     {
-        if (reconcile) message += " Перечитайте проект через backend-project и сверьте ревизию и SHA.";
+        if (reconcile) message += hint ?? " Перечитайте проект через backend-project и сверьте ревизию и SHA.";
         Console.Error.WriteLine(JsonSerializer.Serialize(new
         {
             error, message, status, reconciliation_required = reconcile, automatic_retry = false

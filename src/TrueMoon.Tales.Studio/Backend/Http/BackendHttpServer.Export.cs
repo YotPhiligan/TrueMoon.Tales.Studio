@@ -55,7 +55,7 @@ internal sealed partial class BackendHttpServer
         await context.Response.WriteAsJsonAsync(job, Json, token).ConfigureAwait(false);
     }
 
-    private sealed class ExportStartBody
+    internal sealed class ExportStartBody
     {
         public required string ClientKey { get; init; }
         public required string Profile { get; init; }
@@ -66,18 +66,18 @@ internal sealed partial class BackendHttpServer
             ExpectedRevision >= 0 && BackendConnection.IsHash(Fingerprint);
     }
 
-    private class ExportIdBody
+    internal class ExportIdBody
     {
         public required string Id { get; init; }
         internal bool Valid => BackendConnection.IsExportId(Id);
     }
 
-    private sealed class ExportCancelBody : ExportIdBody
+    internal sealed class ExportCancelBody : ExportIdBody
     {
         public required long ExpectedJobRevision { get; init; }
     }
 
-    private sealed class ExportChunkBody : ExportIdBody
+    internal sealed class ExportChunkBody : ExportIdBody
     {
         public required string ArtifactSha256 { get; init; }
         public required long Offset { get; init; }

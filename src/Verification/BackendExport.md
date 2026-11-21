@@ -21,18 +21,21 @@ HTTPv1, schema2 и ProjectContractv1. Экспорт идёт в том же bac
 выбирается на стороне клиента. Найти конфигурацию schema2 и правила запуска
 можно в [приёмке HTTP/CLI](BackendHttp.md#cli-и-запуск).
 
-## Цикл задания
+<a id="native-export-cli"></a>
+## Цикл задания в C# CLI
+
+Запуск, статус, отмена и скачивание доступны из EXE начиная с
+**1.2611.21.14-alpha**.
 
 Сначала прочитайте сохранённый проект через `backend-project`. Используйте
 его `project.revision` и `fingerprint`. Создайте уникальный ключ из 16–80
 ASCII-букв, цифр, знаков `_` и `-`. Команды ниже принимают `--url <url>`.
 
 ```text
-python studio_agent.py backend-export-start --url <url> --client-key <key> --profile project --revision <revision> --sha256 <project-sha>
-python studio_agent.py backend-export-status --url <url> --id <id>
-python studio_agent.py backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output result.mp4
-python studio_agent.py backend-export-cancel --url <url> --id <id> --job-revision <status-revision>
-python studio_agent.py backend-export-recover --url <url> --id <id>
+.\TrueMoon.Tales.Studio.exe backend-export-start --url <url> --client-key <key> --profile project --revision <revision> --sha256 <project-sha>
+.\TrueMoon.Tales.Studio.exe backend-export-status --url <url> --id <id>
+.\TrueMoon.Tales.Studio.exe backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output result.mp4
+.\TrueMoon.Tales.Studio.exe backend-export-cancel --url <url> --id <id> --job-revision <status-revision>
 ```
 
 - `export-start` фиксирует exact-byte SHA и ревизию сохранённого проекта,
@@ -43,15 +46,18 @@ python studio_agent.py backend-export-recover --url <url> --id <id>
   метаданные размера, числа кадров, fps и `artifact_sha256`. Отмена меняет
   `running` на `stopping`, затем на `cancelled` после остановки.
   Устаревшая ревизия статуса вызывает 409, после которого нужно прочитать
-  актуальный статус. Один активный CPU worker на `exports_root`.
-- После перезапуска `export-recover` явно сверяет SHA запроса, квитанцию,
+  актуальный статус. При потере ответа CLI показывает ID для
+  `backend-export-status`. Один активный CPU worker на `exports_root`.
+- После перезапуска `python studio_agent.py backend-export-recover --url <url> --id <id>`
+  (маршрут HTTP `export-recover`) явно сверяет SHA запроса, квитанцию,
   доказательство завершения и фактические байты MP4. Завершённый результат
   подтверждается, повреждённый получает `failed`, прерванный без результата
   — `interrupted`. Recovery и повтор того же ключа не запускают CPU worker.
   Для нового запуска нужен новый ключ.
 - HTTP отдаёт байты только для `completed` с совпадающим SHA. CLI собирает
   файл из частей до 256 КиБ, проверяет размер и SHA-256, затем публикует новый
-  файл. Существующий файл назначения защищён от перезаписи.
+  файл в существующей папке. Существующий файл защищён от перезаписи.
+  Квитанция возвращает ID, размер, SHA-256 и полный путь.
 
 Типовые отказы HTTP — 409 при конфликте baseline, ключа или ревизии
 статуса, 422 для неподдерживаемого монтажа, 429 при занятом CPU worker,

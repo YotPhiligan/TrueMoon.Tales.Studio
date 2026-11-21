@@ -20,9 +20,12 @@
 - **C# CLI.** Чтение schema2, перенос и обрезка клипа опубликованы в
   `origin/main` коммитом `8940116` (**1.2611.21.12-alpha**).
   [Команды и проверки](#studio-native-cli).
-- **Медиа из CLI.** В рабочей копии **1.2611.21.13-alpha** тот же EXE читает
-  метаданные ассета и сохраняет выбранный кадр в PNG через общую сессию
-  backend. [Проверки](#studio-native-media-cli).
+- **Медиа из CLI.** Выдача метаданных и кадра в PNG опубликована в
+  `origin/main` коммитом `89b1224` (**1.2611.21.13-alpha**).
+  [Проверки](#studio-native-media-cli).
+- **CPU-экспорт из CLI.** В рабочей копии **1.2611.21.14-alpha** тот же EXE
+  запускает экспорт, читает статус, отменяет задание и скачивает MP4 после
+  сверки SHA-256. [Проверки](#studio-native-export-cli).
 - **Рабочий просмотр.** Одноразовые MP4 диапазона и аниматика хранятся в
   `%TEMP%\TrueMoon.Tales\Studio`. Постоянные каталоги текущего профиля
   перенесены в AppData. [Перенос и проверки](#studio-review-temp).
@@ -94,6 +97,35 @@ loopback HTTP и отдельный процесс EXE. Полный Release-п�
 886 пройденных, 5 пропущенных и 0 упавших тестов. В этом прогоне пропущены
 отдельные проверки нативного окна, Windows-ссылок и интеграционных фикстур.
 TRX и raster сохранены в `src/.local/native-media-cli-20261121/`.
+
+<a id="studio-native-export-cli"></a>
+## CPU-экспорт из C# CLI, 21.11.2026
+
+Версия **1.2611.21.14-alpha** добавляет `backend-export-start`,
+`backend-export-status`, `backend-export-cancel` и `backend-export-download`.
+Запуск передаёт ключ и базовую ревизию и SHA проекта. Отмена использует
+отдельную ревизию задания. При потере ответа CLI предлагает проверить статус
+по ID задания. Скачивание сверяет статус `completed`, размер каждой части
+до 256 КиБ и SHA-256 всего файла. После проверки CLI публикует MP4 под новым
+именем и печатает квитанцию с путём, размером и SHA.
+
+HTTPv1 и Enerit используют прежние контракты. Явное восстановление задания
+доступно по HTTP и через Python CLI. Рендер выполняет существующий Python
+CPU worker. [Команды и настройка](src/Verification/BackendExport.md#native-export-cli).
+
+| Проверка | Сценарий |
+|---|---|
+| Старт с ревизией/SHA, один запрос рендера на ключ, статус, скачивание, H.264/AAC, 72 кадра и PCM | `Export_TrimmedMontageViaNativeCli_DownloadsVerifiedMp4_AndRecoversAfterRestart` |
+| Конфликт ревизии задания, отмена, освобождение воркера, recovery без повторного рендера | `Export_ActiveWorkerIsReaped_AfterNativeCliCancelOrCrash_AndJobDoesNotReplay` |
+| Последовательные смещения, SHA, оборванная часть и конкурентное создание файла | `NativeExportDownload_StreamsExactPartsAndPublishesOnlyVerifiedBytes` |
+| Существующий файл назначения, потеря ответа запуска или отмены | `NativeExportDownload_RejectsExistingDestinationBeforeSendingARequest`, `NativeExportMutation_LostReplyIdentifiesJobWithoutReplay` |
+
+Целевой Release-прогон дал 34 пройденных теста. Полный прогон
+`dotnet test TrueMoon.Tales.Studio.slnx -c Release --no-restore` дал
+897 пройденных, 5 пропущенных и 0 упавших. FFprobe и FFmpeg подтвердили
+H.264/AAC, 72 кадра при 24 fps, ожидаемые участки изображения и звук на
+синтетическом проекте. TRX, журналы и raster сохранены в
+`src/.local/native-export-cli-20261121/`.
 
 <a id="studio-full-transfer-storage"></a>
 ## Публикация и удаление дублей Full Transfer, 21.11.2026
