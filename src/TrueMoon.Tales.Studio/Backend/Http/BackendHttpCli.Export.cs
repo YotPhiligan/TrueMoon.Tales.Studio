@@ -11,11 +11,12 @@ namespace TrueMoon.Tales.Studio.Backend.Http;
 internal static partial class BackendHttpCli
 {
     private const string ExportStartCommand = "backend-export-start", ExportStatusCommand = "backend-export-status",
-        ExportCancelCommand = "backend-export-cancel", ExportDownloadCommand = "backend-export-download";
+        ExportCancelCommand = "backend-export-cancel", ExportRecoverCommand = "backend-export-recover",
+        ExportDownloadCommand = "backend-export-download";
     private const int MaxExportStatusBytes = BackendExportStorage.MaxStatusBytes;
 
     private static bool IsExportCommand(string? command) =>
-        command is ExportStartCommand or ExportStatusCommand or ExportCancelCommand or ExportDownloadCommand;
+        command is ExportStartCommand or ExportStatusCommand or ExportCancelCommand or ExportRecoverCommand or ExportDownloadCommand;
 
     private static bool TryExportRequest(string command, Dictionary<string, string> options, out string route,
         out HttpContent? content, out string? output, out string? artifactSha)
@@ -49,6 +50,7 @@ internal static partial class BackendHttpCli
              !options.Remove("--output", out var destination) || !TryNewOutputPath(destination, ".mp4", out output)))
             return false;
         if (options.Count != 0) return false;
+        if (command == ExportRecoverCommand) route = ExportRecoverRoute;
         content = JsonContent.Create(new ExportIdBody { Id = id }, options: Json);
         return true;
     }

@@ -25,7 +25,7 @@ HTTPv1, schema2 и ProjectContractv1. Экспорт идёт в том же bac
 ## Цикл задания в C# CLI
 
 Запуск, статус, отмена и скачивание доступны из EXE начиная с
-**1.2611.21.14-alpha**.
+**1.2611.21.14-alpha**, явное восстановление — с **1.2611.21.15-alpha**.
 
 Сначала прочитайте сохранённый проект через `backend-project`. Используйте
 его `project.revision` и `fingerprint`. Создайте уникальный ключ из 16–80
@@ -36,6 +36,7 @@ ASCII-букв, цифр, знаков `_` и `-`. Команды ниже пр�
 .\TrueMoon.Tales.Studio.exe backend-export-status --url <url> --id <id>
 .\TrueMoon.Tales.Studio.exe backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output result.mp4
 .\TrueMoon.Tales.Studio.exe backend-export-cancel --url <url> --id <id> --job-revision <status-revision>
+.\TrueMoon.Tales.Studio.exe backend-export-recover --url <url> --id <id>
 ```
 
 - `export-start` фиксирует exact-byte SHA и ревизию сохранённого проекта,
@@ -48,12 +49,12 @@ ASCII-букв, цифр, знаков `_` и `-`. Команды ниже пр�
   Устаревшая ревизия статуса вызывает 409, после которого нужно прочитать
   актуальный статус. При потере ответа CLI показывает ID для
   `backend-export-status`. Один активный CPU worker на `exports_root`.
-- После перезапуска `python studio_agent.py backend-export-recover --url <url> --id <id>`
-  (маршрут HTTP `export-recover`) явно сверяет SHA запроса, квитанцию,
-  доказательство завершения и фактические байты MP4. Завершённый результат
-  подтверждается, повреждённый получает `failed`, прерванный без результата
-  — `interrupted`. Recovery и повтор того же ключа не запускают CPU worker.
-  Для нового запуска нужен новый ключ.
+- После перезапуска вызовите `backend-export-recover` с прежним ID. Backend
+  сверит SHA запроса, сохранённый статус, доказательство завершения и байты
+  MP4. Подтверждённый результат получает `completed` и доступен для скачивания.
+  Прерванный рендер без подтверждённого результата получает `interrupted`,
+  ранее завершённый с повреждённым MP4 — `failed`. Восстановление и повтор
+  прежнего ключа обходятся без рендера. Для нового рендера нужен новый ключ.
 - HTTP отдаёт байты только для `completed` с совпадающим SHA. CLI собирает
   файл из частей до 256 КиБ, проверяет размер и SHA-256, затем публикует новый
   файл в существующей папке. Существующий файл защищён от перезаписи.

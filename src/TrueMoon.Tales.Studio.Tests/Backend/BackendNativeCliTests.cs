@@ -328,9 +328,10 @@ public sealed class BackendNativeCliTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task NativeExportMutation_LostReplyIdentifiesJobWithoutReplay(bool cancel)
+    [InlineData("start", BackendHttpServer.ExportStartRoute)]
+    [InlineData("cancel", BackendHttpServer.ExportCancelRoute)]
+    [InlineData("recover", BackendHttpServer.ExportRecoverRoute)]
+    public async Task NativeExportMutation_LostReplyIdentifiesJobWithoutReplay(string operation, string route)
     {
         const string key = "lost-reply-export";
         var id = BackendExportJobs.JobId(key);
@@ -338,30 +339,54 @@ public sealed class BackendNativeCliTests
         await WithStubAsync(async context =>
         {
             Interlocked.Increment(ref requests);
-            Assert.Equal(cancel ? BackendHttpServer.ExportCancelRoute : BackendHttpServer.ExportStartRoute, context.Request.Path.Value);
+            Assert.Equal(route, context.Request.Path.Value);
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            Assert.Equal(Fingerprint, context.Request.Headers["X-Studio-Token"].ToString());
             using var request = await JsonDocument.ParseAsync(context.Request.Body);
-            if (cancel)
+            if (operation == "cancel")
             {
                 Assert.Equal(id, request.RootElement.GetProperty("id").GetString());
                 Assert.Equal(2, request.RootElement.GetProperty("expected_job_revision").GetInt64());
             }
-            else
+            else if (operation == "start")
             {
                 Assert.Equal(key, request.RootElement.GetProperty("client_key").GetString());
                 Assert.Equal(12, request.RootElement.GetProperty("expected_revision").GetInt64());
                 Assert.Equal(Fingerprint, request.RootElement.GetProperty("fingerprint").GetString());
                 Assert.Equal("final", request.RootElement.GetProperty("profile").GetString());
             }
+            else Assert.Equal(id, Assert.Single(request.RootElement.EnumerateObject()).Value.GetString());
             context.Abort();
         }, async address =>
         {
-            string[] args = cancel ? ["backend-export-cancel", "--id", id, "--job-revision", "2"] :
-                ["backend-export-start", "--client-key", key, "--revision", "12", "--sha256", Fingerprint, "--profile", "final"];
+            string[] args = operation switch
+            {
+                "cancel" => ["backend-export-cancel", "--id", id, "--job-revision", "2"],
+                "start" => ["backend-export-start", "--client-key", key, "--revision", "12", "--sha256", Fingerprint, "--profile", "final"],
+                _ => ["backend-export-recover", "--id", id]
+            };
             var result = await RunAsync(address, Fingerprint, args);
             AssertError(result, 1, "backend_unavailable", reconcile: true);
             using var failure = JsonDocument.Parse(result.Error);
             Assert.Contains($"backend-export-status --id {id}", failure.RootElement.GetProperty("message").GetString());
             Assert.Equal(1, Volatile.Read(ref requests));
+        });
+    }
+
+    [Theory]
+    [InlineData("their-job")]
+    [InlineData("running")]
+    public async Task NativeExportRecover_RejectsUnrelatedOrNonterminalStatus(string mode)
+    {
+        var id = BackendExportJobs.JobId("studio-export-recover");
+        var running = mode == "running";
+        var job = new BackendExportStatus(1, running ? id : BackendExportJobs.JobId("other-export-recover"),
+            "project", 12, Fingerprint, "draft", running ? 1 : 2, running ? "running" : "interrupted", Fingerprint, 72, 24,
+            ErrorCode: running ? null : "export_interrupted");
+        await WithStubAsync(context => context.Response.WriteAsJsonAsync(job, BackendHttpServer.Json), async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, "backend-export-recover", "--id", id);
+            AssertError(result, 1, "invalid_response", reconcile: true);
         });
     }
 

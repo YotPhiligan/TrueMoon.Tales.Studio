@@ -125,7 +125,9 @@ $snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom
 
 С **1.2611.21.14-alpha** запуск, статус, отмена и скачивание MP4 доступны из
 того же EXE. При потере ответа запуска или отмены проверьте статус указанного
-в ошибке задания. [Команды экспорта](BackendExport.md#native-export-cli).
+в ошибке задания. С **1.2611.21.15-alpha** `backend-export-recover` явно
+восстанавливает статус по ID после перезапуска backend.
+[Команды экспорта](BackendExport.md#native-export-cli).
 
 ## Проверки
 

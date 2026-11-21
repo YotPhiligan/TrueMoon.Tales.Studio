@@ -3416,7 +3416,7 @@ public sealed class BackendExportEndToEndTests
 
         await using (var session = await files.OpenAsync())
         {
-            var recovered = await session.PostAsync("export-recover", new { id });
+            var recovered = await session.CliAsync("backend-export-recover", "--id", id);
             Assert.Equal("completed", recovered["state"]!.GetValue<string>());
             Assert.Equal(sha, recovered["artifact_sha256"]!.GetValue<string>());
             Assert.Equal(requestHash, recovered["request_sha256"]!.GetValue<string>());
@@ -3427,7 +3427,7 @@ public sealed class BackendExportEndToEndTests
                 stream.Position = 0;
                 stream.WriteByte(changed);
             }
-            var corrupt = await session.PostAsync("export-recover", new { id });
+            var corrupt = await session.CliAsync("backend-export-recover", "--id", id);
             Assert.Equal("failed", corrupt["state"]!.GetValue<string>());
             Assert.Equal("invalid_export_artifact", corrupt["error_code"]!.GetValue<string>());
             using var chunk = await session.RawAsync("export-chunk", new { id, artifact_sha256 = sha, offset = 0 });
@@ -3444,12 +3444,13 @@ public sealed class BackendExportEndToEndTests
     {
         using var files = new ExportFixture(longRender: true);
         await files.PrepareAsync();
+        var executable = files.PrepareExportWorkerAudit();
         var bytes = File.ReadAllBytes(files.ProjectPath);
         var history = files.History();
         string id;
         byte[] request;
         string jobDirectory;
-        await using (var session = await files.OpenAsync())
+        await using (var session = await files.OpenAsync(executable: executable))
         {
             var observed = await session.Connection.OpenAsync();
             var started = await session.CliAsync("backend-export-start", "--client-key", "shutdown-test-export",
@@ -3495,10 +3496,17 @@ public sealed class BackendExportEndToEndTests
             }
         }
 
-        await using (var session = await files.OpenAsync())
+        await using (var session = await files.OpenAsync(executable: executable))
         {
-            var recovered = await session.PostAsync("export-recover", new { id });
+            var beforeRecovery = await session.CliAsync("backend-export-status", "--id", id);
+            Assert.Equal(crash ? "running" : "cancelled", beforeRecovery["state"]!.GetValue<string>());
+            var recovered = await session.CliAsync("backend-export-recover", "--id", id);
             Assert.Equal(crash ? "interrupted" : "cancelled", recovered["state"]!.GetValue<string>());
+            Assert.Equal(crash ? 2 : 3, recovered["revision"]!.GetValue<long>());
+            Assert.Equal(crash ? "export_interrupted" : null, recovered["error_code"]?.GetValue<string>());
+            Assert.Null(recovered["artifact_sha256"]);
+            var again = await session.CliAsync("backend-export-recover", "--id", id);
+            Assert.True(JsonNode.DeepEquals(recovered, again));
             var repeated = await session.CliAsync("backend-export-start", "--client-key", "shutdown-test-export", "--profile", "project",
                 "--revision", "12", "--sha256", recovered["project_fingerprint"]!.GetValue<string>());
             Assert.Equal(id, repeated["id"]!.GetValue<string>());
@@ -3506,8 +3514,63 @@ public sealed class BackendExportEndToEndTests
             Assert.Equal(request, File.ReadAllBytes(Path.Combine(jobDirectory, "Request.json")));
             Assert.Single(files.Requests());
             await WaitForWorkerLockAsync(jobDirectory, CancellationToken.None);
+            Assert.Single(File.ReadAllLines(Path.Combine(jobDirectory, "WorkerLaunches.qa")));
             files.AssertProject(bytes, history);
         }
+    }
+
+    [BackendMediaFact]
+    public async Task Export_NativeRecoverAfterCrashWithWorkerProof_PreservesOriginalMp4AndDoesNotReplay()
+    {
+        using var files = new ExportFixture();
+        await files.PrepareAsync();
+        var executable = files.PrepareExportWorkerAudit(holdAfterProof: true);
+        var bytes = File.ReadAllBytes(files.ProjectPath);
+        var history = files.History();
+        string id, directory;
+        byte[] request, proof, mp4;
+        await using (var session = await files.OpenAsync(executable: executable))
+        {
+            var observed = await session.Connection.OpenAsync();
+            var started = await session.CliAsync("backend-export-start", "--client-key", "recover-worker-proof",
+                "--profile", "project", "--revision", "12", "--sha256", observed.Fingerprint);
+            id = started["id"]!.GetValue<string>();
+            directory = files.JobDirectory(id);
+            var proofPath = Path.Combine(directory, "Result.json");
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            while (!File.Exists(proofPath))
+                await Task.Delay(30, deadline.Token);
+            var status = await session.CliAsync("backend-export-status", "--id", id);
+            Assert.Equal("running", status["state"]!.GetValue<string>());
+            proof = File.ReadAllBytes(proofPath);
+            request = File.ReadAllBytes(Path.Combine(directory, "Request.json"));
+            mp4 = File.ReadAllBytes(Path.Combine(directory, "Draft.mp4"));
+            var ready = JsonNode.Parse(proof)!;
+            Assert.Equal(Hash(request), ready["request_sha256"]!.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(Hash(mp4), ready["sha256"]!.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
+            Assert.True(session.App.Services.Resolve<BackendProcessFactory>()!.Owned!.IsServing(observed.Identity.ProcessId));
+            using var backend = Process.GetProcessById(observed.Identity.ProcessId);
+            backend.Kill();
+            await backend.WaitForExitAsync(deadline.Token);
+            await WaitForWorkerLockAsync(directory, deadline.Token);
+        }
+
+        await using var reopened = await files.OpenAsync(executable: executable);
+        var before = await reopened.CliAsync("backend-export-status", "--id", id);
+        Assert.Equal("running", before["state"]!.GetValue<string>());
+        var recovered = await reopened.CliAsync("backend-export-recover", "--id", id);
+        Assert.Equal("completed", recovered["state"]!.GetValue<string>());
+        Assert.Equal(2, recovered["revision"]!.GetValue<long>());
+        var sha = recovered["artifact_sha256"]!.GetValue<string>();
+        Assert.Equal(Hash(mp4), sha, StringComparer.OrdinalIgnoreCase);
+        var output = Path.Combine(files.Files.Files.Root, "Восстановленный экспорт.mp4");
+        await reopened.CliAsync("backend-export-download", "--id", id, "--sha256", sha, "--output", output);
+        Assert.Equal(mp4, File.ReadAllBytes(output));
+        Assert.Equal(proof, File.ReadAllBytes(Path.Combine(directory, "Result.json")));
+        Assert.Equal(request, File.ReadAllBytes(Path.Combine(directory, "Request.json")));
+        Assert.Single(files.Requests());
+        Assert.Single(File.ReadAllLines(Path.Combine(directory, "WorkerLaunches.qa")));
+        files.AssertProject(bytes, history);
     }
 
     private static async Task WaitForWorkerLockAsync(string folder, CancellationToken token)
@@ -3642,6 +3705,30 @@ public sealed class BackendExportEndToEndTests
             ["-nostdin", "-v", "error", "-f", "lavfi", "-i", $"color=c={color}:size=160x120:rate=24:duration=2", "-f", "lavfi", "-i",
              $"sine=frequency={frequency}:sample_rate=48000:duration=2", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264",
              "-c:a", "alac", "-ac", "2", "-threads", "1", "-n", Path.Combine(Media, name)], 4096);
+
+        internal string PrepareExportWorkerAudit(bool holdAfterProof = false)
+        {
+            var executable = BackendWriteFixture.Executable();
+            var isolated = Path.Combine(Root, "app");
+            Microsoft.VisualBasic.FileIO.FileSystem.CopyDirectory(Path.GetDirectoryName(executable)!, isolated);
+            var worker = Path.Combine(isolated, "ExportWorker", "RunExport.py");
+            var script = File.ReadAllText(worker).ReplaceLineEndings("\n");
+            const string entry = "    run(Path(sys.argv[1]).resolve(), sys.argv[2], Path(sys.argv[3]).resolve())";
+            Assert.Contains(entry, script);
+            script = script.Replace(entry, """
+                with (Path(sys.argv[1]) / 'WorkerLaunches.qa').open('ab') as audit:
+                    audit.write(b'launch\n')
+            """.TrimEnd() + "\n" + entry, StringComparison.Ordinal);
+            if (holdAfterProof)
+            {
+                const string checkpoint = "        atomic(folder / 'Result.json', {**result, 'request_sha256': expected_sha})";
+                Assert.Contains(checkpoint, script);
+                // Keep the genuine worker and its owner watcher alive after committing its proof.
+                script = script.Replace(checkpoint, checkpoint + "\n        import time\n        time.sleep(35)", StringComparison.Ordinal);
+            }
+            File.WriteAllText(worker, script);
+            return Path.Combine(isolated, Path.GetFileName(executable));
+        }
 
         internal async Task<string> PrepareTransferWorkerFixtureAsync()
         {

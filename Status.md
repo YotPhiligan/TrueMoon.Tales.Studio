@@ -23,9 +23,12 @@
 - **Медиа из CLI.** Выдача метаданных и кадра в PNG опубликована в
   `origin/main` коммитом `89b1224` (**1.2611.21.13-alpha**).
   [Проверки](#studio-native-media-cli).
-- **CPU-экспорт из CLI.** В рабочей копии **1.2611.21.14-alpha** тот же EXE
-  запускает экспорт, читает статус, отменяет задание и скачивает MP4 после
-  сверки SHA-256. [Проверки](#studio-native-export-cli).
+- **CPU-экспорт из CLI.** Запуск, статус, отмена и скачивание MP4
+  опубликованы в `origin/main` коммитом `e9a2365` (**1.2611.21.14-alpha**).
+  [Проверки](#studio-native-export-cli).
+- **Восстановление CPU-экспорта.** В рабочей копии **1.2611.21.15-alpha**
+  `backend-export-recover` восстанавливает статус по ID и подтверждает
+  сохранившийся MP4 без повторного рендера. [Проверки](#studio-native-export-recover).
 - **Рабочий просмотр.** Одноразовые MP4 диапазона и аниматика хранятся в
   `%TEMP%\TrueMoon.Tales\Studio`. Постоянные каталоги текущего профиля
   перенесены в AppData. [Перенос и проверки](#studio-review-temp).
@@ -109,9 +112,9 @@ TRX и raster сохранены в `src/.local/native-media-cli-20261121/`.
 до 256 КиБ и SHA-256 всего файла. После проверки CLI публикует MP4 под новым
 именем и печатает квитанцию с путём, размером и SHA.
 
-HTTPv1 и Enerit используют прежние контракты. Явное восстановление задания
-доступно по HTTP и через Python CLI. Рендер выполняет существующий Python
-CPU worker. [Команды и настройка](src/Verification/BackendExport.md#native-export-cli).
+HTTPv1 и Enerit используют прежние контракты. В этой версии явное
+восстановление задания доступно по HTTP и через Python CLI. Рендер выполняет
+существующий Python CPU worker. [Команды и настройка](src/Verification/BackendExport.md#native-export-cli).
 
 | Проверка | Сценарий |
 |---|---|
@@ -126,6 +129,32 @@ CPU worker. [Команды и настройка](src/Verification/BackendExpor
 H.264/AAC, 72 кадра при 24 fps, ожидаемые участки изображения и звук на
 синтетическом проекте. TRX, журналы и raster сохранены в
 `src/.local/native-export-cli-20261121/`.
+
+<a id="studio-native-export-recover"></a>
+## Восстановление CPU-экспорта из C# CLI, 21.11.2026
+
+В **1.2611.21.15-alpha** `backend-export-recover --url <url> --id <id>`
+отправляет один POST в существующей writer-сессии. Backend сверяет снимок
+задания и доказательство завершения, включая SHA MP4. При потере ответа CLI
+предлагает запросить статус по тому же ID. При неизменных артефакте и статусе
+повтор восстановления сохраняет ревизию задания.
+[Команда и состояния](src/Verification/BackendExport.md#native-export-cli).
+
+| Проверка | Сценарий |
+|---|---|
+| Аварийная остановка во время рендера, `interrupted`, повтор по тому же ID и ключу | `Export_ActiveWorkerIsReaped_AfterNativeCliCancelOrCrash_AndJobDoesNotReplay` |
+| Сбой после записи результата, `completed`, скачивание исходного MP4 по SHA | `Export_NativeRecoverAfterCrashWithWorkerProof_PreservesOriginalMp4AndDoesNotReplay` |
+| Повреждённый готовый MP4 получает `failed` | `Export_TrimmedMontageViaNativeCli_DownloadsVerifiedMp4_AndRecoversAfterRestart` |
+| Потеря ответа без повтора POST, отказ от чужого или незавершённого статуса | `NativeExportMutation_LostReplyIdentifiesJobWithoutReplay`, `NativeExportRecover_RejectsUnrelatedOrNonterminalStatus` |
+
+Счётчик в изолированной копии воркера подтвердил один запуск в каждом
+из сценариев аварийной остановки. Байты проекта, история и запрос экспорта
+сохранились.
+
+Целевой Debug-прогон дал 47 пройденных тестов. Полный прогон
+`dotnet test TrueMoon.Tales.Studio.slnx -c Release --no-restore` дал
+901 пройденный, 5 пропущенных и 0 упавших тестов. TRX, журналы и raster
+сохранены в `src/.local/native-export-recover-20261121/`.
 
 <a id="studio-full-transfer-storage"></a>
 ## Публикация и удаление дублей Full Transfer, 21.11.2026

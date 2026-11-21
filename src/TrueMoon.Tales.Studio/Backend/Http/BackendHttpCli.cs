@@ -20,6 +20,7 @@ internal static partial class BackendHttpCli
           backend-export-start --url <url> --client-key <key> --profile <draft|project|final> --revision <номер> --sha256 <fingerprint>
           backend-export-status --url <url> --id <id>
           backend-export-cancel --url <url> --id <id> --job-revision <номер>
+          backend-export-recover --url <url> --id <id>
           backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output <новый MP4>
         Токен передаётся через STUDIO_BACKEND_HTTP_TOKEN или --token.
         """;
@@ -47,7 +48,8 @@ internal static partial class BackendHttpCli
             client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
             deadline.CancelAfter(RequestTimeout);
             var payload = (request.Content as JsonContent)?.Value;
-            var write = payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody;
+            var recover = args[0] == ExportRecoverCommand;
+            var write = recover || payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody;
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
             var hint = ExportReconciliationHint(payload);
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
@@ -63,6 +65,8 @@ internal static partial class BackendHttpCli
                 if (export)
                 {
                     var job = ReadExportStatus(snapshot, payload!);
+                    if (recover && job.State is ("running" or "stopping"))
+                        throw new InvalidDataException("Recovery must return a terminal export status.");
                     if (artifactSha is not null)
                         return await DownloadExportAsync(client, request.RequestUri!, job, artifactSha, output!, interrupt.Token).ConfigureAwait(false);
                     Console.WriteLine(snapshot.GetRawText());

@@ -241,6 +241,8 @@ MP4. Chunk выдаёт до 256 КиБ бинарных данных с `Conten
 `backend-export-status`, `backend-export-cancel` и `backend-export-download`
 через эти маршруты. Скачивание возвращает `id`, `artifact_sha256`,
 `artifact_size_bytes` и `output_path` после проверки и публикации MP4.
+С **1.2611.21.15-alpha** `backend-export-recover --id <id>` вызывает
+`export-recover` и возвращает итоговый статус задания без повторного рендера.
 [Примеры C# CLI](src/Verification/BackendExport.md#native-export-cli).
 
 Enerit protocol7 добавляет `CheckExportAsync` и `FindExportAsync` для C#-окна.
