@@ -5,28 +5,39 @@ namespace TrueMoon.Tales.Studio.Backend;
 internal sealed partial class BackendConnection
 {
     internal Task<OpenedBackendProject> CollectFullTransferAsync(string id, string requestSha, OpenedBackendProject baseline,
-        CancellationToken token) => CommandAsync(ct => service.CollectFullTransferAsync(options.SessionKey,
-            id, requestSha, baseline.Project.Revision, baseline.Fingerprint, ct), token);
+        CancellationToken token) => CollectFullTransferAsync(id, requestSha, baseline.Project.Revision, baseline.Fingerprint, token);
+
+    internal Task<OpenedBackendProject> CollectFullTransferAsync(string id, string requestSha, long revision, string fingerprint,
+        CancellationToken token) => CommandAsync(ct => service.CollectFullTransferAsync(options.SessionKey, id, requestSha, revision,
+            fingerprint, ct), token);
+
+    internal Task<FullTransferRunState> FullTransferRunAsync(string id, string requestSha, string operation,
+        OpenedBackendProject baseline, CancellationToken token) =>
+        FullTransferRunAsync(id, requestSha, operation, baseline.Project.Revision, baseline.Fingerprint, token);
 
     internal async Task<FullTransferRunState> FullTransferRunAsync(string id, string requestSha, string operation,
-        OpenedBackendProject baseline, CancellationToken token)
+        long revision, string fingerprint, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(52));
         var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         var reply = await TransportAsync(() => service.FullTransferRunAsync(options.SessionKey, id, requestSha, operation,
-            baseline.Project.Revision, baseline.Fingerprint, deadline.Token)).ConfigureAwait(false);
+            revision, fingerprint, deadline.Token)).ConfigureAwait(false);
         if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
         if (reply?.ReceiptJson is not { Length: > 0 and <= 4096 } json ||
-            JsonSerializer.Deserialize<FullTransferRunState>(json, BackendAdaptation.Json) is not { Version: 1, DraftTakeId.Length: > 0 } state ||
-            state.Id != id || !string.Equals(state.RequestSha256, requestSha, StringComparison.OrdinalIgnoreCase) ||
-            state.State is not ("prepared" or "staged" or "running" or "stopping" or "cancelled" or "timed_out" or
-                               "interrupted" or "failed" or "completed") ||
-            (state.State == "completed" ? !IsHash(state.OutputSha256) : state.OutputSha256 is not null))
+            JsonSerializer.Deserialize<FullTransferRunState>(json, BackendAdaptation.Json) is not { } state ||
+            !MatchesTransferRun(state, id, requestSha))
             throw new InvalidDataException("Invalid Full Transfer run state.");
         return state;
     }
+
+    internal static bool MatchesTransferRun(FullTransferRunState state, string id, string requestSha) =>
+        state is { Version: 1, DraftTakeId.Length: > 0 } && state.Id == id &&
+        string.Equals(state.RequestSha256, requestSha, StringComparison.OrdinalIgnoreCase) &&
+        state.State is ("prepared" or "staged" or "running" or "stopping" or "cancelled" or "timed_out" or
+                        "interrupted" or "failed" or "completed") &&
+        (state.State == "completed" ? IsHash(state.OutputSha256) : state.OutputSha256 is null);
 
     internal Task<FullTransferReceipt> FullTransferJobAsync(string id, string? expectedRequestSha, OpenedBackendProject baseline,
         CancellationToken token) => FullTransferJobAsync(id, expectedRequestSha, baseline.Project.Revision, baseline.Fingerprint, token);

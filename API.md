@@ -278,8 +278,28 @@ Enerit protocol7 добавляет `CheckExportAsync` и `FindExportAsync` дл
 Ответ — квитанция с ID и SHA задания и флагом `enqueued: false`.
 Подготовка и проверка входов используют writer действующей сессии и
 сохраняют файлы задания. Ревизия проекта и история записи сохраняются.
-Потерянный ответ сверяется чтением квитанции. Для запуска используется
-отдельная команда в Studio. [Пример CLI](src/Verification/BackendHttp.md#native-transfer-cli).
+Потерянный ответ сверяется чтением квитанции. За подготовкой следует
+отдельная команда запуска. [Пример CLI](src/Verification/BackendHttp.md#native-transfer-cli).
+
+<a id="native-transfer-run-http"></a>
+## Управление запуском через HTTPv1
+
+С **1.2611.22.2-alpha** эти POST-маршруты используют тот же префикс и токен.
+Все принимают `id` и `request_sha256` из квитанции подготовки.
+
+| Маршрут | Дополнительные поля | Ответ |
+|---|---|---|
+| `transfer-launch` | `expected_revision`, `fingerprint` проекта | Состояние запуска. Подготовленный снимок и проверенные входы должны совпадать |
+| `transfer-status` | | Состояние, в том числе `interrupted` или `completed` с `output_sha256` |
+| `transfer-stop` | `expected_revision`, `fingerprint` проекта | Состояние. Активный запуск останавливается по ID и SHA, без активного запуска сверяется снимок |
+| `transfer-collect` | `expected_revision`, `fingerprint` проекта | Снимок проекта после регистрации дубля. Повтор при актуальной ревизии возвращает тот же снимок |
+
+`Run/Launch.json` фиксирует попытку до старта воркера. Повторный запуск
+того же ID возвращает `409 transfer_already_launched`. При потере ответа
+читайте статус по известным ID и SHA. При открытии новой сессии
+`--serve-project` получение writer подбирает подтверждённые готовые файлы.
+Если осталась только квитанция запуска, статус — `interrupted`.
+[Команды и порядок сверки](src/Verification/BackendHttp.md#native-transfer-run-cli).
 
 <a id="scenario-edits"></a>
 ## Сценарий и материалы через Enerit

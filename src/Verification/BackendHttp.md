@@ -147,9 +147,37 @@ $job = .\TrueMoon.Tales.Studio.exe backend-transfer-prepare --url $url --form .\
 
 Все три команды возвращают JSON квитанции с `enqueued: false`. Проверка
 входов сохраняет `Staged.json`. Файлы для ComfyUI копируются в Temp при
-отдельном запуске из Studio. При `reconciliation_required: true`
+отдельном запуске. При `reconciliation_required: true`
 перечитайте проект и запросите квитанцию по ID `ft-<client_key>`,
 который также указан в сообщении ошибки.
+
+<a id="native-transfer-run-cli"></a>
+## Запуск, статус, остановка и сбор
+
+С **1.2611.22.2-alpha** после проверки входов вы можете запустить задание
+явной командой. Используйте тот же URL и токен сессии `--serve-project`,
+ID задания и SHA запроса из квитанции подготовки.
+
+```powershell
+.\TrueMoon.Tales.Studio.exe backend-transfer-launch --url $url --id $job.id --request-sha256 $job.request_sha256 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+.\TrueMoon.Tales.Studio.exe backend-transfer-status --url $url --id $job.id --request-sha256 $job.request_sha256
+# Остановка активного задания
+.\TrueMoon.Tales.Studio.exe backend-transfer-stop --url $url --id $job.id --request-sha256 $job.request_sha256 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+# Сбор задания со статусом completed
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-transfer-collect --url $url --id $job.id --request-sha256 $job.request_sha256 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Готовый дубль автоматически регистрируется, когда writer может сохранить
+результат. `backend-transfer-collect` проверяет MP4 по SHA и возвращает
+снимок проекта. Если дубль уже зарегистрирован, повтор возвращает
+его без новой ревизии.
+
+При потере ответа запуска, остановки или сбора проверьте статус. После
+перезапуска `--serve-project` используйте его новый URL и токен. Сессия
+подбирает готовый результат по квитанции, а незавершённый запуск остаётся
+`interrupted`. Повторная команда запуска с тем же ID отклоняется.
+[Контракт HTTP](../../API.md#native-transfer-run-http).
 
 ## Проверки
 

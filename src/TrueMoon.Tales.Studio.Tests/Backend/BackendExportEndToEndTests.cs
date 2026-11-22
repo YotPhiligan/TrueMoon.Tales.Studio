@@ -1903,9 +1903,13 @@ public sealed class BackendExportEndToEndTests
                 System.Text.Encoding.UTF8, "application/json");
             using var badRequest = await client.PostAsync(address, duplicate);
             Assert.Equal(HttpStatusCode.BadRequest, badRequest.StatusCode);
-            using var oversized = new StringContent(new string(' ', BackendHttpServer.MaxTransferBodyBytes + 1),
-                System.Text.Encoding.UTF8, "application/json");
-            using var tooLarge = await client.PostAsync(address, oversized);
+            using var oversized = new HttpRequestMessage(HttpMethod.Post, address)
+            {
+                Content = new StringContent(new string(' ', BackendHttpServer.MaxTransferBodyBytes + 1),
+                    System.Text.Encoding.UTF8, "application/json")
+            };
+            oversized.Headers.ExpectContinue = true;
+            using var tooLarge = await client.SendAsync(oversized);
             Assert.Equal(HttpStatusCode.RequestEntityTooLarge, tooLarge.StatusCode);
         }
         Assert.False(Path.Exists(BackendFullTransfer.JobDirectory(Path.GetDirectoryName(files.ProjectPath)!, BackendFullTransfer.JobId(form.ClientKey))));
@@ -1984,7 +1988,9 @@ public sealed class BackendExportEndToEndTests
         var exe = await files.PrepareTransferWorkerFixtureAsync();
         await using var session = await files.OpenAsync(workspace: true, executable: exe);
         var api = session.Connection;
-        var previous = await api.AcquireWriterAsync(await api.OpenAsync());
+        await using var http = new BackendHttpServer(api);
+        await http.StartAsync();
+        var previous = await api.OpenAsync();
         var source = previous.Project.Sources.First();
         var baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "PV · черновик", "@videos/" + video), previous);
         var draft = baseline.Project.Sources.First().Takes.Last();
@@ -2129,7 +2135,11 @@ public sealed class BackendExportEndToEndTests
         var cancelled = StageOther('b', 1);
         var badEnvironment = StageOther('c', 2);
         var cancelledDir = Path.Combine(jobs, cancelled.Id, "Run");
-        Assert.Equal("running", Run(cancelled, baseline, "launch").State);
+        Assert.Equal("staged", CliState(Cli(http, cancelled, "status")).State);
+        AssertCliError(Cli(http, cancelled, "collect", baseline), "transfer_run_incomplete");
+        AssertCliError(Cli(http, cancelled, "launch", previous), "revision_conflict");
+        Assert.False(Directory.Exists(cancelledDir));
+        Assert.Equal("running", CliState(Cli(http, cancelled, "launch", baseline)).State);
         var cancelledScratch = Scratch(baseline.Identity.ProcessId);
         Eventually(() => File.Exists(Path.Combine(cancelledScratch, "Submission.json")), cancelledScratch).GetAwaiter().GetResult();
         using var stoppedWorker = OwnerProcess(cancelledScratch, "worker.pid", exe);
@@ -2139,7 +2149,11 @@ public sealed class BackendExportEndToEndTests
         Assert.Equal("transfer_run_busy", RejectRun(receipt, baseline, "launch"));
         Fill("ID задания генерации", cancelled.Id);
         Click("Открыть задание");
-        Click("Остановить генерацию");
+        var wrongKey = cancelled with { RequestSha256 = new string('0', 64) };
+        AssertCliError(Cli(http, wrongKey, "stop", baseline), "transfer_key_conflict");
+        Assert.Equal("running", CliState(Cli(http, cancelled, "status")).State);
+        Assert.Equal("cancelled", CliState(Cli(http, cancelled, "stop", baseline)).State);
+        Click("Обновить статус генерации");
         Assert.Contains("Запуск остановлен", scenario.Status);
         Task.WhenAll(stoppedWorker.WaitForExitAsync(), stoppedServer.WaitForExitAsync()).WaitAsync(TimeSpan.FromSeconds(8)).GetAwaiter().GetResult();
         Assert.True(stoppedWorker.HasExited && stoppedServer.HasExited);
@@ -2170,7 +2184,7 @@ public sealed class BackendExportEndToEndTests
         var outputHash = Hash(File.ReadAllBytes(resultPath));
         var registered = api.OpenAsync().GetAwaiter().GetResult();
         Assert.Equal(baseline.Project.Revision + 1, registered.Project.Revision);
-        var completed = Run(receipt, baseline, "status");
+        var completed = CliState(Cli(http, receipt, "status"));
         Assert.Equal(outputHash, completed.OutputSha256, ignoreCase: true);
         Assert.Null(completed.Detail);
         Assert.Equal("transfer_already_launched", RejectRun(receipt, registered, "launch"));
@@ -2197,7 +2211,7 @@ public sealed class BackendExportEndToEndTests
         Assert.Equal(registered.Fingerprint, api.OpenAsync().GetAwaiter().GetResult().Fingerprint);
 
         var interrupted = StageOther('d', 1, registered);
-        Run(interrupted, registered, "launch");
+        Assert.Equal("running", CliState(Cli(http, interrupted, "launch", registered)).State);
         var interruptedScratch = Scratch(registered.Identity.ProcessId, retryScratch);
         Eventually(() => File.Exists(Path.Combine(interruptedScratch, "Submission.json")), interruptedScratch).GetAwaiter().GetResult();
         using var interruptedWorker = OwnerProcess(interruptedScratch, "worker.pid", exe);
@@ -2216,23 +2230,31 @@ public sealed class BackendExportEndToEndTests
         void VerifyRecoveryAndCollect(ExportSession recovered)
         {
             var connection = recovered.Connection;
-            var current = connection.AcquireWriterAsync(connection.OpenAsync().GetAwaiter().GetResult()).GetAwaiter().GetResult();
-            Assert.Equal("interrupted", connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "status",
-                current, CancellationToken.None).GetAwaiter().GetResult().State);
-            Assert.Equal("transfer_already_launched", Assert.Throws<BackendCommandException>(() =>
-                connection.FullTransferRunAsync(interrupted.Id, interrupted.RequestSha256, "launch", current, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            var recoveredHttp = new BackendHttpServer(connection);
+            try
+            {
+                recoveredHttp.StartAsync().GetAwaiter().GetResult();
+                VerifyRecoveredSession(recovered, recoveredHttp);
+            }
+            finally { recoveredHttp.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
+        }
+
+        void VerifyRecoveredSession(ExportSession recovered, BackendHttpServer server)
+        {
+            var connection = recovered.Connection;
+            var current = connection.OpenAsync().GetAwaiter().GetResult();
+            Assert.Equal("interrupted", CliState(Cli(server, interrupted, "status")).State);
+            AssertCliError(Cli(server, interrupted, "launch", current), "transfer_already_launched");
             Assert.Equal(new[] { cancelled.Id, receipt.Id, lostReply.Id, badOutput.Id, badAudio.Id, retry.Id, interrupted.Id }, Submissions());
             Assert.False(Directory.Exists(interruptedScratch));
-            Assert.Equal(completed, connection.FullTransferRunAsync(receipt.Id, receipt.RequestSha256, "status", current, CancellationToken.None).GetAwaiter().GetResult());
-            Assert.Equal("revision_conflict", Assert.Throws<BackendCommandException>(() =>
-                connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, previous, CancellationToken.None).GetAwaiter().GetResult()).Code);
+            Assert.Equal(completed, CliState(Cli(server, receipt, "status")));
+            AssertCliError(Cli(server, receipt, "collect", previous), "revision_conflict");
             var originalMp4 = File.ReadAllBytes(resultPath);
             try
             {
                 originalMp4[^1] ^= 1;
                 File.WriteAllBytes(resultPath, originalMp4);
-                Assert.Equal("transfer_damaged", Assert.Throws<BackendCommandException>(() =>
-                    connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, current, CancellationToken.None).GetAwaiter().GetResult()).Code);
+                AssertCliError(Cli(server, receipt, "collect", current), "transfer_damaged");
             }
             finally
             {
@@ -2242,8 +2264,9 @@ public sealed class BackendExportEndToEndTests
             Assert.Equal(registered.Project.Revision + 1, current.Project.Revision);
             Assert.False(Directory.Exists(retryScratch));
             Assert.Equal(outputHash, Hash(File.ReadAllBytes(retryFile)));
-            Assert.Equal("completed", connection.FullTransferRunAsync(retry.Id, retry.RequestSha256, "status", current,
-                CancellationToken.None).GetAwaiter().GetResult().State);
+            var recoveredStatus = CliState(Cli(server, retry, "status"));
+            Assert.Equal("completed", recoveredStatus.State);
+            Assert.Equal(outputHash, recoveredStatus.OutputSha256, ignoreCase: true);
             using var collectHost = Workspace(recovered);
             host = collectHost;
             Ready(host, recovered.App.Services.Resolve<SceneViewModel>()!);
@@ -2268,7 +2291,7 @@ public sealed class BackendExportEndToEndTests
             Assert.Equal($"@project/video/FullTransfer.{receipt.Id}.mp4", pair.Final.Reference);
             Assert.Equal(baseline.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)), written.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)));
             Assert.Equal(current.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)), written.Project.Montage.Clips.Select(row => (row.Id, row.TakeId)));
-            var repeated = connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, written, CancellationToken.None).GetAwaiter().GetResult();
+            var repeated = CliReply<BackendHttpSnapshot>(Cli(server, receipt, "collect", written));
             Assert.Equal(written.Fingerprint, repeated.Fingerprint);
             Assert.Equal(history.Length + 2, files.History().Length);
             host.Capture("full-transfer-final-take", new { receipt.Id, TakeId = newTake.Id, outputHash });
@@ -2303,6 +2326,33 @@ public sealed class BackendExportEndToEndTests
                 Assert.Equal("transfer_take_removed", Assert.Throws<BackendCommandException>(() =>
                     connection.CollectFullTransferAsync(receipt.Id, receipt.RequestSha256, deleted, CancellationToken.None).GetAwaiter().GetResult()).Code);
             }
+        }
+
+        static (int Code, string Output, string Error) Cli(BackendHttpServer server, FullTransferReceipt job, string command,
+            OpenedBackendProject? head = null)
+        {
+            string[] snapshot = head is null ? [] : ["--revision", head.Project.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "--sha256", head.Fingerprint];
+            using var cli = BackendCliProcess.Native(server.Address, server.Token, [$"backend-transfer-{command}", "--id", job.Id,
+                "--request-sha256", job.RequestSha256, .. snapshot]);
+            return cli.WaitAsync().GetAwaiter().GetResult();
+        }
+
+        static FullTransferRunState CliState((int Code, string Output, string Error) result) => CliReply<FullTransferRunState>(result);
+
+        static T CliReply<T>((int Code, string Output, string Error) result) where T : class
+        {
+            Assert.True(result.Code == 0, result.Error);
+            return Assert.IsType<T>(JsonSerializer.Deserialize<T>(result.Output, BackendHttpServer.Json));
+        }
+
+        static void AssertCliError((int Code, string Output, string Error) result, string expected)
+        {
+            Assert.Equal(3, result.Code);
+            Assert.Empty(result.Output);
+            using var response = JsonDocument.Parse(result.Error);
+            Assert.Equal(expected, response.RootElement.GetProperty("error").GetString());
+            Assert.False(response.RootElement.GetProperty("automatic_retry").GetBoolean());
         }
 
         FullTransferRunState Run(FullTransferReceipt row, OpenedBackendProject head, string op) =>

@@ -25,6 +25,10 @@ internal static partial class BackendHttpCli
           backend-transfer-prepare --url <url> --form <JSON> --revision <номер> --sha256 <fingerprint>
           backend-transfer-job --url <url> --id <id> --revision <номер> --sha256 <fingerprint>
           backend-transfer-stage --url <url> --id <id> --request-sha256 <request_sha256> --revision <номер> --sha256 <fingerprint>
+          backend-transfer-launch --url <url> --id <id> --request-sha256 <request_sha256> --revision <номер> --sha256 <fingerprint>
+          backend-transfer-status --url <url> --id <id> --request-sha256 <request_sha256>
+          backend-transfer-stop --url <url> --id <id> --request-sha256 <request_sha256> --revision <номер> --sha256 <fingerprint>
+          backend-transfer-collect --url <url> --id <id> --request-sha256 <request_sha256> --revision <номер> --sha256 <fingerprint>
         Токен передаётся через STUDIO_BACKEND_HTTP_TOKEN или --token.
         """;
     private const string ProjectCommand = "backend-project", MoveCommand = "backend-move", TrimCommand = "backend-trim";
@@ -50,11 +54,12 @@ internal static partial class BackendHttpCli
             client.DefaultRequestHeaders.ConnectionClose = true;
             client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
             var payload = (request.Content as JsonContent)?.Value;
-            var transfer = payload as BackendHttpServer.TransferBody;
-            deadline.CancelAfter(transfer is null ? RequestTimeout : TimeSpan.FromSeconds(52));
+            var transfer = payload is BackendHttpServer.TransferBody or BackendHttpServer.TransferRunBody;
+            deadline.CancelAfter(transfer ? TimeSpan.FromSeconds(52) : RequestTimeout);
             var recover = args[0] == ExportRecoverCommand;
             var write = recover || payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
-                or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null };
+                or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null }
+                or BackendHttpServer.TransferRunBody { ExpectedRevision: not null };
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
             var hint = ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
@@ -65,12 +70,14 @@ internal static partial class BackendHttpCli
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.OK)
                     return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
-                var limit = transfer is not null ? BackendHttpServer.MaxTransferReceiptBytes : export ? MaxExportStatusBytes : MaxSnapshotBytes;
+                var limit = transfer && args[0] != TransferCollectCommand ? BackendHttpServer.MaxTransferReceiptBytes :
+                    export ? MaxExportStatusBytes : MaxSnapshotBytes;
                 using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
-                if (transfer is not null)
+                if (transfer)
                 {
-                    ValidateTransferReceipt(snapshot, transfer);
+                    if (payload is BackendHttpServer.TransferRunBody run) ValidateTransferRun(snapshot, run, args[0]);
+                    else ValidateTransferReceipt(snapshot, (BackendHttpServer.TransferBody)payload!);
                     Console.WriteLine(snapshot.GetRawText());
                     return 0;
                 }
@@ -132,6 +139,10 @@ internal static partial class BackendHttpCli
             if (!TryExportRequest(command, options, out route, out content, out output, out artifactSha))
                 return false;
         }
+        else if (IsTransferCommand(command))
+        {
+            if (!TryTransferRequest(command, options, out route, out content)) return false;
+        }
         else if (command != ProjectCommand)
         {
             if (!TryBaseline(options, out var revision, out var fingerprint))
@@ -139,10 +150,6 @@ internal static partial class BackendHttpCli
             if (command is MediaCommand or FrameCommand)
             {
                 if (!TryMediaRequest(command, options, revision, fingerprint, out route, out content, out output)) return false;
-            }
-            else if (IsTransferCommand(command))
-            {
-                if (!TryTransferRequest(command, options, revision, fingerprint, out route, out content)) return false;
             }
             else if (!TryEditRequest(command, options, revision, fingerprint, out route, out content)) return false;
         }
@@ -241,10 +248,7 @@ internal static partial class BackendHttpCli
             BackendHttpTrim trim => (trim.ClipId, trim.StartFrame, trim.ExpectedRevision, trim.Fingerprint),
             _ => throw new InvalidOperationException("Unexpected CLI request.")
         };
-        var unchanged = project.Revision == revision;
-        if (!unchanged && (project.Revision <= revision || project.Revision - revision != 1) ||
-            unchanged != string.Equals(fingerprint, baseline, StringComparison.OrdinalIgnoreCase))
-            throw new JsonException("Unexpected backend revision.");
+        ValidateRevision(project.Revision, fingerprint, revision, baseline);
         var clip = project.Montage.Clips.SingleOrDefault(row => row.Id == clipId);
         if (clip is null || clip.StartFrame != start) throw new JsonException("Unexpected clip placement.");
         if (content.Value is BackendHttpTrim extent)
@@ -255,6 +259,14 @@ internal static partial class BackendHttpCli
                 clip.DurationFrames != TimelineTrim.Duration(clip.SourceInFrame, end, clip.Speed))
                 throw new JsonException("Unexpected clip extent.");
         }
+    }
+
+    private static void ValidateRevision(long actualRevision, string actualFingerprint, long expectedRevision, string expectedFingerprint)
+    {
+        var unchanged = actualRevision == expectedRevision;
+        if (!unchanged && (actualRevision <= expectedRevision || actualRevision - expectedRevision != 1) ||
+            unchanged != string.Equals(actualFingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase))
+            throw new JsonException("Unexpected backend revision.");
     }
 
     private static async Task<int> HttpFailureAsync(HttpResponseMessage response, bool write, CancellationToken token, string? hint = null)

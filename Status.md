@@ -40,7 +40,10 @@
   результата «Генерации по черновику». [Проверки](#studio-csharp-workflow-run).
 - **CLI подготовки генерации.** В **1.2611.22.1-alpha** тот же EXE готовит
   workflow, читает квитанцию и проверяет входы через HTTPv1 общего backend.
-  [Проверки](#studio-native-transfer-cli).
+  Опубликовано в `origin/main` коммитом `58f9b5d`. [Проверки](#studio-native-transfer-cli).
+- **CLI управления генерацией.** В **1.2611.22.2-alpha** тот же EXE запускает,
+  читает статус, останавливает и собирает результат через общий backend.
+  [Проверки](#studio-native-transfer-run).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -91,6 +94,31 @@ Studio **1.2611.22.1-alpha** добавляет `backend-transfer-prepare`,
 дал **68 пройденных, 0 пропущенных и 0 ошибок**. Проверки использовали
 изолированные фикстуры и CPU-медиа. TRX и журнал находятся в
 `src/.local/native-transfer-cli-20261122/`.
+
+<a id="studio-native-transfer-run"></a>
+## Управление генерацией из C# CLI, 22.11.2026
+
+Studio **1.2611.22.2-alpha** добавляет `backend-transfer-launch`,
+`backend-transfer-status`, `backend-transfer-stop` и `backend-transfer-collect`.
+Запуск сверяет исходную ревизию и SHA проекта. Остановка активной попытки
+проверяет ID и SHA запроса. Сбор сверяет текущий снимок проекта, SHA MP4
+и происхождение дубля. При потере ответа CLI указывает команду проверки
+статуса. [Команды](src/Verification/BackendHttp.md#native-transfer-run-cli) ·
+[Контракт](API.md#native-transfer-run-http).
+
+| Проверка | Сценарий |
+|---|---|
+| Запуск через CLI, статус в общем backend и остановка только по точному SHA. Повторный запуск отклонён | `FullTransfer_FromRaster_StagesRunsStopsRecoversAndRegistersAtMostOnce` |
+| После аварии backend прерванный запуск остаётся `interrupted`. Готовый MP4 восстановлен при получении writer. SHA совпал, счётчик POST к ComfyUI сохранился. Повторный сбор вернул тот же снимок. Устаревшая ревизия и подмена MP4 отклонены | `FullTransfer_FromRaster_StagesRunsStopsRecoversAndRegistersAtMostOnce` |
+| Потеря HTTP-ответа запуска. Одна попытка и отдельное чтение статуса без исходной ревизии | `NativeTransferLaunch_LostReplyUsesStatusWithoutReplay` |
+
+Целевой Release-прогон HTTP, CLI, совместной работы UI и CLI и Full Transfer
+дал **69 пройденных, 0 пропущенных и 0 ошибок**. Сервер ComfyUI был
+имитатором, проверка MP4 использовала CPU-медиа. В первом прогоне тест
+большого запроса подготовки получил сброс соединения при передаче тела.
+После явной проверки `Content-Length` и проверки с `Expect: 100-continue`
+сервер вернул 413 до передачи тела. TRX, журнал и raster находятся в
+`src/.local/native-transfer-run-20261122/`.
 
 <a id="studio-native-cli"></a>
 ## Чтение проекта и правка клипа из C# CLI, 21.11.2026

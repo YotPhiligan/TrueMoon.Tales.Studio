@@ -422,6 +422,46 @@ public sealed class BackendNativeCliTests
         });
     }
 
+    [Fact]
+    public async Task NativeTransferLaunch_LostReplyUsesStatusWithoutReplay()
+    {
+        var launches = 0;
+        var reads = 0;
+        var id = BackendFullTransfer.JobId(new string('c', 32));
+        var sha = new string('D', 64);
+        await WithStubAsync(async context =>
+        {
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            var request = await JsonSerializer.DeserializeAsync<BackendHttpServer.TransferRunBody>(context.Request.Body, BackendHttpServer.Json);
+            Assert.Equal((id, sha), (request!.Id, request.RequestSha256));
+            if (context.Request.Path == BackendHttpServer.TransferLaunchRoute)
+            {
+                Interlocked.Increment(ref launches);
+                Assert.Equal((12L, Fingerprint), (request.ExpectedRevision, request.Fingerprint));
+                context.Abort();
+                return;
+            }
+            Assert.Equal(BackendHttpServer.TransferStatusRoute, context.Request.Path.Value);
+            Interlocked.Increment(ref reads);
+            Assert.Null(request.ExpectedRevision);
+            Assert.Null(request.Fingerprint);
+            await context.Response.WriteAsJsonAsync(new FullTransferRunState(1, id, "draft", sha, "interrupted", null, null),
+                BackendHttpServer.Json);
+        }, async address =>
+        {
+            var launch = await RunAsync(address, Fingerprint, "backend-transfer-launch", "--id", id,
+                "--request-sha256", sha, "--revision", "12", "--sha256", Fingerprint);
+            AssertError(launch, 1, "backend_unavailable", reconcile: true);
+            Assert.Contains($"backend-transfer-status --id {id} --request-sha256 {sha}", launch.Error);
+            var status = await RunAsync(address, Fingerprint, "backend-transfer-status", "--id", id, "--request-sha256", sha);
+            Assert.True(status.Code == 0, status.Error);
+            var state = JsonSerializer.Deserialize<FullTransferRunState>(status.Output, BackendHttpServer.Json);
+            Assert.Equal("interrupted", state!.State);
+            Assert.Equal(1, Volatile.Read(ref launches));
+            Assert.Equal(1, Volatile.Read(ref reads));
+        });
+    }
+
     private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });

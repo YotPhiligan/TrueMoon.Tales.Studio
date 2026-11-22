@@ -159,12 +159,13 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                 "revision_conflict" or "project_file_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or
                     "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" or
                     "transfer_key_conflict" or "transfer_input_changed" or "transfer_damaged" or "transfer_stage_conflict" or
-                    "transfer_stage_path_changed" or "transfer_already_launched" or "take_pair_changed" => 409,
+                    "transfer_stage_path_changed" or "transfer_already_launched" or "transfer_not_staged" or
+                    "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
                     "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" => 422,
                 "access_denied" or "write_not_enabled" => 403,
                 "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" => 404,
-                "media_busy" or "export_busy" => 429, "media_timeout" or "export_timeout" or "transfer_timeout" => 504,
+                "media_busy" or "export_busy" or "transfer_run_busy" => 429, "media_timeout" or "export_timeout" or "transfer_timeout" => 504,
                 "project_too_large" => 413, _ => 503
             };
             await Error(context, status, error.Code, true);
