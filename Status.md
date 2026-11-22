@@ -54,7 +54,10 @@
 - **Создание задания агента из CLI.** В **1.2611.22.5-alpha** общий backend
   сверяет ревизию и SHA проекта, сохраняет задание с неизменяемым контекстом
   и возвращает прежнюю запись при точном повторе ключа.
-  [Проверки](#studio-native-agent-create).
+  Опубликовано в `origin/main` коммитом `9dc87e0`. [Проверки](#studio-native-agent-create).
+- **Переходы задания агента из CLI.** В **1.2611.22.6-alpha** `claim`,
+  `finish`, `fail` и `cancel` используют общий writer и сверяют
+  ожидаемую ревизию задания. [Проверки](#studio-native-agent-update).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -195,8 +198,8 @@ writer через HTTPv1 и Enerit. Задание начинается в `pend
 Точная ревизия и SHA проекта проверяются перед публикацией файла по
 стабильному ID из `client_key`. Полная запись сохраняет контекст v3 и SHA
 снимка. Команда возвращает короткую квитанцию для последующего чтения по ID.
-Ключи из Python/Web считаются занятыми. Для смены состояния используется
-Python/Web. [Контракт](API.md#native-agent-create) ·
+Ключи из Python/Web считаются занятыми.
+[Контракт](API.md#native-agent-create) ·
 [Команды](src/Verification/BackendHttp.md#studio-native-agent-create-cli).
 
 | Проверка | Результат |
@@ -214,6 +217,35 @@ Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **111
 `src/.local/native-agent-create-20261122/release.trx`. Проверки выполнены
 на изолированных проектах без GPU. В сборке остаётся предупреждение CS8669
 в сгенерированном коде Enerit.
+
+<a id="studio-native-agent-update"></a>
+## Переходы задания агента из C# CLI, 22.11.2026
+
+Studio **1.2611.22.6-alpha**, Enerit protocol **34**. `claim`, `finish`,
+`fail` и `cancel` работают через HTTPv1 и общий writer. Каждая команда
+сверяет ревизию задания и публикует одно атомарное обновление. `finish`
+и `fail` проверяют владельца, `cancel` сохраняет его при кооперативной
+отмене. Исходный JSON контекста и его SHA сохранены даже для записей
+Python/Web на мигрированной копии проекта.
+[Контракт](API.md#native-agent-update) ·
+[Команды](src/Verification/BackendHttp.md#studio-native-agent-update-cli).
+
+| Проверка | Результат |
+| --- | --- |
+| `NativeAgentUpdate_ConcurrentClaimAndOwnerChecksGuardFinish` | У двух CLI один победитель. Чужой владелец, старая ревизия и терминальное состояние отклонены. Контекст, проект и история сохранены |
+| `NativeAgentUpdate_FailStoresLongUnicodeResultAtCurrentProjectRevision` | 100 000 символов кириллицы прошли через Enerit. Ревизия при `fail` совпала с актуальной ревизией проекта |
+| `NativeAgentUpdate_CancelAcceptsPendingOrRunningAndKeepsOriginalOwner` | Отмена `pending` и `running` с причиной и сохранением владельца. Проверен отказ без токена |
+| `NativeAgentUpdate_FinishValidatesNewActionAgainstFrozenAndCurrentScenario` | `prepare_block` требует новой цели в том же сегменте. Действие из исходного снимка отклонено |
+| `NativeAgentUpdate_FinishStoresScopedProposalWithoutApplyingIt` | Корректное предложение сохраняется в задании. Отсутствующее предложение и неверная длительность отклонены |
+| `NativeAgentUpdate_UpdatesMigratedWebRequestWithoutReencodingItsSnapshot` | Задание Web на копии schema2 обновлено с сохранением исходного контекста и дополнительных полей |
+| `AgentUpdate_RequiresExistingProjectWriter` | Прямой вызов без владения writer отклонён |
+| `NativeAgentUpdate_LostHttpReplyRequiresReadingSavedRevisionWithoutAutomaticRetry` | После потери ответа состояние восстановлено чтением. Повтор со старой ревизией отклонён |
+
+Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **120 пройдено,
+0 пропущено, 0 упало**. TRX в
+`src/.local/native-agent-update-20261122/release.trx`. Проверки на
+изолированных проектах выполнены без GPU. Предупреждение CS8669 в
+сгенерированном коде Enerit сохраняется.
 
 <a id="studio-native-cli"></a>
 ## Чтение проекта и правка клипа из C# CLI, 21.11.2026

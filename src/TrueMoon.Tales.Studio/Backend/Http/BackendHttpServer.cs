@@ -90,7 +90,7 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
         { await Error(context, 429, "busy"); return; }
         var path = context.Request.Path.Value;
         var agentRequests = IsAgentRequestsRoute(path);
-        var reconcile = path != AgentContextRoute && (!agentRequests || path == AgentRequestsRoute && HttpMethods.IsPost(context.Request.Method));
+        var reconcile = path != AgentContextRoute && (!agentRequests || HttpMethods.IsPost(context.Request.Method));
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
@@ -167,10 +167,12 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                     "transfer_key_conflict" or "transfer_input_changed" or "transfer_damaged" or "transfer_stage_conflict" or
                     "transfer_stage_path_changed" or "transfer_already_launched" or "transfer_not_staged" or
                     "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" or "agent_context_block_ambiguous" or
-                    "agent_request_key_conflict" or "agent_request_insertion_conflict" => 409,
+                    "agent_request_key_conflict" or "agent_request_insertion_conflict" or "agent_request_revision_conflict" or
+                    "agent_request_owner_conflict" or "agent_request_state_conflict" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
                     "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" or
-                    "invalid_agent_request_id" or "invalid_agent_request_record" or "invalid_agent_request" or "invalid_agent_request_scope" => 422,
+                    "invalid_agent_request_id" or "invalid_agent_request_record" or "invalid_agent_request" or "invalid_agent_request_scope" or
+                    "invalid_agent_request_update" => 422,
                 "access_denied" or "write_not_enabled" => 403,
                 "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" or
                     "agent_request_not_found" or "agent_request_scope_missing" => 404,

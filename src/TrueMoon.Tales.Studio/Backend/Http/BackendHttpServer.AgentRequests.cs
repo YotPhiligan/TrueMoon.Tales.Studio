@@ -24,11 +24,24 @@ internal sealed partial class BackendHttpServer
             await ReplyAgentRequestAsync(context, await backend.CreateAgentRequestAsync(draft, token).ConfigureAwait(false), token).ConfigureAwait(false);
             return;
         }
-        if (!HttpMethods.IsGet(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
+        var post = HttpMethods.IsPost(context.Request.Method);
+        if (!post && !HttpMethods.IsGet(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
         var id = path == AgentRequestsRoute ? null : path[(AgentRequestsRoute.Length + 1)..];
         if (id is not null && !BackendAgentRequests.ValidId(id))
         { await Error(context, 422, "invalid_agent_request_id"); return; }
 
+        if (post)
+        {
+            if (!context.Request.HasJsonContentType()) { await Error(context, 415, "json_required"); return; }
+            if (context.Request.ContentLength > AgentRequestUpdate.MaxBodyBytes)
+            { await Error(context, 413, "agent_request_input_too_large"); return; }
+            if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = AgentRequestUpdate.MaxBodyBytes;
+            var update = await context.Request.ReadFromJsonAsync<AgentRequestUpdate>(AgentRequestDraft.Json, token).ConfigureAwait(false);
+            if (update is not { Valid: true }) { await Error(context, 422, "invalid_agent_request_update"); return; }
+            await ReplyAgentRequestAsync(context, await backend.UpdateAgentRequestAsync(id!, update, token).ConfigureAwait(false), token).ConfigureAwait(false);
+            return;
+        }
         await ReplyAgentRequestAsync(context, await backend.ReadAgentRequestsAsync(id, token).ConfigureAwait(false), token).ConfigureAwait(false);
     }
 

@@ -29,7 +29,7 @@ internal static class BackendConfiguration
         context.PipesServiceTransport(_ => options.Endpoint, new PipesTransportOptions
         {
             RequestTimeout = TimeSpan.FromSeconds(12), MaxPendingRequests = 4, MaxQueuedRequests = 4,
-            MaxConcurrentRequests = 4, MaxBufferedRequestBytes = 64 * 1024, MaxConnections = 2
+            MaxConcurrentRequests = 4, MaxBufferedRequestBytes = 4L * (AgentRequestUpdate.MaxIpcBytes + 4096), MaxConnections = 2
         });
         context.AddUnit(unit => unit
             .Services(r => r.Singleton<ProjectStore>(resolver => new(resolver.Resolve<ProjectStoreOptions>()))

@@ -263,7 +263,7 @@ ID имеет вид `req-` и 16 шестнадцатеричных симво�
 лимит полного ответа, даже если краткая запись доступна в списке.
 
 Чтение работает с существующим владельцем проекта. Файлы и история
-сохраняются без изменений. Смена состояния задания доступна в Python/Web.
+сохраняются без изменений. [Переходы состояния](#native-agent-update).
 [Примеры CLI](src/Verification/BackendHttp.md#studio-native-agent-requests-cli).
 
 <a id="native-agent-create"></a>
@@ -313,6 +313,52 @@ Python/Web, также возвращают 409, поскольку для ни�
 Превышение лимита тела или IPC даёт 413. При потере ответа CLI сообщает ID
 для сверки через GET. Явный повтор выполняется с исходными параметрами.
 [Пример CLI](src/Verification/BackendHttp.md#studio-native-agent-create-cli).
+
+<a id="native-agent-update"></a>
+### Смена состояния задания агента через общий backend
+
+С **1.2611.22.6-alpha** POST `/api/backend/v1/agent-requests/{id}`
+принимает обязательные поля `expected_revision` задания, `action` и
+`actor`, а также необязательные `result`, `result_target` и `proposal`.
+Используется токен действующей сессии `--serve-project` для schema2.
+`actor` — строковая метка участника до 80 символов, доступ к API задаёт
+токен сессии.
+
+| Действие | Переход и условия |
+| --- | --- |
+| `claim` | Из `pending` в `running`. `actor` становится владельцем. При двух запросах с одной ревизией проходит один |
+| `finish` | Из `running` в `completed`. `actor` совпадает с владельцем, требуется непустой результат |
+| `fail` | Из `running` в `failed`. `actor` совпадает с владельцем, требуется непустое описание ошибки |
+| `cancel` | Из `pending` или `running` в `cancelled`. Авторизованный клиент сохраняет текущего владельца и может передать причину отмены |
+
+Результат и причина содержат до 100 000 символов UTF-16. Для `finish`
+и `fail` поле `completed_project_revision` фиксирует ревизию проекта на
+момент перехода. Каждая успешная операция атомарно сохраняет только файл
+задания, увеличивает его ревизию на единицу и обновляет `updated_at`.
+Исходный `context` сохраняется побайтно, его SHA входит в квитанцию.
+Терминальные состояния `completed`, `failed` и `cancelled` закрывают
+задание. Отмена кооперативна и фиксирует статус для внешнего агента.
+
+Для `finish` задания `breakdown_segment` требуется `proposal` из 1–24
+действий. Элемент содержит `title`, `description` и положительный
+`duration_frames`. Необязательны `gap_before_frames`, `sound_notes`
+и `continuity_notes`. Предложение сохраняется в задании для последующего
+применения. Для `finish` задания `prepare_block` в режиме `apply`
+требуется `result_target` с `segment_id` и `item_id` нового действия в
+указанном сегменте. Backend сверяет живой сценарий и исходный снимок.
+При `improve_block` в режиме `apply` необязательный `result_target`
+должен ссылаться на указанное в задании действие.
+
+Ответ содержит `api_version: 1`, `project_id`, `id`, `state`,
+`revision`, `owner`, `updated_at`, `completed_project_revision`
+и `snapshot_sha256`. Полная запись доступна через GET задания.
+Неверная ревизия, переход или владелец дают HTTP 409 с кодами
+`agent_request_revision_conflict`, `agent_request_state_conflict` и
+`agent_request_owner_conflict` соответственно. Некорректный результат
+или цель дают 422, отсутствующее задание — 404, превышение лимита тела
+или IPC — 413. При потере ответа CLI сообщает ID для сверки состояния
+и ревизии через GET.
+[Команды CLI](src/Verification/BackendHttp.md#studio-native-agent-update-cli).
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 

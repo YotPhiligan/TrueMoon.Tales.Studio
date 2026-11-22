@@ -18,6 +18,11 @@ internal static partial class BackendHttpCli
           backend-agent-request --url <url> --id <req-id>
           backend-agent-request-create --url <url> --goal-file <TXT> --client-key <key> --revision <n> --sha256 <fingerprint>
             [--mode <propose|apply>] [--block <id-or-exact-name>] [--scope-file <JSON>] [--actor <name>]
+          backend-agent-request-claim --url <url> --id <req-id> --revision <task-revision> [--actor <name>]
+          backend-agent-request-finish --url <url> --id <req-id> --revision <task-revision> --result-file <TXT>
+            [--actor <name>] [--target-file <JSON>] [--proposal-file <JSON>]
+          backend-agent-request-fail --url <url> --id <req-id> --revision <task-revision> --result-file <TXT> [--actor <name>]
+          backend-agent-request-cancel --url <url> --id <req-id> --revision <task-revision> [--actor <name>] [--result-file <TXT>]
           backend-move --url <url> --clip <id> --start-frame <номер> --revision <номер> --sha256 <fingerprint>
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
@@ -45,8 +50,8 @@ internal static partial class BackendHttpCli
     private const int MaxErrorBytes = 4096;
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
-    internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or AgentRequestsCommand or AgentRequestCommand or CreateAgentRequestCommand or
-        MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
+    internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
+        IsAgentRequestCommand(command) ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -63,17 +68,15 @@ internal static partial class BackendHttpCli
             client.DefaultRequestHeaders.ConnectionClose = true;
             client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
             var payload = (request.Content as JsonContent)?.Value;
-            var agentRequests = args[0] is AgentRequestCommand or AgentRequestsCommand or CreateAgentRequestCommand;
+            var agentRequests = IsAgentRequestCommand(args[0]);
             var transfer = payload is BackendHttpServer.TransferBody or BackendHttpServer.TransferRunBody;
             deadline.CancelAfter(transfer ? TimeSpan.FromSeconds(52) : RequestTimeout);
             var recover = args[0] == ExportRecoverCommand;
-            var write = recover || payload is AgentRequestDraft or BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
+            var write = recover || payload is AgentRequestDraft or AgentRequestUpdate or BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
                 or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null }
                 or BackendHttpServer.TransferRunBody { ExpectedRevision: not null };
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
-            var hint = payload is AgentRequestDraft draft
-                ? $" Проверьте задание {BackendAgentRequests.RequestId(draft.ClientKey)} через backend-agent-request. Для явного повтора сохраните тот же client_key и исходные параметры."
-                : ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
+            var hint = AgentRequestReconciliationHint(request, payload) ?? ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
             Console.CancelKeyPress += Cancel;
             try
@@ -89,6 +92,7 @@ internal static partial class BackendHttpCli
                 if (agentRequests)
                 {
                     if (payload is AgentRequestDraft created) BackendAgentRequests.ValidateReceipt(snapshot, created);
+                    else if (payload is AgentRequestUpdate update) BackendAgentRequests.ValidateUpdateReceipt(snapshot, request.RequestUri!.Segments[^1], update);
                     else BackendAgentRequests.ValidateResponse(snapshot, args[0] == AgentRequestCommand ? request.RequestUri!.Segments[^1] : null);
                     Console.WriteLine(JsonSerializer.Serialize(snapshot));
                     return 0;
@@ -166,16 +170,9 @@ internal static partial class BackendHttpCli
             route = BackendHttpServer.AgentContextRoute;
             content = JsonContent.Create(new BackendHttpServer.AgentContextBody(selector), options: BackendHttpServer.Json);
         }
-        else if (command is AgentRequestsCommand or AgentRequestCommand or CreateAgentRequestCommand)
+        else if (IsAgentRequestCommand(command))
         {
-            route = BackendHttpServer.AgentRequestsRoute;
-            if (command == AgentRequestCommand)
-            {
-                if (!options.Remove("--id", out var id) || !BackendAgentRequests.ValidId(id)) return false;
-                route += "/" + id;
-            }
-            if (command == CreateAgentRequestCommand && !TryCreateAgentRequest(options, out content)) return false;
-            if (options.Count != 0) return false;
+            if (!TryAgentRequestCommand(command, options, out route, out content)) return false;
         }
         else if (IsExportCommand(command))
         {

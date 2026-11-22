@@ -28,7 +28,7 @@ internal sealed record AgentRequestDraft
         ClientKey.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_') &&
         Goal is { Length: <= MaxText } && !string.IsNullOrWhiteSpace(Goal) &&
         Mode is "propose" or "apply" &&
-        Actor is { Length: <= 80 } && !string.IsNullOrWhiteSpace(Actor) && !Actor.Any(char.IsControl) &&
+        ValidActor(Actor) &&
         BackendAgentContext.ValidSelector(Block) && (Scope is null || Scope.Valid(Mode, Block));
 
     internal AgentRequestDraft Normalize() => this with
@@ -39,6 +39,9 @@ internal sealed record AgentRequestDraft
 
     internal string Digest() =>
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(Normalize(), Json)));
+
+    internal static bool ValidActor(string? actor) =>
+        actor is { Length: <= 80 } && !string.IsNullOrWhiteSpace(actor) && !actor.Any(char.IsControl);
 }
 
 internal sealed record AgentRequestScope

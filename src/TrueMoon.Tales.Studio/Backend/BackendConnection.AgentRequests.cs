@@ -16,6 +16,14 @@ internal sealed partial class BackendConnection
             response => BackendAgentRequests.ValidateReceipt(response, draft), token);
     }
 
+    internal Task<byte[]> UpdateAgentRequestAsync(string id, AgentRequestUpdate update, CancellationToken token)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(update, AgentRequestDraft.Json);
+        if (json.Length > AgentRequestUpdate.MaxIpcBytes) throw new BackendCommandException("agent_request_input_too_large");
+        return SendAgentRequestAsync(ct => service.UpdateAgentRequestAsync(options.SessionKey, id, json, ct),
+            response => BackendAgentRequests.ValidateUpdateReceipt(response, id, update), token);
+    }
+
     private async Task<byte[]> SendAgentRequestAsync(Func<CancellationToken, Task<BackendAgentRequestsReply>> send,
         Action<JsonElement> validate, CancellationToken token)
     {

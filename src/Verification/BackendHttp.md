@@ -193,6 +193,28 @@ $task = .\TrueMoon.Tales.Studio.exe backend-agent-request-create --url $url --go
 явного повтора используйте тот же ключ, ревизию, SHA и остальные
 параметры из первого запроса. [Контракт формы и ответа](../../API.md#native-agent-create).
 
+<a id="studio-native-agent-update-cli"></a>
+## Управление состоянием задания агента из C# CLI
+
+Используйте адрес и токен текущей сессии `--serve-project`.
+Перед `claim`, `finish`, `fail` или `cancel` прочитайте ревизию задания
+через `backend-agent-request`. Для `finish` и `fail` передайте тот же
+`--actor`, с которым задание взяли в работу. По умолчанию CLI использует
+`agent:cli`. Результат передаётся в UTF-8 через `--result-file`.
+
+```powershell
+$task = .\TrueMoon.Tales.Studio.exe backend-agent-request --url $url --id $id | ConvertFrom-Json
+$claim = .\TrueMoon.Tales.Studio.exe backend-agent-request-claim --url $url --id $id --revision $task.request.revision --actor 'agent:editor' | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-agent-request-finish --url $url --id $id --revision $claim.revision --actor 'agent:editor' --result-file .\result.txt
+```
+
+`backend-agent-request-fail` принимает те же обязательные параметры,
+что и `finish`. `backend-agent-request-cancel` принимает необязательную
+причину через `--result-file`. Для `finish` сценарного задания
+используйте `--target-file` или `--proposal-file` по контракту области.
+При конфликте или потерянном ответе перечитайте сохранённое задание.
+[Правила переходов и параметры](../../API.md#native-agent-update).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

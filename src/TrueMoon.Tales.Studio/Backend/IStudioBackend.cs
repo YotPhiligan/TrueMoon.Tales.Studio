@@ -206,6 +206,10 @@ public interface IStudioBackend
     /// <summary>Creates one durable agent request under the existing project writer, or returns its prior receipt.</summary>
     Task<BackendAgentRequestsReply> CreateAgentRequestAsync(string sessionKey, string formJson, CancellationToken cancellationToken = default);
 
+    /// <summary>Applies one revision-guarded transition to a saved agent request.</summary>
+    Task<BackendAgentRequestsReply> UpdateAgentRequestAsync(string sessionKey, string requestId, ReadOnlyMemory<byte> formJson,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Explicitly claims the sole writer after checking the observed revision and exact bytes.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="expectedRevision">Observed revision.</param>
     /// <param name="fingerprint">Observed exact-byte SHA256.</param><param name="cancellationToken">Call deadline.</param>

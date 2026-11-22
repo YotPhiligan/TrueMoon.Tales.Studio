@@ -5,6 +5,28 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService
 {
+    public Task<BackendAgentRequestsReply> UpdateAgentRequestAsync(string sessionKey, string requestId, ReadOnlyMemory<byte> formJson,
+        CancellationToken cancellationToken = default) => ExecuteAsync<BackendAgentRequestsReply>(sessionKey, async () =>
+    {
+        RequireWriter();
+        if (!BackendAgentRequests.ValidId(requestId)) return new() { ErrorCode = "invalid_agent_request_id" };
+        if (formJson.Length is < 1 or > AgentRequestUpdate.MaxIpcBytes) return new() { ErrorCode = "agent_request_input_too_large" };
+        AgentRequestUpdate? update;
+        try { update = JsonSerializer.Deserialize<AgentRequestUpdate>(formJson.Span, AgentRequestDraft.Json); }
+        catch (JsonException) { return new() { ErrorCode = "invalid_agent_request_update" }; }
+        if (update is not { Valid: true }) return new() { ErrorCode = "invalid_agent_request_update" };
+        var current = await store.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (current.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+        try
+        {
+            var bytes = await BackendAgentRequests.UpdateAsync(BackendProjectAccess.Read(options), current.Project, requestId, update,
+                cancellationToken).ConfigureAwait(false);
+            return new() { Json = bytes };
+        }
+        catch (BackendCommandException error) { return new() { ErrorCode = error.Code }; }
+        catch (JsonException) { return new() { ErrorCode = "invalid_agent_request_record" }; }
+    }, cancellationToken, code => new() { ErrorCode = code });
+
     public Task<BackendAgentRequestsReply> CreateAgentRequestAsync(string sessionKey, string formJson, CancellationToken cancellationToken = default) =>
         ExecuteAsync<BackendAgentRequestsReply>(sessionKey, async () =>
         {
