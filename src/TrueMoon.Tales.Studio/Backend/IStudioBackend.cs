@@ -197,6 +197,9 @@ public interface IStudioBackend
     /// <returns>A normalized snapshot or a classified failure.</returns>
     Task<BackendProjectReply> OpenProjectAsync(string sessionKey, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads agent context for the selected project and optionally an action or library source.</summary>
+    Task<BackendAgentContextReply> ReadAgentContextAsync(string sessionKey, string block, CancellationToken cancellationToken = default);
+
     /// <summary>Explicitly claims the sole writer after checking the observed revision and exact bytes.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="expectedRevision">Observed revision.</param>
     /// <param name="fingerprint">Observed exact-byte SHA256.</param><param name="cancellationToken">Call deadline.</param>
@@ -256,4 +259,15 @@ public sealed class BackendProjectReply
     public bool CanUndoMontage { get; set; }
     /// <summary>Whether the current writer can redo a saved montage edit at this fingerprint.</summary>
     public bool CanRedoMontage { get; set; }
+}
+
+/// <summary>Bounded agent context from one saved project snapshot.</summary>
+public sealed class BackendAgentContextReply
+{
+    /// <summary>Empty on success, otherwise a stable error code.</summary>
+    public string ErrorCode { get; set; } = "";
+    /// <summary>The versioned context JSON.</summary>
+    public string ContextJson { get; set; } = "";
+    /// <summary>SHA256 of the UTF-8 context JSON.</summary>
+    public string SnapshotSha256 { get; set; } = "";
 }

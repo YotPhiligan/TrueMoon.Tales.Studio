@@ -70,6 +70,26 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
         return Decode(identity, reply);
     }
 
+    internal async Task<BackendAgentContextReply> ReadAgentContextAsync(string? selector, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var reply = await TransportAsync(() => service.ReadAgentContextAsync(options.SessionKey, selector ?? "", deadline.Token)).ConfigureAwait(false);
+        if (reply?.ErrorCode is null || reply.ContextJson is null || reply.ContextJson.Length > StudioBackendService.MaxProjectBytes / 2)
+            throw new InvalidDataException("Invalid agent context reply.");
+        if (reply.ErrorCode.Length > 0) throw new BackendCommandException(reply.ErrorCode);
+        try
+        {
+            using var document = JsonDocument.Parse(reply.ContextJson, new JsonDocumentOptions { AllowDuplicateProperties = false });
+            BackendAgentContext.Validate(document.RootElement, selector, reply.SnapshotSha256);
+        }
+        catch (Exception error) when (error is JsonException or NotSupportedException)
+        { throw new InvalidDataException("Invalid agent context payload.", error); }
+        return reply;
+    }
+
     private async Task<BackendIdentity> WaitForReadyAsync(CancellationToken token)
     {
         while (true)

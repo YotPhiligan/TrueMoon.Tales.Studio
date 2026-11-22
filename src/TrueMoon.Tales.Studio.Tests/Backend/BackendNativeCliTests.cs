@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -459,6 +460,36 @@ public sealed class BackendNativeCliTests
             Assert.Equal("interrupted", state!.State);
             Assert.Equal(1, Volatile.Read(ref launches));
             Assert.Equal(1, Volatile.Read(ref reads));
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeContext_RejectsWrongSelectorOrSnapshotSha(bool corruptSha)
+    {
+        var project = ProjectFileCodec.Read(PersistenceFixture.LegacyBytes()).Project;
+        var selector = corruptSha ? "A" : "B";
+        var payload = JsonSerializer.Serialize(new
+        {
+            context_version = 3, schema_version = 2, fingerprint = Fingerprint, selector, project,
+            automatic_dispatch = false, block = new { kind = "source", id = corruptSha ? "source-a" : "source-b" }
+        }, BackendHttpServer.Json);
+        var sha = corruptSha ? Fingerprint : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+        var count = 0;
+        await WithStubAsync(async context =>
+        {
+            Interlocked.Increment(ref count);
+            Assert.Equal(BackendHttpServer.AgentContextRoute, context.Request.Path.Value);
+            var request = await context.Request.ReadFromJsonAsync<BackendHttpServer.AgentContextBody>(BackendHttpServer.Json);
+            Assert.Equal("A", request!.Block);
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"api_version\":1,\"snapshot_sha256\":\"" + sha + "\",\"context\":" + payload + "}");
+        }, async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, "backend-agent-context", "--block", "A");
+            AssertError(result, 1, "invalid_response", reconcile: false);
+            Assert.Equal(1, Volatile.Read(ref count));
         });
     }
 

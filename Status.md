@@ -43,7 +43,11 @@
   Опубликовано в `origin/main` коммитом `58f9b5d`. [Проверки](#studio-native-transfer-cli).
 - **CLI управления генерацией.** В **1.2611.22.2-alpha** тот же EXE запускает,
   читает статус, останавливает и собирает результат через общий backend.
-  [Проверки](#studio-native-transfer-run).
+  Опубликовано в `origin/main` коммитом `1b0c3f6`. [Проверки](#studio-native-transfer-run).
+- **Контекст проекта и блока из CLI.** В **1.2611.22.3-alpha**
+  `backend-agent-context` читает schema2, возвращает сохранённую ревизию,
+  SHA и связи выбранного действия или источника через общий backend.
+  [Проверки](#studio-native-agent-context).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -119,6 +123,33 @@ Studio **1.2611.22.2-alpha** добавляет `backend-transfer-launch`,
 После явной проверки `Content-Length` и проверки с `Expect: 100-continue`
 сервер вернул 413 до передачи тела. TRX, журнал и raster находятся в
 `src/.local/native-transfer-run-20261122/`.
+
+<a id="studio-native-agent-context"></a>
+## Контекст проекта и блока из C# CLI, 22.11.2026
+
+Studio **1.2611.22.3-alpha**, Enerit protocol **31**. Команда
+`backend-agent-context` читает сохранённую schema2 через HTTPv1
+существующей сессии и тот же backend, что использует редактор.
+Контекст включает замысел, сценарий, шкалу, дубли, связи продолжений,
+доступность зарегистрированных медиа и ограниченные выдержки из документов
+папки проекта. CLI сверяет SHA контекста и выбранный блок. Ревизия и SHA
+точных байтов файла доступны для последующих команд записи.
+[Контракт](API.md#native-agent-context) ·
+[Команды](src/Verification/BackendHttp.md#studio-native-agent-context-cli).
+
+| Проверка | Результат |
+| --- | --- |
+| `NativeContext_ReadsSavedProjectAndActionThroughHttpAndEnerit` | Реальный EXE, HTTP и дочерний Enerit backend. Подтверждены обзор, действие из нескольких клипов, соседи, продолжение, alias медиа, SHA и усечение Markdown. Файлы фикстуры и истории совпали побайтно |
+| `NativeContext_ResolvesSourceLabelsAndActionTitles_RejectsAmbiguousAndUnknownSelectors` | Общий источник в двух действиях, действие без дублей, 404/409, HTTP 403 без токена и отсутствие изменений |
+| `AgentContext_ReadsWithoutOwningWriter_AndRequiresExplicitMigration` | Чтение при отдельном владельце writer. Для schema1 требуется явная миграция |
+| `NativeContext_RejectsWrongSelectorOrSnapshotSha` | CLI отклоняет ответ с другим селектором или SHA после одного запроса |
+
+Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **95 пройдено,
+0 пропущено, 0 упало**. TRX в
+`src/.local/native-agent-context-20261122/release.trx`. В сборке остаётся
+предупреждение CS8669 в сгенерированном коде Enerit.
+Проверки выполнены на синтетических проектах без GPU. Python/Web
+продолжает обслуживать schema1 и команды для заданий агентам.
 
 <a id="studio-native-cli"></a>
 ## Чтение проекта и правка клипа из C# CLI, 21.11.2026

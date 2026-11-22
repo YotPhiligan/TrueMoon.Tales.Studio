@@ -224,7 +224,10 @@ internal static class BackendScenarioEdit
 
     internal static string? TryReference(ProjectContract project, string assetId) =>
         project.Properties.TryGetValue("assets", out var assets) && assets.ValueKind == JsonValueKind.Object &&
-        assets.TryGetProperty(assetId, out var asset) && asset.ValueKind == JsonValueKind.Object &&
+        assets.TryGetProperty(assetId, out var asset) ? TryReference(asset) : null;
+
+    internal static string? TryReference(JsonElement asset) =>
+        asset.ValueKind == JsonValueKind.Object &&
         asset.TryGetProperty("path", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     internal static string TakeName(TakeContract take) =>

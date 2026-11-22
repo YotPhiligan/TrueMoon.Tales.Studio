@@ -88,10 +88,11 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
         { await Error(context, 403, "forbidden"); return; }
         if (!await _slots.WaitAsync(0, context.RequestAborted).ConfigureAwait(false))
         { await Error(context, 429, "busy"); return; }
+        var path = context.Request.Path.Value;
+        var reconcile = path != AgentContextRoute;
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-            var path = context.Request.Path.Value;
             deadline.CancelAfter(TimeSpan.FromSeconds(IsTransferRoute(path) ? 48 : 12));
             if (context.Request.QueryString.HasValue) { await Error(context, 400, "invalid_request"); return; }
             if (path == ProjectRoute)
@@ -100,6 +101,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                 var opened = await backend.OpenAsync(deadline.Token).ConfigureAwait(false);
                 await context.Response.WriteAsJsonAsync(BackendHttpSnapshot.From(opened), Json, deadline.Token).ConfigureAwait(false);
             }
+            else if (path == AgentContextRoute)
+                await HandleAgentContextAsync(context, deadline.Token).ConfigureAwait(false);
             else if (path == MoveRoute)
             {
                 if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
@@ -160,22 +163,22 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                     "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" or
                     "transfer_key_conflict" or "transfer_input_changed" or "transfer_damaged" or "transfer_stage_conflict" or
                     "transfer_stage_path_changed" or "transfer_already_launched" or "transfer_not_staged" or
-                    "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" => 409,
+                    "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" or "agent_context_block_ambiguous" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
-                    "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" => 422,
+                    "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" => 422,
                 "access_denied" or "write_not_enabled" => 403,
-                "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" => 404,
+                "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" => 404,
                 "media_busy" or "export_busy" or "transfer_run_busy" => 429, "media_timeout" or "export_timeout" or "transfer_timeout" => 504,
-                "project_too_large" => 413, _ => 503
+                "project_too_large" or "agent_context_too_large" => 413, _ => 503
             };
-            await Error(context, status, error.Code, true);
+            await Error(context, status, error.Code, reconcile);
         }
         catch (Microsoft.AspNetCore.Http.BadHttpRequestException error) { await Error(context, error.StatusCode, "invalid_request"); }
         catch (JsonException) { await Error(context, 400, "invalid_request"); }
-        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested) { await Error(context, 504, "deadline_exceeded", true); }
+        catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested) { await Error(context, 504, "deadline_exceeded", reconcile); }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
         catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException)
-        { await Error(context, 503, "backend_unavailable", true); }
+        { await Error(context, 503, "backend_unavailable", reconcile); }
         finally { _slots.Release(); }
     }
 

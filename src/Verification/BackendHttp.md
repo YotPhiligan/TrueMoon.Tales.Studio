@@ -129,6 +129,28 @@ $snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom
 восстанавливает статус по ID после перезапуска backend.
 [Команды экспорта](BackendExport.md#native-export-cli).
 
+<a id="studio-native-agent-context-cli"></a>
+## Контекст проекта и блока из C# CLI
+
+С **1.2611.22.3-alpha** используйте адрес и токен существующей сессии
+`--serve-project` для проекта schema2. Выберите ID сценарного действия
+или ID источника. Также поддерживаются точный заголовок действия и
+точная метка источника.
+
+```powershell
+$env:STUDIO_BACKEND_HTTP_TOKEN = '<token из ready JSON>'
+$url = '<url из ready JSON>'
+.\TrueMoon.Tales.Studio.exe backend-agent-context --url $url
+$result = .\TrueMoon.Tales.Studio.exe backend-agent-context --url $url --block 'Действие A' | ConvertFrom-Json
+$result.context.project.revision
+$result.context.fingerprint
+$result.context.block
+```
+
+CLI сверяет SHA снимка и селектор перед выдачей JSON. Неоднозначность
+возвращает код выхода 3, отсутствие блока — 1. Повторный запрос
+читает последнюю сохранённую ревизию проекта. [Формат ответа](../../API.md#native-agent-context).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

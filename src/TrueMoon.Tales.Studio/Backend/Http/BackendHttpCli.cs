@@ -13,6 +13,7 @@ internal static partial class BackendHttpCli
     internal const string Usage = """
         CLI существующей сессии --serve-project:
           backend-project --url <url>
+          backend-agent-context --url <url> [--block <id-or-exact-name>]
           backend-move --url <url> --clip <id> --start-frame <номер> --revision <номер> --sha256 <fingerprint>
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
@@ -32,12 +33,13 @@ internal static partial class BackendHttpCli
         Токен передаётся через STUDIO_BACKEND_HTTP_TOKEN или --token.
         """;
     private const string ProjectCommand = "backend-project", MoveCommand = "backend-move", TrimCommand = "backend-trim";
+    private const string AgentContextCommand = "backend-agent-context";
     private const string MediaCommand = "backend-media", FrameCommand = "backend-frame";
     private const int MaxSnapshotBytes = 2 * 1024 * 1024;
     private const int MaxErrorBytes = 4096;
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
-    internal static bool Handles(string? command) => command is ProjectCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
+    internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -74,6 +76,12 @@ internal static partial class BackendHttpCli
                     export ? MaxExportStatusBytes : MaxSnapshotBytes;
                 using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
+                if (payload is BackendHttpServer.AgentContextBody context)
+                {
+                    ValidateAgentContext(snapshot, context.Block);
+                    Console.WriteLine(snapshot.GetRawText());
+                    return 0;
+                }
                 if (transfer)
                 {
                     if (payload is BackendHttpServer.TransferRunBody run) ValidateTransferRun(snapshot, run, args[0]);
@@ -134,7 +142,14 @@ internal static partial class BackendHttpCli
 
         var route = BackendHttpServer.ProjectRoute;
         HttpContent? content = null;
-        if (IsExportCommand(command))
+        if (command == AgentContextCommand)
+        {
+            options.Remove("--block", out var selector);
+            if (options.Count != 0 || !BackendAgentContext.ValidSelector(selector)) return false;
+            route = BackendHttpServer.AgentContextRoute;
+            content = JsonContent.Create(new BackendHttpServer.AgentContextBody(selector), options: BackendHttpServer.Json);
+        }
+        else if (IsExportCommand(command))
         {
             if (!TryExportRequest(command, options, out route, out content, out output, out artifactSha))
                 return false;
@@ -195,6 +210,16 @@ internal static partial class BackendHttpCli
     }
 
     private static bool ValidId(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 160 && !value.Any(char.IsControl);
+
+    private static void ValidateAgentContext(JsonElement snapshot, string? selector)
+    {
+        if (snapshot.ValueKind != JsonValueKind.Object ||
+            !snapshot.TryGetProperty("api_version", out var version) || version.ValueKind != JsonValueKind.Number ||
+            !version.TryGetInt32(out var api) || api != 1 || !snapshot.TryGetProperty("context", out var context) ||
+            !snapshot.TryGetProperty("snapshot_sha256", out var sha) || sha.ValueKind != JsonValueKind.String)
+            throw new JsonException("Invalid HTTP agent context envelope.");
+        BackendAgentContext.Validate(context, selector, sha.GetString());
+    }
 
     private static bool TryAddress(string text, out Uri address)
     {

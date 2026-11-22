@@ -118,6 +118,8 @@ public sealed class BackendConnectionTests
         public Task<BackendProjectReply> MigrateProjectAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> MoveClipAsync(string key, string id, int start, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> RecoverProjectAsync(string key, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendAgentContextReply> ReadAgentContextAsync(string key, string block,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
         internal int HelloCalls, OpenCalls;
         public async Task<BackendIdentity> HelloAsync(string sessionKey, CancellationToken cancellationToken = default)
         { HelloCalls++; await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return Identity(); }
