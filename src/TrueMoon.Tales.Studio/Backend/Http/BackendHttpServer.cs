@@ -91,8 +91,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-            deadline.CancelAfter(TimeSpan.FromSeconds(12));
             var path = context.Request.Path.Value;
+            deadline.CancelAfter(TimeSpan.FromSeconds(IsTransferRoute(path) ? 48 : 12));
             if (context.Request.QueryString.HasValue) { await Error(context, 400, "invalid_request"); return; }
             if (path == ProjectRoute)
             {
@@ -148,6 +148,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
             }
             else if (path is ExportStartRoute or ExportStatusRoute or ExportCancelRoute or ExportRecoverRoute or ExportChunkRoute)
                 await HandleExportAsync(context, path, deadline.Token).ConfigureAwait(false);
+            else if (IsTransferRoute(path))
+                await HandleTransferAsync(context, path!, deadline.Token).ConfigureAwait(false);
             else await Error(context, 404, "not_found");
         }
         catch (BackendCommandException error)
@@ -155,11 +157,14 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
             var status = error.Code switch
             {
                 "revision_conflict" or "project_file_conflict" or "writer_busy" or "writer_required" or "migration_required" or "recovery_required" or
-                    "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" => 409,
-                "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" => 422,
+                    "recovery_conflict" or "export_conflict" or "export_not_ready" or "invalid_export_artifact" or
+                    "transfer_key_conflict" or "transfer_input_changed" or "transfer_damaged" or "transfer_stage_conflict" or
+                    "transfer_stage_path_changed" or "transfer_already_launched" or "take_pair_changed" => 409,
+                "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
+                    "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" => 422,
                 "access_denied" or "write_not_enabled" => 403,
-                "project_not_found" or "media_not_found" or "export_not_found" => 404,
-                "media_busy" or "export_busy" => 429, "media_timeout" or "export_timeout" => 504,
+                "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" => 404,
+                "media_busy" or "export_busy" => 429, "media_timeout" or "export_timeout" or "transfer_timeout" => 504,
                 "project_too_large" => 413, _ => 503
             };
             await Error(context, status, error.Code, true);

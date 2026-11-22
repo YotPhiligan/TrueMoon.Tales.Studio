@@ -22,6 +22,9 @@ internal static partial class BackendHttpCli
           backend-export-cancel --url <url> --id <id> --job-revision <номер>
           backend-export-recover --url <url> --id <id>
           backend-export-download --url <url> --id <id> --sha256 <artifact_sha256> --output <новый MP4>
+          backend-transfer-prepare --url <url> --form <JSON> --revision <номер> --sha256 <fingerprint>
+          backend-transfer-job --url <url> --id <id> --revision <номер> --sha256 <fingerprint>
+          backend-transfer-stage --url <url> --id <id> --request-sha256 <request_sha256> --revision <номер> --sha256 <fingerprint>
         Токен передаётся через STUDIO_BACKEND_HTTP_TOKEN или --token.
         """;
     private const string ProjectCommand = "backend-project", MoveCommand = "backend-move", TrimCommand = "backend-trim";
@@ -31,7 +34,7 @@ internal static partial class BackendHttpCli
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
     internal static bool Handles(string? command) => command is ProjectCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
-        IsExportCommand(command);
+        IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
     {
@@ -46,12 +49,14 @@ internal static partial class BackendHttpCli
         {
             client.DefaultRequestHeaders.ConnectionClose = true;
             client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
-            deadline.CancelAfter(RequestTimeout);
             var payload = (request.Content as JsonContent)?.Value;
+            var transfer = payload as BackendHttpServer.TransferBody;
+            deadline.CancelAfter(transfer is null ? RequestTimeout : TimeSpan.FromSeconds(52));
             var recover = args[0] == ExportRecoverCommand;
-            var write = recover || payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody;
+            var write = recover || payload is BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
+                or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null };
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
-            var hint = ExportReconciliationHint(payload);
+            var hint = ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
             Console.CancelKeyPress += Cancel;
             try
@@ -60,8 +65,15 @@ internal static partial class BackendHttpCli
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.OK)
                     return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
-                using var json = await ReadJsonAsync(response.Content, export ? MaxExportStatusBytes : MaxSnapshotBytes, token).ConfigureAwait(false);
+                var limit = transfer is not null ? BackendHttpServer.MaxTransferReceiptBytes : export ? MaxExportStatusBytes : MaxSnapshotBytes;
+                using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
+                if (transfer is not null)
+                {
+                    ValidateTransferReceipt(snapshot, transfer);
+                    Console.WriteLine(snapshot.GetRawText());
+                    return 0;
+                }
                 if (export)
                 {
                     var job = ReadExportStatus(snapshot, payload!);
@@ -127,6 +139,10 @@ internal static partial class BackendHttpCli
             if (command is MediaCommand or FrameCommand)
             {
                 if (!TryMediaRequest(command, options, revision, fingerprint, out route, out content, out output)) return false;
+            }
+            else if (IsTransferCommand(command))
+            {
+                if (!TryTransferRequest(command, options, revision, fingerprint, out route, out content)) return false;
             }
             else if (!TryEditRequest(command, options, revision, fingerprint, out route, out content)) return false;
         }

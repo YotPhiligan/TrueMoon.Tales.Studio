@@ -255,6 +255,32 @@ Enerit protocol7 добавляет `CheckExportAsync` и `FindExportAsync` дл
 текущему проекту, и читает статус принятого задания без повторной отправки.
 [Сценарий в окне](src/WindowDesign.md#workspace-export).
 
+<a id="native-transfer-http"></a>
+## Подготовка «Генерации по черновику» через HTTPv1
+
+Начиная с **1.2611.22.1-alpha**, следующие маршруты используют ту же
+сессию `--serve-project` и backend Enerit. Передавайте JSON методом POST
+на `/api/backend/v1/<маршрут>` с заголовком `X-Studio-Token`.
+
+| Маршрут | Дополнительные поля запроса | Результат |
+|---|---|---|
+| `transfer-prepare` | `form` | Графы и квитанция `prepared` |
+| `transfer-job` | `id` | Чтение проверенной квитанции `prepared` или `staged` |
+| `transfer-stage` | `id`, `request_sha256` из квитанции | Проверка входов и квитанция `staged` |
+
+Для всех маршрутов обязательны `expected_revision` и `fingerprint`
+актуального проекта. `id` имеет вид `ft-<client_key>`, где `client_key`
+содержит 32 строчные hex-цифры. `form` содержит `client_key`, `source_id`,
+`draft_take_id`, `seed` (uint64), `prompt`, массив `images` из объектов
+с полями `reference` и `role`, `guide_picture`, `motion_role`, `motion_notes`
+и необязательный `predecessor` с полями `id` и `request_sha256`.
+
+Ответ — квитанция с ID и SHA задания и флагом `enqueued: false`.
+Подготовка и проверка входов используют writer действующей сессии и
+сохраняют файлы задания. Ревизия проекта и история записи сохраняются.
+Потерянный ответ сверяется чтением квитанции. Для запуска используется
+отдельная команда в Studio. [Пример CLI](src/Verification/BackendHttp.md#native-transfer-cli).
+
 <a id="scenario-edits"></a>
 ## Сценарий и материалы через Enerit
 

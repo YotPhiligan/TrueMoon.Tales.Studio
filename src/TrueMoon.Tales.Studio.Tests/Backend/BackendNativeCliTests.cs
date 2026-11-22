@@ -390,6 +390,38 @@ public sealed class BackendNativeCliTests
         });
     }
 
+    [Theory]
+    [InlineData(true, "backend_unavailable")]
+    [InlineData(false, "invalid_response")]
+    public async Task NativeTransferStage_SendsOnePostAndRequiresReconciliation(bool loseReply, string error)
+    {
+        var requests = 0;
+        var id = BackendFullTransfer.JobId(new string('a', 32));
+        var sha = new string('B', 64);
+        await WithStubAsync(async context =>
+        {
+            Interlocked.Increment(ref requests);
+            Assert.Equal(BackendHttpServer.TransferStageRoute, context.Request.Path);
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            var request = await JsonSerializer.DeserializeAsync<BackendHttpServer.TransferJobBody>(context.Request.Body, BackendHttpServer.Json);
+            Assert.Equal((id, 12L, Fingerprint, sha), (request!.Id, request.ExpectedRevision, request.Fingerprint, request.RequestSha256));
+            if (loseReply) context.Abort();
+            else
+            {
+                var wrong = new FullTransferReceipt(1, id, "staged", 12, Fingerprint, "draft", Fingerprint,
+                    Fingerprint, Fingerprint, Fingerprint, 56, 24, 1280, 736, true, false);
+                await context.Response.WriteAsJsonAsync(wrong, BackendHttpServer.Json);
+            }
+        }, async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, "backend-transfer-stage", "--id", id,
+                "--revision", "12", "--sha256", Fingerprint, "--request-sha256", sha);
+            AssertError(result, 1, error, reconcile: true);
+            Assert.Contains($"backend-transfer-job --id {id}", result.Error);
+            Assert.Equal(1, Volatile.Read(ref requests));
+        });
+    }
+
     private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });

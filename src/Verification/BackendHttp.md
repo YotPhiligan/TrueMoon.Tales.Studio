@@ -129,6 +129,28 @@ $snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom
 восстанавливает статус по ID после перезапуска backend.
 [Команды экспорта](BackendExport.md#native-export-cli).
 
+<a id="native-transfer-cli"></a>
+## Подготовка генерации из C# CLI
+
+Команды появились в **1.2611.22.1-alpha**. `--form` принимает UTF-8 JSON с
+полями [формы Full Transfer](../../API.md#native-transfer-http).
+Передайте `client_key` из 32 строчных hex-цифр, ID источника и чернового
+дубля, seed, промпт и упорядоченные референсы с ролями. Выберите Guide 0
+через `guide_picture` и опишите роль и движение Video 1.
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$job = .\TrueMoon.Tales.Studio.exe backend-transfer-prepare --url $url --form .\transfer-form.json --revision $snapshot.project.revision --sha256 $snapshot.fingerprint | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-transfer-stage --url $url --id $job.id --request-sha256 $job.request_sha256 --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+.\TrueMoon.Tales.Studio.exe backend-transfer-job --url $url --id $job.id --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Все три команды возвращают JSON квитанции с `enqueued: false`. Проверка
+входов сохраняет `Staged.json`. Файлы для ComfyUI копируются в Temp при
+отдельном запуске из Studio. При `reconciliation_required: true`
+перечитайте проект и запросите квитанцию по ID `ft-<client_key>`,
+который также указан в сообщении ошибки.
+
 ## Проверки
 
 | Требование | Тест |

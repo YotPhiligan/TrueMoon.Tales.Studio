@@ -1870,13 +1870,15 @@ public sealed class BackendExportEndToEndTests
             "-frames:v", "1", "-threads", "1", "-n", files.MediaPath("Reference.png")], 2048);
         await using var session = await files.OpenAsync();
         var api = session.Connection;
-        var initial = await api.AcquireWriterAsync(await api.OpenAsync());
+        await using var http = new BackendHttpServer(api);
+        await http.StartAsync();
+        var initial = await api.OpenAsync();
         var source = initial.Project.Sources.First();
         var baseline = await api.EditScenarioAsync(new ImportVideo(source.Id, "", "Контроль движения", "@videos/Motion.mp4"), initial);
         var take = baseline.Project.Sources.First().Takes.Last();
         var references = Enumerable.Range(1, pictures).Select(n => new FullTransferImage("@videos/Reference.png", $"Роль {n}")).ToArray();
         var prompt = "subject_definitions: " + string.Join(", ", Enumerable.Range(1, pictures).Select(n => $"<Picture {n}>")) +
-            ", <Video 1>\nsummary: Черновик.\nretention_analysis: Лица.\ndetailed_description: Поворот.\n" +
+            ", <Video 1>\nsummary: Черновик.\nretention_analysis: Лица.\ndetailed_description: Поворот. " + new string('я', 800) + "\n" +
             "overall_soundscape: N/A\n\nnon_diegetic_music: N/A";
         var form = new FullTransferForm(new('f', 32), source.Id, take.Id, ulong.MaxValue, prompt, references, pictures, "Поворот", "Один план");
         var project = File.ReadAllBytes(files.ProjectPath);
@@ -1885,10 +1887,41 @@ public sealed class BackendExportEndToEndTests
             api.PrepareFullTransferAsync(form with { Prompt = prompt.Replace("overall_soundscape: N/A", "overall_soundscape: шум") },
                 baseline, CancellationToken.None));
         Assert.Equal("transfer_prompt_sound", refusal.Code);
-        var receipt = await api.PrepareFullTransferAsync(form, baseline, CancellationToken.None);
+        var formPath = Path.Combine(files.OutputDirectory, "Форма.json");
+        var formJson = JsonSerializer.Serialize(form, BackendAdaptation.Json);
+        Assert.True(formJson.Length > 4096);
+        File.WriteAllText(formPath, formJson, System.Text.Encoding.UTF8);
+        using (var client = new HttpClient(new SocketsHttpHandler { UseProxy = false }))
+        {
+            var address = new Uri(http.Address, BackendHttpServer.TransferPrepareRoute);
+            var payload = new { expected_revision = baseline.Project.Revision, fingerprint = baseline.Fingerprint, form };
+            using var unauthorized = await client.PostAsJsonAsync(address, payload, BackendHttpServer.Json);
+            Assert.Equal(HttpStatusCode.Forbidden, unauthorized.StatusCode);
+            client.DefaultRequestHeaders.Add("X-Studio-Token", http.Token);
+            using var duplicate = new StringContent(JsonSerializer.Serialize(payload, BackendHttpServer.Json)
+                .Replace($"\"seed\":{ulong.MaxValue}", $"\"seed\":1,\"seed\":{ulong.MaxValue}", StringComparison.Ordinal),
+                System.Text.Encoding.UTF8, "application/json");
+            using var badRequest = await client.PostAsync(address, duplicate);
+            Assert.Equal(HttpStatusCode.BadRequest, badRequest.StatusCode);
+            using var oversized = new StringContent(new string(' ', BackendHttpServer.MaxTransferBodyBytes + 1),
+                System.Text.Encoding.UTF8, "application/json");
+            using var tooLarge = await client.PostAsync(address, oversized);
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, tooLarge.StatusCode);
+        }
+        Assert.False(Path.Exists(BackendFullTransfer.JobDirectory(Path.GetDirectoryName(files.ProjectPath)!, BackendFullTransfer.JobId(form.ClientKey))));
+
+        var receipt = ReadReceipt(await Cli("backend-transfer-prepare", baseline, "--form", formPath));
         Assert.Equal((56, false, false), (receipt.Frames, receipt.Staged, receipt.Enqueued));
+        Assert.Equal(receipt, ReadReceipt(await Cli("backend-transfer-job", baseline, "--id", receipt.Id)));
         Assert.Equal(receipt, await api.PrepareFullTransferAsync(form, baseline, CancellationToken.None));
+        await AssertFailure("revision_conflict", Cli("backend-transfer-stage", initial, "--id", receipt.Id, "--request-sha256", receipt.RequestSha256));
+        await AssertFailure("transfer_key_conflict", Cli("backend-transfer-stage", baseline, "--id", receipt.Id, "--request-sha256", new string('0', 64)));
         var job = Path.Combine(Path.GetDirectoryName(files.ProjectPath)!, BackendFullTransfer.JobReference(receipt.Id));
+        Assert.False(File.Exists(Path.Combine(job, "Staged.json")));
+        var staged = ReadReceipt(await Cli("backend-transfer-stage", baseline, "--id", receipt.Id, "--request-sha256", receipt.RequestSha256));
+        Assert.Equal(receipt with { State = "staged", Staged = true }, staged);
+        Assert.Equal(staged, ReadReceipt(await Cli("backend-transfer-job", baseline, "--id", receipt.Id)));
+        Assert.Equal(staged, await api.FullTransferJobAsync(receipt.Id, null, baseline, CancellationToken.None));
         var preview = Path.Combine(job, "Preview");
         var graph = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, "Prepared.api.json")))!;
         var build = JsonNode.Parse(File.ReadAllBytes(Path.Combine(preview, "Build.json")))!;
@@ -1908,6 +1941,30 @@ public sealed class BackendExportEndToEndTests
         Assert.False(Directory.Exists(Path.Combine(job, "Run")));
         Assert.Equal("keep", File.ReadAllText(Assert.Single(Directory.GetFiles(Path.Combine(files.ComfyRoot, "input")))));
         files.AssertProject(project, history);
+
+        async Task<(int Code, string Output, string Error)> Cli(string command, OpenedBackendProject head, params string[] options)
+        {
+            using var cli = BackendCliProcess.Native(http.Address, http.Token, [command, "--revision",
+                head.Project.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture), "--sha256", head.Fingerprint, .. options]);
+            var result = await cli.WaitAsync();
+            return (result.Code, result.Output, result.Error);
+        }
+
+        static FullTransferReceipt ReadReceipt((int Code, string Output, string Error) result)
+        {
+            Assert.True(result.Code == 0, result.Error);
+            return Assert.IsType<FullTransferReceipt>(JsonSerializer.Deserialize<FullTransferReceipt>(result.Output, BackendHttpServer.Json));
+        }
+
+        static async Task AssertFailure(string error, Task<(int Code, string Output, string Error)> command)
+        {
+            var result = await command;
+            Assert.Equal(3, result.Code);
+            Assert.Empty(result.Output);
+            using var json = JsonDocument.Parse(result.Error);
+            Assert.Equal(error, json.RootElement.GetProperty("error").GetString());
+            Assert.False(json.RootElement.GetProperty("automatic_retry").GetBoolean());
+        }
     }
 
     [BackendMediaFact]

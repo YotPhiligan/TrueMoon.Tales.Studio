@@ -28,7 +28,10 @@ internal sealed partial class BackendConnection
         return state;
     }
 
-    internal async Task<FullTransferReceipt> FullTransferJobAsync(string id, string? expectedRequestSha, OpenedBackendProject baseline,
+    internal Task<FullTransferReceipt> FullTransferJobAsync(string id, string? expectedRequestSha, OpenedBackendProject baseline,
+        CancellationToken token) => FullTransferJobAsync(id, expectedRequestSha, baseline.Project.Revision, baseline.Fingerprint, token);
+
+    internal async Task<FullTransferReceipt> FullTransferJobAsync(string id, string? expectedRequestSha, long revision, string fingerprint,
         CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -36,21 +39,19 @@ internal sealed partial class BackendConnection
         var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         var reply = await TransportAsync(() => service.FullTransferJobAsync(options.SessionKey, id, expectedRequestSha,
-            baseline.Project.Revision, baseline.Fingerprint, deadline.Token)).ConfigureAwait(false);
+            revision, fingerprint, deadline.Token)).ConfigureAwait(false);
         if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
         if (reply?.ReceiptJson is not { Length: > 0 and <= 4096 } json ||
-            JsonSerializer.Deserialize<FullTransferReceipt>(json, BackendAdaptation.Json) is not
-                { Version: 1, Width: 1280, Height: 736, Fps: 24, Frames: >= 56 and <= 192, Enqueued: false } receipt ||
-            receipt.Id != id || !IsHash(receipt.Fingerprint) || receipt.Revision > baseline.Project.Revision ||
-            receipt.State != (receipt.Staged ? "staged" : "prepared") ||
-            expectedRequestSha is not null && (!receipt.Staged || receipt.Revision != baseline.Project.Revision || receipt.Fingerprint != baseline.Fingerprint ||
-                                               !string.Equals(expectedRequestSha, receipt.RequestSha256, StringComparison.OrdinalIgnoreCase)) ||
-            !IsHash(receipt.DraftSha256) || !IsHash(receipt.RequestSha256) || !IsHash(receipt.ConfigSha256) || !IsHash(receipt.BuildSha256))
+            JsonSerializer.Deserialize<FullTransferReceipt>(json, BackendAdaptation.Json) is not { } receipt ||
+            !MatchesTransferJob(receipt, id, expectedRequestSha, revision, fingerprint))
             throw new InvalidDataException("Invalid Full Transfer job receipt.");
         return receipt;
     }
 
-    internal async Task<FullTransferReceipt> PrepareFullTransferAsync(FullTransferForm form, OpenedBackendProject baseline,
+    internal Task<FullTransferReceipt> PrepareFullTransferAsync(FullTransferForm form, OpenedBackendProject baseline,
+        CancellationToken token) => PrepareFullTransferAsync(form, baseline.Project.Revision, baseline.Fingerprint, token);
+
+    internal async Task<FullTransferReceipt> PrepareFullTransferAsync(FullTransferForm form, long revision, string fingerprint,
         CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -58,16 +59,30 @@ internal sealed partial class BackendConnection
         var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
         ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
         var json = JsonSerializer.Serialize(form, BackendAdaptation.Json);
-        var reply = await TransportAsync(() => service.PrepareFullTransferAsync(options.SessionKey, json, baseline.Project.Revision,
-            baseline.Fingerprint, deadline.Token)).ConfigureAwait(false);
+        var reply = await TransportAsync(() => service.PrepareFullTransferAsync(options.SessionKey, json, revision,
+            fingerprint, deadline.Token)).ConfigureAwait(false);
         if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
         if (reply?.ReceiptJson is not { Length: > 0 and <= 4096 } receiptJson ||
-            JsonSerializer.Deserialize<FullTransferReceipt>(receiptJson, BackendAdaptation.Json) is not
-                { Version: 1, State: "prepared", Width: 1280, Height: 736, Fps: 24, Frames: >= 56 and <= 192, Staged: false, Enqueued: false } receipt ||
-            receipt.Id != BackendFullTransfer.JobId(form.ClientKey) || receipt.DraftTakeId != form.DraftTakeId ||
-            receipt.Revision != baseline.Project.Revision || receipt.Fingerprint != baseline.Fingerprint ||
-            !IsHash(receipt.DraftSha256) || !IsHash(receipt.RequestSha256) || !IsHash(receipt.ConfigSha256) || !IsHash(receipt.BuildSha256))
+            JsonSerializer.Deserialize<FullTransferReceipt>(receiptJson, BackendAdaptation.Json) is not { } receipt ||
+            !MatchesTransferPreparation(receipt, form, revision, fingerprint))
             throw new InvalidDataException("Invalid Full Transfer preparation receipt.");
         return receipt;
     }
+
+    internal static bool MatchesTransferJob(FullTransferReceipt receipt, string id, string? expectedRequestSha, long revision,
+        string fingerprint) => ValidTransferReceipt(receipt) && receipt.Id == id && receipt.Revision <= revision &&
+        (expectedRequestSha is null || receipt.Staged && receipt.Revision == revision &&
+            string.Equals(receipt.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(receipt.RequestSha256, expectedRequestSha, StringComparison.OrdinalIgnoreCase));
+
+    internal static bool MatchesTransferPreparation(FullTransferReceipt receipt, FullTransferForm form, long revision,
+        string fingerprint) => ValidTransferReceipt(receipt) && !receipt.Staged &&
+        receipt.Id == BackendFullTransfer.JobId(form.ClientKey) && receipt.DraftTakeId == form.DraftTakeId?.Trim() &&
+        receipt.Revision == revision && string.Equals(receipt.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ValidTransferReceipt(FullTransferReceipt receipt) =>
+        receipt is { Version: 1, Width: 1280, Height: 736, Fps: 24, Frames: >= 56 and <= 192, Enqueued: false, Revision: >= 0,
+            DraftTakeId.Length: > 0 } && (receipt.Frames - 5) % 17 == 0 &&
+        receipt.State == (receipt.Staged ? "staged" : "prepared") && IsHash(receipt.Fingerprint) &&
+        IsHash(receipt.DraftSha256) && IsHash(receipt.RequestSha256) && IsHash(receipt.ConfigSha256) && IsHash(receipt.BuildSha256);
 }
