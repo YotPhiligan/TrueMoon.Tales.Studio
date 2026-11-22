@@ -43,7 +43,7 @@ internal sealed partial class StudioBackendService
                 var undo = command is UndoMontage;
                 var target = _montageHistory.Target(baseline.Fingerprint, undo);
                 var restored = await store.RestoreSnapshotAsync(baseline, target, expectedRevision,
-                    undo ? "studio:undo-montage" : "studio:redo-montage", cancellationToken).ConfigureAwait(false);
+                    undo ? "studio:undo-montage" : "studio:redo-montage", [BackendAgentBreakdown.AppliedProperty], cancellationToken).ConfigureAwait(false);
                 _montageHistory.Complete(restored.Fingerprint, undo);
                 return Reply(restored);
             }

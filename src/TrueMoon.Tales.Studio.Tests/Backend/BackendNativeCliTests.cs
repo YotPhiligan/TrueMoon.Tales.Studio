@@ -579,6 +579,48 @@ public sealed class BackendNativeCliTests
         AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, args), 3, "agent_request_revision_conflict", reconcile: true);
     }
 
+    [Fact]
+    public async Task NativeBreakdown_LostHttpReplyLeavesOneApplicationAndCanBeReconciledByPreview()
+    {
+        using var files = new BackendWriteFixture(scenario: true);
+        await using var fixture = new BackendHttpFixture(files);
+        var goal = BackendAgentRequestCreationTests.Configure(files);
+        await fixture.StartAsync();
+        var head = await fixture.Connection.OpenAsync();
+        var id = await BackendAgentBreakdownTests.CompleteAsync(fixture, goal, head);
+        var route = BackendHttpServer.AgentRequestsRoute + "/" + id + BackendHttpServer.BreakdownSuffix;
+        string[] args = ["backend-agent-request-breakdown-apply", "--id", id, "--revision",
+            head.Project.Revision.ToString(CultureInfo.InvariantCulture), "--sha256", head.Fingerprint];
+        using var client = fixture.Client();
+        var posts = 0;
+        await WithStubAsync(async context =>
+        {
+            Assert.Equal(route, context.Request.Path.Value);
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            Interlocked.Increment(ref posts);
+            using var form = await JsonDocument.ParseAsync(context.Request.Body);
+            using var body = new StringContent(form.RootElement.GetRawText(), Encoding.UTF8, "application/json");
+            using var reply = await client.PostAsync(route, body, context.RequestAborted);
+            reply.EnsureSuccessStatusCode();
+            context.Abort();
+        }, async address =>
+        {
+            var result = await RunAsync(address, Fingerprint, args);
+            AssertError(result, 1, "backend_unavailable", reconcile: true);
+            using var error = JsonDocument.Parse(result.Error);
+            Assert.Contains(id, error.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.Equal(1, Volatile.Read(ref posts));
+        });
+
+        var preview = await RunAsync(fixture.Http.Address, fixture.Http.Token, "backend-agent-request-breakdown-preview", "--id", id);
+        Assert.True(preview.Code == 0, preview.Error);
+        using var json = JsonDocument.Parse(preview.Output);
+        Assert.Equal("applied", json.RootElement.GetProperty("status").GetString());
+        Assert.Equal(head.Project.Revision + 1, json.RootElement.GetProperty("project_revision").GetInt64());
+        AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, args), 3, "revision_conflict", reconcile: true);
+        Assert.Equal(2, files.Files.HistoryFiles.Length);
+    }
+
     private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });

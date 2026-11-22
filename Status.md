@@ -57,7 +57,11 @@
   Опубликовано в `origin/main` коммитом `9dc87e0`. [Проверки](#studio-native-agent-create).
 - **Переходы задания агента из CLI.** В **1.2611.22.6-alpha** `claim`,
   `finish`, `fail` и `cancel` используют общий writer и сверяют
-  ожидаемую ревизию задания. [Проверки](#studio-native-agent-update).
+  ожидаемую ревизию задания. Опубликовано в `origin/main` коммитом
+  `62625f7`. [Проверки](#studio-native-agent-update).
+- **Разбивка сегмента из CLI.** В **1.2611.22.7-alpha** предпросмотр
+  показывает бюджет текущего окна. Применение сохраняет действия и отметку
+  о применении в одной ревизии проекта. [Проверки](#studio-native-agent-breakdown).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -246,6 +250,35 @@ Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **120
 `src/.local/native-agent-update-20261122/release.trx`. Проверки на
 изолированных проектах выполнены без GPU. Предупреждение CS8669 в
 сгенерированном коде Enerit сохраняется.
+
+<a id="studio-native-agent-breakdown"></a>
+## Предпросмотр и применение разбивки сегмента из C# CLI, 22.11.2026
+
+Studio **1.2611.22.7-alpha**, Enerit protocol **35**. Backend рассчитывает
+кадры разбивки по завершённому заданию. Применение требует ожидаемую
+ревизию и SHA проекта. Общий writer добавляет текстовые действия для
+аниматика и сохраняет отметку применения в одной транзакции. Отмена и
+повтор в редакторе восстанавливают содержимое как единое действие, а
+отметка продолжает защищать от повторного применения задания из CLI.
+[Контракт](API.md#native-agent-breakdown) ·
+[Команды](src/Verification/BackendHttp.md#studio-native-agent-breakdown-cli).
+
+| Проверка | Результат |
+| --- | --- |
+| `NativeBreakdown_PreviewsAndAppendsTextActionsInOneUndoableCommit` | Предпросмотр побайтно сохранил проект и задание. Кадры совпали с расстановкой аниматика. Применение сохранило весь набор одной ревизией, проверены отмена и повтор |
+| `NativeBreakdown_RejectsStaleBaselineAndDuplicateAfterRestart` | Отклонены старая ревизия и неверный SHA. Параллельные запросы дали одну запись. Повтор после перезапуска дал 409 |
+| `NativeBreakdown_BlocksUnplaceableProposalWithoutWrites` | Перебор окна, неизвестная длительность существующего действия и занятый переход блокируют запись |
+| `NativeBreakdown_StartsAtEmptyWindowOrAfterSavedDetachedClip` | Отсчёт идёт от начала пустого окна или от конца сохранённого клипа без связанного действия |
+| `NativeBreakdown_HandlesExistingWebProposalAndHonorsLegacyAppliedMarker` | Предложение Python/Web читается после миграции. Прежняя отметка применения блокирует повтор |
+| `NativeBreakdown_RefusesMissingOrUnfinishedRequests` | Отсутствующее и незавершённое задания отклонены без записи |
+| `NativeBreakdown_LostHttpReplyLeavesOneApplicationAndCanBeReconciledByPreview` | После потери ответа предъявлен один POST, повторный предпросмотр подтвердил применение |
+
+Release .NET 11 по CLI, HTTP, IPC, backend и ProjectStore дал **158
+пройденных, 1 пропущенный, 0 упавших тестов**. Все 11 новых сценариев
+прошли. Windows пропустила существующий тест символьных ссылок из-за
+отсутствия привилегии их создания (1314). Проверки выполнялись на
+изолированных копиях без GPU. TRX в
+`src/.local/native-agent-breakdown-20261122/release.trx`.
 
 <a id="studio-native-cli"></a>
 ## Чтение проекта и правка клипа из C# CLI, 21.11.2026

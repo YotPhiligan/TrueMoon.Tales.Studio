@@ -13,9 +13,12 @@ internal static partial class BackendHttpCli
     private const string FinishAgentRequestCommand = AgentUpdatePrefix + "finish";
     private const string FailAgentRequestCommand = AgentUpdatePrefix + "fail";
     private const string CancelAgentRequestCommand = AgentUpdatePrefix + "cancel";
+    private const string PreviewAgentBreakdownCommand = AgentUpdatePrefix + "breakdown-preview";
+    private const string ApplyAgentBreakdownCommand = AgentUpdatePrefix + "breakdown-apply";
 
     private static bool IsAgentRequestCommand(string? command) => command is AgentRequestsCommand or AgentRequestCommand or
-        CreateAgentRequestCommand or ClaimAgentRequestCommand or FinishAgentRequestCommand or FailAgentRequestCommand or CancelAgentRequestCommand;
+        CreateAgentRequestCommand or ClaimAgentRequestCommand or FinishAgentRequestCommand or FailAgentRequestCommand or CancelAgentRequestCommand or
+        PreviewAgentBreakdownCommand or ApplyAgentBreakdownCommand;
 
     private static bool TryAgentRequestCommand(string command, Dictionary<string, string> options, out string route, out HttpContent? content)
     {
@@ -25,6 +28,11 @@ internal static partial class BackendHttpCli
         if (command == CreateAgentRequestCommand) return TryCreateAgentRequest(options, out content);
         if (!options.Remove("--id", out var id) || !BackendAgentRequests.ValidId(id)) return false;
         route += "/" + id;
+        if (command is PreviewAgentBreakdownCommand or ApplyAgentBreakdownCommand)
+        {
+            route += BackendHttpServer.BreakdownSuffix;
+            return command == PreviewAgentBreakdownCommand ? options.Count == 0 : TryApplyBreakdown(options, out content);
+        }
         return command == AgentRequestCommand ? options.Count == 0 : TryUpdateAgentRequest(command[AgentUpdatePrefix.Length..], options, out content);
     }
 
@@ -32,8 +40,30 @@ internal static partial class BackendHttpCli
     {
         AgentRequestDraft draft => $" Проверьте задание {BackendAgentRequests.RequestId(draft.ClientKey)} через backend-agent-request. Для явного повтора сохраните тот же client_key и исходные параметры.",
         AgentRequestUpdate => $" Перечитайте задание {request.RequestUri!.Segments[^1]} через backend-agent-request и проверьте его состояние и ревизию.",
+        BackendHttpServer.ApplyBreakdownBody => $" Перепроверьте разбивку {BreakdownRequestId(request)} через backend-agent-request-breakdown-preview.",
         _ => null
     };
+
+    private static string BreakdownRequestId(HttpRequestMessage request) => request.RequestUri!.Segments[^2].TrimEnd('/');
+
+    private static bool TryApplyBreakdown(Dictionary<string, string> options, out HttpContent? content)
+    {
+        content = null;
+        if (!TryBaseline(options, out var revision, out var fingerprint)) return false;
+        options.Remove("--actor", out var actor);
+        var body = new BackendHttpServer.ApplyBreakdownBody { ExpectedRevision = revision, Fingerprint = fingerprint, Actor = actor ?? "author" };
+        if (options.Count != 0 || !body.Valid) return false;
+        content = JsonContent.Create(body, options: AgentRequestDraft.Json);
+        return true;
+    }
+
+    private static void ValidateBreakdownApply(JsonElement response, string id, BackendHttpServer.ApplyBreakdownBody request)
+    {
+        var project = ReadProject(response, out var sha);
+        ValidateRevision(project.Revision, sha, request.ExpectedRevision, request.Fingerprint);
+        if (project.Revision != request.ExpectedRevision + 1 || !BackendAgentBreakdown.IsApplied(project, id))
+            throw new JsonException("Invalid applied segment breakdown.");
+    }
 
     private static bool TryUpdateAgentRequest(string action, Dictionary<string, string> options, out HttpContent? content)
     {

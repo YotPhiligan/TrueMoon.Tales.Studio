@@ -210,6 +210,14 @@ public interface IStudioBackend
     Task<BackendAgentRequestsReply> UpdateAgentRequestAsync(string sessionKey, string requestId, ReadOnlyMemory<byte> formJson,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Calculates the current segment budget for a completed agent breakdown.</summary>
+    Task<BackendAgentRequestsReply> PreviewAgentBreakdownAsync(string sessionKey, string requestId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Appends a completed breakdown once under the existing project writer.</summary>
+    Task<BackendProjectReply> ApplyAgentBreakdownAsync(string sessionKey, string requestId, long expectedRevision, string fingerprint,
+        string actor, CancellationToken cancellationToken = default);
+
     /// <summary>Explicitly claims the sole writer after checking the observed revision and exact bytes.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="expectedRevision">Observed revision.</param>
     /// <param name="fingerprint">Observed exact-byte SHA256.</param><param name="cancellationToken">Call deadline.</param>

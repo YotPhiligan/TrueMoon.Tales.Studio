@@ -23,6 +23,8 @@ internal static partial class BackendHttpCli
             [--actor <name>] [--target-file <JSON>] [--proposal-file <JSON>]
           backend-agent-request-fail --url <url> --id <req-id> --revision <task-revision> --result-file <TXT> [--actor <name>]
           backend-agent-request-cancel --url <url> --id <req-id> --revision <task-revision> [--actor <name>] [--result-file <TXT>]
+          backend-agent-request-breakdown-preview --url <url> --id <req-id>
+          backend-agent-request-breakdown-apply --url <url> --id <req-id> --revision <project-revision> --sha256 <fingerprint> [--actor <name>]
           backend-move --url <url> --clip <id> --start-frame <номер> --revision <номер> --sha256 <fingerprint>
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
@@ -72,7 +74,8 @@ internal static partial class BackendHttpCli
             var transfer = payload is BackendHttpServer.TransferBody or BackendHttpServer.TransferRunBody;
             deadline.CancelAfter(transfer ? TimeSpan.FromSeconds(52) : RequestTimeout);
             var recover = args[0] == ExportRecoverCommand;
-            var write = recover || payload is AgentRequestDraft or AgentRequestUpdate or BackendHttpMove or BackendHttpTrim or BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
+            var write = recover || payload is AgentRequestDraft or AgentRequestUpdate or BackendHttpServer.ApplyBreakdownBody or BackendHttpMove or BackendHttpTrim or
+                BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
                 or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null }
                 or BackendHttpServer.TransferRunBody { ExpectedRevision: not null };
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
@@ -86,12 +89,16 @@ internal static partial class BackendHttpCli
                 if (response.StatusCode != HttpStatusCode.OK)
                     return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
                 var limit = transfer && args[0] != TransferCollectCommand ? BackendHttpServer.MaxTransferReceiptBytes :
-                    agentRequests ? BackendAgentRequests.MaxResponseBytes : export ? MaxExportStatusBytes : MaxSnapshotBytes;
+                    agentRequests && payload is not BackendHttpServer.ApplyBreakdownBody ? BackendAgentRequests.MaxResponseBytes :
+                    export ? MaxExportStatusBytes : MaxSnapshotBytes;
                 using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
                 if (agentRequests)
                 {
-                    if (payload is AgentRequestDraft created) BackendAgentRequests.ValidateReceipt(snapshot, created);
+                    if (args[0] == PreviewAgentBreakdownCommand) BackendAgentBreakdown.Decode(snapshot, BreakdownRequestId(request));
+                    else if (payload is BackendHttpServer.ApplyBreakdownBody breakdown)
+                        ValidateBreakdownApply(snapshot, BreakdownRequestId(request), breakdown);
+                    else if (payload is AgentRequestDraft created) BackendAgentRequests.ValidateReceipt(snapshot, created);
                     else if (payload is AgentRequestUpdate update) BackendAgentRequests.ValidateUpdateReceipt(snapshot, request.RequestUri!.Segments[^1], update);
                     else BackendAgentRequests.ValidateResponse(snapshot, args[0] == AgentRequestCommand ? request.RequestUri!.Segments[^1] : null);
                     Console.WriteLine(JsonSerializer.Serialize(snapshot));

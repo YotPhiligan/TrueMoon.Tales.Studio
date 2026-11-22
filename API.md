@@ -360,6 +360,49 @@ Python/Web, также возвращают 409, поскольку для ни�
 и ревизии через GET.
 [Команды CLI](src/Verification/BackendHttp.md#studio-native-agent-update-cli).
 
+<a id="native-agent-breakdown"></a>
+### Предпросмотр и применение разбивки сегмента schema2
+
+С **1.2611.22.7-alpha** маршруты используют токен сессии `--serve-project`
+и завершённое задание `breakdown_segment` в режиме `propose`.
+
+| Маршрут | Команда CLI |
+| --- | --- |
+| GET `/api/backend/v1/agent-requests/{id}/breakdown` | `backend-agent-request-breakdown-preview` |
+| POST `/api/backend/v1/agent-requests/{id}/breakdown` | `backend-agent-request-breakdown-apply` |
+
+Предпросмотр возвращает `project_revision`, `fingerprint`, `request_id`,
+`segment_id`, `segment_name`, `fps`, `status`, `issues` и позиции
+действий в `items`. Бюджет выражен в кадрах через `window_frames`,
+`used_frames`, `proposed_frames` и `remaining_frames`. Действия
+планируются после последнего существующего действия и сохранённого клипа,
+включая клипы без связанного действия. В пустом окне отсчёт начинается с
+его начала. Паузы расходуют бюджет. `end_frame` является исключающей
+границей, а ID предпросмотра совпадают с сохраняемыми ID действий.
+
+`ready` означает, что разбивка помещается в согласованное сценарное и
+монтажное окно. `blocked` сопровождается кодами причин. Среди них
+`window_undefined_or_inconsistent`, `window_overlap`,
+`existing_timing_unresolved`, `insufficient_frames` и `transition_conflict`.
+При известном переборе остаток отрицателен. При неопределённом времени
+кадры действий могут быть `null`. `applied` означает, что ID задания
+уже зафиксирован в проекте.
+
+POST принимает `expected_revision` и `fingerprint` проекта из
+предпросмотра, а также необязательный `actor` со значением `author` по
+умолчанию. Общий writer повторно рассчитывает бюджет и сохраняет текстовые
+действия для аниматика и отметку применения одной ревизией. Ответ совпадает
+с форматом `backend-project`. При отмене в редакторе отметка сохраняется.
+Возврат действий выполняется через повтор в редакторе. Также
+учитывается отметка из проектов, мигрированных с Python/Web.
+
+Устаревшие ревизия или SHA дают `409 revision_conflict`. Прежнее
+применение даёт `409 agent_breakdown_already_applied`, незавершённое
+задание — `409 agent_breakdown_not_ready`, заблокированная разбивка —
+`422 agent_breakdown_blocked`. При потере ответа повторный предпросмотр
+показывает, сохранено ли применение.
+[Команды CLI](src/Verification/BackendHttp.md#studio-native-agent-breakdown-cli).
+
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
 В 0.5 доступны GET/POST `/api/projects/{id}/scenario` и CLI scenario; [операции и правила времени](Scenario.md). Поле timeline.scenario хранит сценарные намерения, включая неизвестное время и конфликты; допустимая монтажная проекция обновляется атомарно. Пространственные правки активного сценария через прежний timeline API используют ту же последовательную укладку. `add_item`, `update_item` и `add_catalog_video` принимают необязательные сценарные заметки `sound_notes` и `continuity_notes` в `payload`. Пустая строка очищает заметку. Действие `set_animatic_frame` принимает `segment_id`, `id` сценарного использования и `asset_selection`. Выберите изображение по `asset_id` или по `file` из каталога, либо передайте `null` для снятия выбора. Выбранный `animatic_asset_id` хранится у сценарного использования и участвует в отмене.

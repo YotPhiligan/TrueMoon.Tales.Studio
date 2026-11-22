@@ -214,17 +214,39 @@ public sealed class ProjectStore
     /// <param name="cancellationToken">Cancellation before durable commit intent.</param>
     /// <returns>The new revision with the historical document content.</returns>
     public Task<ProjectFileDocument> RestoreSnapshotAsync(ProjectFileDocument baseline, ProjectFileDocument snapshot,
-        long expectedRevision, string actor, CancellationToken cancellationToken = default)
+        long expectedRevision, string actor, CancellationToken cancellationToken = default) =>
+        RestoreSnapshotAsync(baseline, snapshot, expectedRevision, actor, [], cancellationToken);
+
+    /// <summary>Restores a historical revision while retaining named project properties from the current baseline.</summary>
+    /// <param name="baseline">Current exact-content baseline.</param>
+    /// <param name="snapshot">Historical snapshot of the same project location.</param>
+    /// <param name="expectedRevision">Revision of the current baseline.</param>
+    /// <param name="actor">Author of the history entry.</param>
+    /// <param name="retainedProperties">Project property names whose current values survive restoration.</param>
+    /// <param name="cancellationToken">Cancellation before durable commit intent.</param>
+    /// <returns>The committed revision.</returns>
+    public Task<ProjectFileDocument> RestoreSnapshotAsync(ProjectFileDocument baseline, ProjectFileDocument snapshot,
+        long expectedRevision, string actor, IReadOnlyCollection<string> retainedProperties, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(retainedProperties);
         if (baseline.SchemaVersion != 2 || snapshot.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
         if (snapshot.FilePath is null || !string.Equals(baseline.FilePath, snapshot.FilePath, ProjectPathPolicy.Comparison) ||
             baseline.Project.Id != snapshot.Project.Id)
             throw new InvalidOperationException("Snapshot belongs to another project.");
         // Decode the owned envelope, not caller-mutable arrays in the detached DTO.
         var frozen = ProjectFileCodec.Read(snapshot.OriginalDocument.GetRawText());
-        return CommitAsync(baseline, frozen.Project, expectedRevision, actor, cancellationToken, frozen);
+        var project = frozen.Project;
+        if (retainedProperties.Count > 0)
+        {
+            var current = ProjectFileCodec.Read(baseline.OriginalDocument.GetRawText());
+            var properties = new Dictionary<string, JsonElement>(project.Properties);
+            foreach (var name in retainedProperties)
+                if (current.Project.Properties.TryGetValue(name, out var value)) properties[name] = value;
+            project = project with { Properties = properties };
+        }
+        return CommitAsync(baseline, project, expectedRevision, actor, cancellationToken, frozen);
     }
 
     /// <summary>Explicitly completes a published commit, or recognizes an already installed replacement.</summary>

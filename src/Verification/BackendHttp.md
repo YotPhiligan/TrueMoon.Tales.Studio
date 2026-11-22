@@ -215,6 +215,25 @@ $claim = .\TrueMoon.Tales.Studio.exe backend-agent-request-claim --url $url --id
 При конфликте или потерянном ответе перечитайте сохранённое задание.
 [Правила переходов и параметры](../../API.md#native-agent-update).
 
+<a id="studio-native-agent-breakdown-cli"></a>
+## Разбивка сегмента из C# CLI
+
+Подставьте ID завершённого задания `breakdown_segment` и адрес текущей
+сессии `--serve-project`. Используйте токен этой же сессии.
+
+```powershell
+$plan = .\TrueMoon.Tales.Studio.exe backend-agent-request-breakdown-preview --url $url --id $id | ConvertFrom-Json
+$plan.items | Format-Table title,start_frame,end_frame,gap_before_frames
+if ($plan.status -eq 'ready') {
+    .\TrueMoon.Tales.Studio.exe backend-agent-request-breakdown-apply --url $url --id $id --revision $plan.project_revision --sha256 $plan.fingerprint --actor author
+}
+```
+
+Предпросмотр показывает бюджет текущего окна. Применение добавляет все
+действия одной записью. При конфликте или потере ответа перечитайте
+предпросмотр. Отметка `applied` сохраняется после перезапуска и после
+отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

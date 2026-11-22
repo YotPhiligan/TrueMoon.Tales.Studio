@@ -24,6 +24,13 @@ internal sealed partial class BackendConnection
             response => BackendAgentRequests.ValidateUpdateReceipt(response, id, update), token);
     }
 
+    internal Task<byte[]> PreviewAgentBreakdownAsync(string id, CancellationToken token) =>
+        SendAgentRequestAsync(ct => service.PreviewAgentBreakdownAsync(options.SessionKey, id, ct),
+            response => BackendAgentBreakdown.Decode(response, id), token);
+
+    internal Task<OpenedBackendProject> ApplyAgentBreakdownAsync(string id, long revision, string fingerprint, string actor, CancellationToken token) =>
+        CommandAsync(ct => service.ApplyAgentBreakdownAsync(options.SessionKey, id, revision, fingerprint, actor, ct), token);
+
     private async Task<byte[]> SendAgentRequestAsync(Func<CancellationToken, Task<BackendAgentRequestsReply>> send,
         Action<JsonElement> validate, CancellationToken token)
     {

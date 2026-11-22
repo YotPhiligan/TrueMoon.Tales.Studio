@@ -60,6 +60,28 @@ internal static partial class BackendAgentRequests
 
     private static string RequestsDirectory(ProjectStoreOptions paths) => Path.Combine(paths.ProjectDirectory, "Production", "AgentRequests");
 
+    internal static async Task<(string SegmentId, AgentRequestProposalItem[] Items)> ReadBreakdownAsync(
+        ProjectStoreOptions paths, string projectId, string id, CancellationToken token)
+    {
+        using var record = await ReadRecordAsync(paths, RequestsDirectory(paths), projectId, id, token).ConfigureAwait(false);
+        var row = record.RootElement;
+        if (String(row, "state") != "completed" || String(row, "mode") != "propose" ||
+            !row.TryGetProperty("scope", out var scope) || String(scope, "intent") != "breakdown_segment")
+            throw new ScenarioEditException("agent_breakdown_not_ready");
+        if (row.TryGetProperty("submission_sha256", out _))
+        {
+            _ = RequireSnapshotHash(row);
+            if (!row.GetProperty("context").TryGetProperty("request_scope", out var originalScope) || !JsonElement.DeepEquals(originalScope, scope))
+                throw InvalidRecord();
+        }
+        var segmentId = String(scope, "segment_id");
+        if (segmentId is null || !BackendAgentContext.ValidSelector(segmentId) || !row.TryGetProperty("proposal", out var proposal) ||
+            proposal.Deserialize<AgentRequestProposalItem[]>(AgentRequestDraft.Json) is not { Length: >= 1 and <= 24 } items ||
+            items.Any(item => item is not { Valid: true }))
+            throw InvalidRecord();
+        return (segmentId, items);
+    }
+
     private static IEnumerable<string> RequestIds(ProjectStoreOptions paths, string directory)
     {
         try { BackendProjectAccess.CheckProductionRead(paths, directory); }
