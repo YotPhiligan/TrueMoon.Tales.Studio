@@ -14,6 +14,8 @@ internal static partial class BackendHttpCli
         CLI существующей сессии --serve-project:
           backend-project --url <url>
           backend-agent-context --url <url> [--block <id-or-exact-name>]
+          backend-agent-requests --url <url>
+          backend-agent-request --url <url> --id <req-id>
           backend-move --url <url> --clip <id> --start-frame <номер> --revision <номер> --sha256 <fingerprint>
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
@@ -34,12 +36,14 @@ internal static partial class BackendHttpCli
         """;
     private const string ProjectCommand = "backend-project", MoveCommand = "backend-move", TrimCommand = "backend-trim";
     private const string AgentContextCommand = "backend-agent-context";
+    private const string AgentRequestsCommand = "backend-agent-requests", AgentRequestCommand = "backend-agent-request";
     private const string MediaCommand = "backend-media", FrameCommand = "backend-frame";
     private const int MaxSnapshotBytes = 2 * 1024 * 1024;
     private const int MaxErrorBytes = 4096;
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
-    internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
+    internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or AgentRequestsCommand or AgentRequestCommand or
+        MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -56,6 +60,7 @@ internal static partial class BackendHttpCli
             client.DefaultRequestHeaders.ConnectionClose = true;
             client.DefaultRequestHeaders.Add("X-Studio-Token", secret);
             var payload = (request.Content as JsonContent)?.Value;
+            var agentRequests = args[0] is AgentRequestCommand or AgentRequestsCommand;
             var transfer = payload is BackendHttpServer.TransferBody or BackendHttpServer.TransferRunBody;
             deadline.CancelAfter(transfer ? TimeSpan.FromSeconds(52) : RequestTimeout);
             var recover = args[0] == ExportRecoverCommand;
@@ -73,9 +78,16 @@ internal static partial class BackendHttpCli
                 if (response.StatusCode != HttpStatusCode.OK)
                     return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
                 var limit = transfer && args[0] != TransferCollectCommand ? BackendHttpServer.MaxTransferReceiptBytes :
-                    export ? MaxExportStatusBytes : MaxSnapshotBytes;
+                    agentRequests ? BackendAgentRequests.MaxResponseBytes : export ? MaxExportStatusBytes : MaxSnapshotBytes;
                 using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
+                if (agentRequests)
+                {
+                    var id = args[0] == AgentRequestCommand ? request.RequestUri!.Segments[^1] : null;
+                    BackendAgentRequests.ValidateResponse(snapshot, id);
+                    Console.WriteLine(JsonSerializer.Serialize(snapshot));
+                    return 0;
+                }
                 if (payload is BackendHttpServer.AgentContextBody context)
                 {
                     ValidateAgentContext(snapshot, context.Block);
@@ -148,6 +160,16 @@ internal static partial class BackendHttpCli
             if (options.Count != 0 || !BackendAgentContext.ValidSelector(selector)) return false;
             route = BackendHttpServer.AgentContextRoute;
             content = JsonContent.Create(new BackendHttpServer.AgentContextBody(selector), options: BackendHttpServer.Json);
+        }
+        else if (command is AgentRequestsCommand or AgentRequestCommand)
+        {
+            route = BackendHttpServer.AgentRequestsRoute;
+            if (command == AgentRequestCommand)
+            {
+                if (!options.Remove("--id", out var id) || !BackendAgentRequests.ValidId(id)) return false;
+                route += "/" + id;
+            }
+            if (options.Count != 0) return false;
         }
         else if (IsExportCommand(command))
         {

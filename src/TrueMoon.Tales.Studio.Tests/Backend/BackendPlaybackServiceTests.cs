@@ -16,7 +16,7 @@ public sealed class BackendPlaybackServiceTests
         var baseline = await fixture.MigrateAsync();
         using var service = fixture.Service();
         var opened = await fixture.OpenAsync(service, baseline);
-        Assert.Empty(opened.ErrorCode); Assert.Equal(31, StudioBackendService.ProtocolVersion);
+        Assert.Empty(opened.ErrorCode); Assert.Equal(32, StudioBackendService.ProtocolVersion);
         Assert.Equal(48000, opened.TotalSamples); Assert.Equal("video", opened.Kind); Assert.Empty(opened.Data);
         var first = await service.ReadPlaybackAsync(fixture.Key, opened.SessionId);
         Assert.Empty(first.ErrorCode); Assert.Equal(0, first.LocalFrame); Assert.Equal(0, first.NativeFrame);

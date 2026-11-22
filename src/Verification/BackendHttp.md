@@ -151,6 +151,27 @@ CLI сверяет SHA снимка и селектор перед выдаче�
 возвращает код выхода 3, отсутствие блока — 1. Повторный запрос
 читает последнюю сохранённую ревизию проекта. [Формат ответа](../../API.md#native-agent-context).
 
+<a id="studio-native-agent-requests-cli"></a>
+## Список и чтение заданий агента из C# CLI
+
+С **1.2611.22.4-alpha** используйте адрес и токен существующей сессии
+`--serve-project` для проекта schema2.
+
+```powershell
+$env:STUDIO_BACKEND_HTTP_TOKEN = '<token из ready JSON>'
+$url = '<url из ready JSON>'
+$list = .\TrueMoon.Tales.Studio.exe backend-agent-requests --url $url | ConvertFrom-Json
+$list.requests | Format-Table id,state,revision,goal
+# Возьмите ID нужного задания из списка.
+$task = .\TrueMoon.Tales.Studio.exe backend-agent-request --url $url --id 'req-0123456789abcdef' | ConvertFrom-Json
+$task.request.context
+```
+
+Обе команды читают `Production/AgentRequests` открытого проекта. Список
+показывает до 200 записей, а запрос по ID возвращает сохранённое задание
+целиком. CLI проверяет ID и принадлежность записи проекту в ответе.
+[Поля и ошибки](../../API.md#native-agent-requests).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

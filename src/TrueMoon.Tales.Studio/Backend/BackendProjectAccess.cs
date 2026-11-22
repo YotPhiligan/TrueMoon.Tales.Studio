@@ -20,6 +20,15 @@ internal sealed class BackendProjectAccess
     internal static void CheckProductionWrite(ProjectStoreOptions project, string path)
         => CheckProjectSubdirectoryWrite(project, "Production", path);
 
+    internal static void CheckProductionRead(ProjectStoreOptions project, string path)
+    {
+        path = Path.GetFullPath(path);
+        if (!Within(path, Path.Combine(project.ProjectDirectory, "Production")) ||
+            project.ProtectedRoots.Any(root => Within(path, root)))
+            throw new UnauthorizedAccessException("Project production read is not permitted.");
+        BackendMediaResolver.CheckNoLinks(path);
+    }
+
     internal static void CheckProjectSubdirectoryWrite(ProjectStoreOptions project, string subdirectory, string path)
     {
         path = Path.GetFullPath(path);

@@ -231,6 +231,41 @@ writer, не меняет историю и не запускает генера
 обслуживать контекст schema1 и существующие задания агентам.
 [Примеры CLI](src/Verification/BackendHttp.md#studio-native-agent-context-cli).
 
+<a id="native-agent-requests"></a>
+### Список и чтение заданий агента через общий backend
+
+С **1.2611.22.4-alpha** маршруты используют токен существующей сессии
+`--serve-project` для проекта schema2.
+
+| Маршрут | Команда CLI | Результат |
+| --- | --- | --- |
+| GET `/api/backend/v1/agent-requests` | `backend-agent-requests` | `api_version: 1`, `project_id` и массив `requests` |
+| GET `/api/backend/v1/agent-requests/{id}` | `backend-agent-request --id <id>` | `api_version: 1`, `project_id` и полный объект `request` |
+
+Общий backend читает существующие `Production/AgentRequests/req-….json` в
+папке открытого проекта. В списке до 200 записей по убыванию
+`updated_at`, при равенстве по убыванию ID. Он включает цель, режим,
+состояние, владельца, ревизии и результат, а также `scope`, `result_target`
+и `has_proposal` при их наличии. Если папки заданий нет, массив пуст.
+Чтение по ID доступно и для заданий за пределами первых 200.
+
+Полная запись содержит сохранённый `context` с его исходным
+`snapshot_sha256`, а также `proposal` и дополнительные поля файла.
+Ревизия задания принадлежит самому заданию. Для свежего контекста проекта
+используйте [`backend-agent-context`](#native-agent-context).
+
+ID имеет вид `req-` и 16 шестнадцатеричных символов в нижнем регистре.
+Неверный ID и повреждённая запись либо несовпадение ID задания или
+проекта дают HTTP 422. Отсутствующее задание даёт HTTP 404
+`agent_request_not_found`, запрет доступа даёт 403. Если файл больше
+4 МиБ или JSON ответа больше 768 КиБ, сервер возвращает HTTP 413
+`agent_requests_too_large`. Длинный сохранённый контекст может превышать
+лимит полного ответа, даже если краткая запись доступна в списке.
+
+Чтение работает с существующим владельцем проекта. Файлы и история
+сохраняются без изменений. Управление заданиями остаётся в Python/Web.
+[Примеры CLI](src/Verification/BackendHttp.md#studio-native-agent-requests-cli).
+
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
 В 0.5 доступны GET/POST `/api/projects/{id}/scenario` и CLI scenario; [операции и правила времени](Scenario.md). Поле timeline.scenario хранит сценарные намерения, включая неизвестное время и конфликты; допустимая монтажная проекция обновляется атомарно. Пространственные правки активного сценария через прежний timeline API используют ту же последовательную укладку. `add_item`, `update_item` и `add_catalog_video` принимают необязательные сценарные заметки `sound_notes` и `continuity_notes` в `payload`. Пустая строка очищает заметку. Действие `set_animatic_frame` принимает `segment_id`, `id` сценарного использования и `asset_selection`. Выберите изображение по `asset_id` или по `file` из каталога, либо передайте `null` для снятия выбора. Выбранный `animatic_asset_id` хранится у сценарного использования и участвует в отмене.

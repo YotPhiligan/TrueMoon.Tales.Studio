@@ -120,6 +120,8 @@ public sealed class BackendConnectionTests
         public Task<BackendProjectReply> RecoverProjectAsync(string key, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendAgentContextReply> ReadAgentContextAsync(string key, string block,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendAgentRequestsReply> ReadAgentRequestsAsync(string key, string requestId,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
         internal int HelloCalls, OpenCalls;
         public async Task<BackendIdentity> HelloAsync(string sessionKey, CancellationToken cancellationToken = default)
         { HelloCalls++; await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return Identity(); }

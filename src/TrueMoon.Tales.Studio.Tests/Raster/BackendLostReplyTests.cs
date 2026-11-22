@@ -102,6 +102,8 @@ public sealed class BackendLostReplyTests
         public Task<BackendProjectReply> OpenProjectAsync(string key, CancellationToken cancellationToken = default) => inner.OpenProjectAsync(key, cancellationToken);
         public Task<BackendAgentContextReply> ReadAgentContextAsync(string key, string block,
             CancellationToken cancellationToken = default) => inner.ReadAgentContextAsync(key, block, cancellationToken);
+        public Task<BackendAgentRequestsReply> ReadAgentRequestsAsync(string key, string requestId,
+            CancellationToken cancellationToken = default) => inner.ReadAgentRequestsAsync(key, requestId, cancellationToken);
         public Task<BackendProjectReply> AcquireWriterAsync(string key, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.AcquireWriterAsync(key, revision, fingerprint, cancellationToken);
         public Task<BackendProjectReply> MigrateProjectAsync(string key, long revision, string fingerprint, CancellationToken cancellationToken = default) => inner.MigrateProjectAsync(key, revision, fingerprint, cancellationToken);
         public Task<BackendProjectReply> RecoverProjectAsync(string key, CancellationToken cancellationToken = default) => inner.RecoverProjectAsync(key, cancellationToken);

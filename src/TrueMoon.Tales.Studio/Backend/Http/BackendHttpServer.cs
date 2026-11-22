@@ -89,7 +89,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
         if (!await _slots.WaitAsync(0, context.RequestAborted).ConfigureAwait(false))
         { await Error(context, 429, "busy"); return; }
         var path = context.Request.Path.Value;
-        var reconcile = path != AgentContextRoute;
+        var agentRequests = IsAgentRequestsRoute(path);
+        var reconcile = path != AgentContextRoute && !agentRequests;
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
@@ -103,6 +104,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
             }
             else if (path == AgentContextRoute)
                 await HandleAgentContextAsync(context, deadline.Token).ConfigureAwait(false);
+            else if (agentRequests)
+                await HandleAgentRequestsAsync(context, path!, deadline.Token).ConfigureAwait(false);
             else if (path == MoveRoute)
             {
                 if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
@@ -165,11 +168,13 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                     "transfer_stage_path_changed" or "transfer_already_launched" or "transfer_not_staged" or
                     "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" or "agent_context_block_ambiguous" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
-                    "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" => 422,
+                    "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" or
+                    "invalid_agent_request_id" or "invalid_agent_request_record" => 422,
                 "access_denied" or "write_not_enabled" => 403,
-                "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" => 404,
+                "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" or
+                    "agent_request_not_found" => 404,
                 "media_busy" or "export_busy" or "transfer_run_busy" => 429, "media_timeout" or "export_timeout" or "transfer_timeout" => 504,
-                "project_too_large" or "agent_context_too_large" => 413, _ => 503
+                "project_too_large" or "agent_context_too_large" or "agent_requests_too_large" => 413, _ => 503
             };
             await Error(context, status, error.Code, reconcile);
         }

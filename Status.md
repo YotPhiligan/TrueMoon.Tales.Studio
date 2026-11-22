@@ -47,7 +47,10 @@
 - **Контекст проекта и блока из CLI.** В **1.2611.22.3-alpha**
   `backend-agent-context` читает schema2, возвращает сохранённую ревизию,
   SHA и связи выбранного действия или источника через общий backend.
-  [Проверки](#studio-native-agent-context).
+  Опубликовано в `origin/main` коммитом `8ed79b4`. [Проверки](#studio-native-agent-context).
+- **Чтение заданий агента из CLI.** В **1.2611.22.4-alpha** доступны список
+  заданий и полная сохранённая запись по ID через общий backend.
+  [Проверки](#studio-native-agent-requests).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -150,6 +153,34 @@ Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **95 
 предупреждение CS8669 в сгенерированном коде Enerit.
 Проверки выполнены на синтетических проектах без GPU. Python/Web
 продолжает обслуживать schema1 и команды для заданий агентам.
+
+<a id="studio-native-agent-requests"></a>
+## Чтение заданий агента из C# CLI, 22.11.2026
+
+Studio **1.2611.22.4-alpha**, Enerit protocol **32**. Команды
+`backend-agent-requests` и `backend-agent-request --id <id>` читают
+существующие JSON из `Production/AgentRequests` открытого проекта schema2.
+Список сохраняет порядок и поля Python/Web. Запрос по ID передаёт полную
+запись, включая исходный контекст, предложение и собственную ревизию
+задания. Для изменения состояния задания по-прежнему используется Python/Web.
+[Контракт](API.md#native-agent-requests) ·
+[Команды](src/Verification/BackendHttp.md#studio-native-agent-requests-cli).
+
+| Проверка | Результат |
+| --- | --- |
+| `NativeAgentRequests_ListsLegacySummariesAndReadsExactSavedRequestWithoutWriting` | Реальный CLI, HTTP и дочерний Enerit backend. Совпали JSON полной записи, исходный SHA контекста и SHA файлов фикстуры. Подтверждены кириллица, UTF-8 BOM, scope, результат и предложение |
+| `NativeAgentRequests_AppliesLimitAndTieBreakWithoutLosingDirectLookup` | Из 202 записей возвращаются 200 новейших. При равном времени порядок задаёт ID. Старое задание доступно по ID |
+| `NativeAgentRequests_RejectsMissingInvalidAndForeignRecordsAndRequiresToken` | Пустая папка заданий не создаётся. Отсутствующее, чужое и неверно заданное задание дают отдельные ошибки. Проверены токен и метод GET |
+| `NativeAgentRequests_RefusesOversizedDetailButKeepsSummaryAvailable` | Контекст с полем на 700 КиБ проходит через IPC. Превышение лимита даёт HTTP 413, краткая запись остаётся доступной |
+| `NativeAgentRequests_RefusesOversizedListInsteadOfReturningPartialRows` | Список сверх лимита возвращает HTTP 413. Запись доступна по ID |
+| `NativeAgentRequests_RejectsProtectedProductionDirectory` | Защищённая в профиле папка заданий недоступна обеим командам |
+| `AgentRequests_ReadsWithSeparateWriterAndRequiresExplicitMigration` | Чтение при отдельном владельце writer. Для schema1 нужна явная миграция проекта |
+
+Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **102 пройдено,
+0 пропущено, 0 упало**. TRX в
+`src/.local/native-agent-requests-20261122/release.trx`. Проверки выполнены
+на изолированных фикстурах без GPU. В сборке остаётся предупреждение CS8669
+в сгенерированном коде Enerit.
 
 <a id="studio-native-cli"></a>
 ## Чтение проекта и правка клипа из C# CLI, 21.11.2026
