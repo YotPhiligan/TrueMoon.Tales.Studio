@@ -50,7 +50,11 @@
   Опубликовано в `origin/main` коммитом `8ed79b4`. [Проверки](#studio-native-agent-context).
 - **Чтение заданий агента из CLI.** В **1.2611.22.4-alpha** доступны список
   заданий и полная сохранённая запись по ID через общий backend.
-  [Проверки](#studio-native-agent-requests).
+  Опубликовано в `origin/main` коммитом `1f51854`. [Проверки](#studio-native-agent-requests).
+- **Создание задания агента из CLI.** В **1.2611.22.5-alpha** общий backend
+  сверяет ревизию и SHA проекта, сохраняет задание с неизменяемым контекстом
+  и возвращает прежнюю запись при точном повторе ключа.
+  [Проверки](#studio-native-agent-create).
 - **Папка проектов.** В **1.2611.21.18-alpha** обозреватель возвращает фокус
   выбранному проекту после перечитывания каталога. [Проверки](#studio-projects-folder-focus).
 - **Формат проекта.** В **1.2611.21.20-alpha** обновление schema1 видно
@@ -180,6 +184,35 @@ Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **102
 0 пропущено, 0 упало**. TRX в
 `src/.local/native-agent-requests-20261122/release.trx`. Проверки выполнены
 на изолированных фикстурах без GPU. В сборке остаётся предупреждение CS8669
+в сгенерированном коде Enerit.
+
+<a id="studio-native-agent-create"></a>
+## Создание задания агента из C# CLI, 22.11.2026
+
+Studio **1.2611.22.5-alpha**, Enerit protocol **33**.
+`backend-agent-request-create` сохраняет задание schema2 под существующим
+writer через HTTPv1 и Enerit. Задание начинается в `pending` с ревизией 1.
+Точная ревизия и SHA проекта проверяются перед публикацией файла по
+стабильному ID из `client_key`. Полная запись сохраняет контекст v3 и SHA
+снимка. Команда возвращает короткую квитанцию для последующего чтения по ID.
+Ключи из Python/Web считаются занятыми. Для смены состояния используется
+Python/Web. [Контракт](API.md#native-agent-create) ·
+[Команды](src/Verification/BackendHttp.md#studio-native-agent-create-cli).
+
+| Проверка | Результат |
+| --- | --- |
+| `NativeCreate_FreezesContextAndLeavesProjectAndHistoryUnchanged` | Реальный EXE, HTTP и Enerit. Выбор блока и цель в UTF-8 с BOM. После правки Markdown в задании остался исходный текст. SHA снимка, проект и история сверены |
+| `NativeCreate_ConcurrentDuplicateAndRestartUseOneSavedRequest` | Два одновременных запроса дали один файл. После правки проекта и перезапуска тот же ключ вернул прежнее задание, изменённые параметры дали 409 |
+| `NativeCreate_RejectsRevisionAndShaConflictsBeforePublishing` | Старая ревизия и неверный SHA отклонены независимо. Ключ доступен для новой попытки после отказа |
+| `NativeCreate_BindsScopeToSavedScenarioWithoutEditingIt` | Проверены `improve_block`, `prepare_block` и `breakdown_segment`, включая связи и SHA снимка |
+| `NativeCreate_RejectsBadScopeAndLegacyKeyWithoutWriting` | Защита токеном. Чужое действие, неактуальная точка вставки и ключ прежнего Web-задания отклонены |
+| `CreateAgentRequest_RequiresExistingWriter` | Прямой вызов без владения writer отклонён, папка заданий не создана |
+| `NativeAgentCreate_LostHttpReplyIdentifiesSavedRequestWithoutAutomaticRetry` | HTTP-ответ прерван после сохранения. CLI отправил один POST, сообщил ID, а явный повтор вернул ту же квитанцию |
+
+Release .NET 11 по CLI, HTTP, IPC, backend и потере ответа: **111 пройдено,
+0 пропущено, 0 упало**. TRX в
+`src/.local/native-agent-create-20261122/release.trx`. Проверки выполнены
+на изолированных проектах без GPU. В сборке остаётся предупреждение CS8669
 в сгенерированном коде Enerit.
 
 <a id="studio-native-cli"></a>

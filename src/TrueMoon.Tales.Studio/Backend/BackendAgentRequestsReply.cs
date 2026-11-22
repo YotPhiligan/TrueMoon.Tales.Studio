@@ -1,6 +1,6 @@
 namespace TrueMoon.Tales.Studio.Backend;
 
-/// <summary>A bounded UTF-8 listing or saved agent request.</summary>
+/// <summary>A bounded UTF-8 listing, saved agent request or creation receipt.</summary>
 public sealed class BackendAgentRequestsReply
 {
     /// <summary>Empty on success, otherwise a stable refusal code.</summary>

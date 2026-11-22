@@ -5,7 +5,9 @@
 источника, включая ревизию проекта и SHA.
 [`backend-agent-requests` и `backend-agent-request --id <id>`](API.md#native-agent-requests)
 читают список заданий и полный сохранённый контекст задания.
-Разделы ниже описывают Python/Web и управление заданиями.
+`backend-agent-request-create` сохраняет задание и его исходный контекст
+для проекта schema2. Разделы ниже описывают Python/Web и смену состояния.
+[Создание из C# CLI](API.md#native-agent-create).
 [Контракт свежего контекста](API.md#native-agent-context).
 
 В предметных предложениях использовать [модель проекта](ProjectModel.md):

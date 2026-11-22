@@ -4,7 +4,7 @@ using TrueMoon.Tales.Studio.Persistence;
 
 namespace TrueMoon.Tales.Studio.Backend;
 
-internal static class BackendAgentRequests
+internal static partial class BackendAgentRequests
 {
     internal const int MaxResponseBytes = 768 * 1024;
     private const int MaxRecordBytes = 4 * 1024 * 1024;
@@ -27,7 +27,7 @@ internal static class BackendAgentRequests
 
     internal static async Task<byte[]> ReadAsync(ProjectStoreOptions paths, string projectId, string? id, CancellationToken token)
     {
-        var directory = Path.Combine(paths.ProjectDirectory, "Production", "AgentRequests");
+        var directory = RequestsDirectory(paths);
         using var output = new MemoryStream();
         using var writer = new Utf8JsonWriter(output, WireJson);
         writer.WriteStartObject();
@@ -47,6 +47,8 @@ internal static class BackendAgentRequests
         else
         {
             using var record = await ReadRecordAsync(paths, directory, projectId, id, token).ConfigureAwait(false);
+            if (record.RootElement.TryGetProperty("submission_sha256", out _))
+                _ = RequireSnapshotHash(record.RootElement);
             writer.WritePropertyName("request");
             record.RootElement.WriteTo(writer);
         }
@@ -56,19 +58,27 @@ internal static class BackendAgentRequests
         return output.ToArray();
     }
 
-    private static async Task<byte[][]> ReadSummariesAsync(ProjectStoreOptions paths, string directory, string projectId, CancellationToken token)
+    private static string RequestsDirectory(ProjectStoreOptions paths) => Path.Combine(paths.ProjectDirectory, "Production", "AgentRequests");
+
+    private static IEnumerable<string> RequestIds(ProjectStoreOptions paths, string directory)
     {
         try { BackendProjectAccess.CheckProductionRead(paths, directory); }
-        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { return []; }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException) { yield break; }
         if ((File.GetAttributes(directory) & FileAttributes.Directory) == 0) throw InvalidRecord();
-
-        var newest = new SortedDictionary<(string UpdatedAt, string Id), byte[]?>(Order);
-        var size = 0;
         foreach (var path in Directory.EnumerateFiles(directory, "req-*.json"))
         {
-            token.ThrowIfCancellationRequested();
             var id = Path.GetFileNameWithoutExtension(path);
-            if (!ValidId(id)) continue;
+            if (ValidId(id)) yield return id;
+        }
+    }
+
+    private static async Task<byte[][]> ReadSummariesAsync(ProjectStoreOptions paths, string directory, string projectId, CancellationToken token)
+    {
+        var newest = new SortedDictionary<(string UpdatedAt, string Id), byte[]?>(Order);
+        var size = 0;
+        foreach (var id in RequestIds(paths, directory))
+        {
+            token.ThrowIfCancellationRequested();
             using var record = await ReadRecordAsync(paths, directory, projectId, id, token).ConfigureAwait(false);
             var row = record.RootElement;
             var key = (String(row, "updated_at")!, id);

@@ -97,7 +97,10 @@ internal sealed partial class StudioBackendService
         return current;
     }
 
-    private async Task<BackendProjectReply> ExecuteAsync(string key, Func<Task<BackendProjectReply>> operation, CancellationToken token)
+    private Task<BackendProjectReply> ExecuteAsync(string key, Func<Task<BackendProjectReply>> operation, CancellationToken token) =>
+        ExecuteAsync(key, operation, token, Failure);
+
+    private async Task<T> ExecuteAsync<T>(string key, Func<Task<T>> operation, CancellationToken token, Func<string, T> failure)
     {
         Authorize(key);
         await _gate.WaitAsync(token).ConfigureAwait(false);
@@ -106,22 +109,22 @@ internal sealed partial class StudioBackendService
             ObjectDisposedException.ThrowIf(_disposed, this);
             return await operation().ConfigureAwait(false);
         }
-        catch (WriterRequiredException error) { return Failure(error.Message); }
-        catch (ProjectRevisionConflictException) { return Failure("revision_conflict"); }
-        catch (ProjectFileConflictException) { return Failure("project_file_conflict"); }
-        catch (ProjectMigrationRequiredException) { return Failure("migration_required"); }
-        catch (ProjectRecoveryConflictException) { return Failure("recovery_conflict"); }
-        catch (ProjectRecoveryRequiredException) { return Failure("recovery_required"); }
-        catch (ProjectStoreBusyException) { return Failure("writer_busy"); }
-        catch (InvalidMoveException) { return Failure("invalid_move"); }
-        catch (InvalidTrimException) { return Failure("invalid_trim"); }
-        catch (ScenarioEditException error) { return Failure(error.Code); }
-        catch (UnauthorizedAccessException) { return Failure("access_denied"); }
-        catch (FileNotFoundException) { return Failure("project_not_found"); }
-        catch (DirectoryNotFoundException) { return Failure("project_not_found"); }
+        catch (WriterRequiredException error) { return failure(error.Message); }
+        catch (ProjectRevisionConflictException) { return failure("revision_conflict"); }
+        catch (ProjectFileConflictException) { return failure("project_file_conflict"); }
+        catch (ProjectMigrationRequiredException) { return failure("migration_required"); }
+        catch (ProjectRecoveryConflictException) { return failure("recovery_conflict"); }
+        catch (ProjectRecoveryRequiredException) { return failure("recovery_required"); }
+        catch (ProjectStoreBusyException) { return failure("writer_busy"); }
+        catch (InvalidMoveException) { return failure("invalid_move"); }
+        catch (InvalidTrimException) { return failure("invalid_trim"); }
+        catch (ScenarioEditException error) { return failure(error.Code); }
+        catch (UnauthorizedAccessException) { return failure("access_denied"); }
+        catch (FileNotFoundException) { return failure("project_not_found"); }
+        catch (DirectoryNotFoundException) { return failure("project_not_found"); }
         catch (Exception error) when (error is JsonException or InvalidDataException or InvalidOperationException or ArgumentException or NotSupportedException)
-        { return Failure("invalid_project"); }
-        catch (IOException) { return Failure("project_io_error"); }
+        { return failure("invalid_project"); }
+        catch (IOException) { return failure("project_io_error"); }
         finally { _gate.Release(); }
     }
 

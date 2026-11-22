@@ -7,12 +7,19 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 
 internal sealed class BackendHttpFixture : IAsyncDisposable
 {
-    internal BackendWriteFixture Files { get; } = new();
+    private readonly bool _ownsFiles;
+    internal BackendWriteFixture Files { get; }
     internal IApp App { get; }
     internal BackendHttpServer Http { get; }
     internal BackendConnection Connection => App.Services.Resolve<BackendConnection>()!;
-    internal BackendHttpFixture(int port = 0)
+    internal BackendHttpFixture(int port = 0) : this(new BackendWriteFixture(), port, ownsFiles: true) { }
+
+    internal BackendHttpFixture(BackendWriteFixture files) : this(files, 0, ownsFiles: false) { }
+
+    private BackendHttpFixture(BackendWriteFixture files, int port, bool ownsFiles)
     {
+        Files = files;
+        _ownsFiles = ownsFiles;
         App = TrueMoon.App.Builder(_ => { }).Setup(context => context.UseProjectBackend(Files.Options, false).UseBackendScene()).Build();
         Http = new(Connection, port);
     }
@@ -40,7 +47,7 @@ internal sealed class BackendHttpFixture : IAsyncDisposable
         finally
         {
             try { await App.StopAsync(); }
-            finally { try { await App.DisposeAsync(); } finally { Files.Dispose(); } }
+            finally { try { await App.DisposeAsync(); } finally { if (_ownsFiles) Files.Dispose(); } }
         }
     }
 }

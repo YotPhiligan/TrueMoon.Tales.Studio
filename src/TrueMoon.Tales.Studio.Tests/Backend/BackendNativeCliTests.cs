@@ -493,6 +493,50 @@ public sealed class BackendNativeCliTests
         });
     }
 
+    [Fact]
+    public async Task NativeAgentCreate_LostHttpReplyIdentifiesSavedRequestWithoutAutomaticRetry()
+    {
+        await using var fixture = new BackendHttpFixture();
+        var goal = BackendAgentRequestCreationTests.Configure(fixture.Files);
+        await fixture.StartAsync();
+        var project = await fixture.Connection.OpenAsync();
+        const string key = "agent-create-lost-001";
+        var id = BackendAgentRequests.RequestId(key);
+        string[] args = ["backend-agent-request-create", "--goal-file", goal, "--client-key", key,
+            "--revision", project.Project.Revision.ToString(CultureInfo.InvariantCulture), "--sha256", project.Fingerprint];
+        using var client = fixture.Client();
+        var posts = 0;
+        string? committed = null;
+        await WithStubAsync(async context =>
+        {
+            Assert.Equal(BackendHttpServer.AgentRequestsRoute, context.Request.Path.Value);
+            Assert.Equal(HttpMethods.Post, context.Request.Method);
+            Interlocked.Increment(ref posts);
+            var draft = await context.Request.ReadFromJsonAsync<AgentRequestDraft>(AgentRequestDraft.Json);
+            Assert.Equal(key, draft!.ClientKey);
+            using var request = new StringContent(JsonSerializer.Serialize(draft, AgentRequestDraft.Json), Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync(BackendHttpServer.AgentRequestsRoute, request, context.RequestAborted);
+            response.EnsureSuccessStatusCode();
+            committed = await response.Content.ReadAsStringAsync(context.RequestAborted);
+            context.Abort();
+        }, async address =>
+        {
+            var lost = await RunAsync(address, Fingerprint, args);
+            AssertError(lost, 1, "backend_unavailable", reconcile: true);
+            using var error = JsonDocument.Parse(lost.Error);
+            Assert.Contains(id, error.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.Equal(1, Volatile.Read(ref posts));
+        });
+
+        var replay = await RunAsync(fixture.Http.Address, fixture.Http.Token, args);
+        Assert.True(replay.Code == 0, replay.Error);
+        using var accepted = JsonDocument.Parse(committed!);
+        using var repeated = JsonDocument.Parse(replay.Output);
+        Assert.True(JsonElement.DeepEquals(accepted.RootElement, repeated.RootElement));
+        Assert.Equal(id, repeated.RootElement.GetProperty("id").GetString());
+        Assert.Single(Directory.GetFiles(Path.Combine(fixture.Files.Files.ProjectDirectory, "Production", "AgentRequests")));
+    }
+
     private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });

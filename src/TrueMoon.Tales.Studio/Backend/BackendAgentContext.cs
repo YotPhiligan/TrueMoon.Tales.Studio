@@ -53,7 +53,7 @@ internal static class BackendAgentContext
             : new() { ContextJson = json, SnapshotSha256 = Hash(json) };
     }
 
-    private static AgentContextSelection Select(ProjectContract project, string selector)
+    internal static AgentContextSelection Select(ProjectContract project, string selector)
     {
         var actions = project.Segments.SelectMany(segment => segment.Actions.Select((action, index) =>
             (Action: action, Link: new AgentContextAction(segment.Id, action.Id, Previous(segment.Actions, index)?.Id,

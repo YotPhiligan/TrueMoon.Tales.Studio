@@ -172,6 +172,27 @@ $task.request.context
 целиком. CLI проверяет ID и принадлежность записи проекту в ответе.
 [Поля и ошибки](../../API.md#native-agent-requests).
 
+<a id="studio-native-agent-create-cli"></a>
+## Создание задания агента из C# CLI
+
+С **1.2611.22.5-alpha** создание работает через существующую сессию
+`--serve-project`. Запишите цель в UTF-8 файл и получите текущий снимок.
+
+```powershell
+$env:STUDIO_BACKEND_HTTP_TOKEN = '<token из ready JSON>'
+$url = '<url из ready JSON>'
+$baseline = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$task = .\TrueMoon.Tales.Studio.exe backend-agent-request-create --url $url --goal-file .\goal.txt --mode propose --block 'A' --client-key $key --revision $baseline.project.revision --sha256 $baseline.fingerprint | ConvertFrom-Json
+.\TrueMoon.Tales.Studio.exe backend-agent-request --url $url --id $task.id
+```
+
+Без `--block` и `--scope-file` задание относится ко всему проекту.
+Для сценарной области передайте JSON через `--scope-file`.
+Если ответ создания потерян, проверьте указанный в ошибке ID. Для
+явного повтора используйте тот же ключ, ревизию, SHA и остальные
+параметры из первого запроса. [Контракт формы и ответа](../../API.md#native-agent-create).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

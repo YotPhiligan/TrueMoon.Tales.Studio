@@ -108,7 +108,7 @@ public sealed class BackendAgentRequestsTests
         using var authorized = fixture.Client();
         using var malformed = await authorized.GetAsync(BackendHttpServer.AgentRequestsRoute + "/req-short");
         Assert.Equal(HttpStatusCode.UnprocessableEntity, malformed.StatusCode);
-        using var wrongMethod = await authorized.PostAsync(BackendHttpServer.AgentRequestsRoute, content: null);
+        using var wrongMethod = await authorized.PostAsync(BackendHttpServer.AgentRequestsRoute + "/" + NewerId, content: null);
         Assert.Equal(HttpStatusCode.MethodNotAllowed, wrongMethod.StatusCode);
         Assert.Equal(before, ObserveFiles(projectDirectory));
     }

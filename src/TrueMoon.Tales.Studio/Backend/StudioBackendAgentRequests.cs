@@ -5,6 +5,29 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class StudioBackendService
 {
+    public Task<BackendAgentRequestsReply> CreateAgentRequestAsync(string sessionKey, string formJson, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<BackendAgentRequestsReply>(sessionKey, async () =>
+        {
+            RequireWriter();
+            if (formJson is not { Length: > 0 and <= AgentRequestDraft.MaxIpcChars }) return new() { ErrorCode = "invalid_agent_request" };
+            AgentRequestDraft? draft;
+            try { draft = JsonSerializer.Deserialize<AgentRequestDraft>(formJson, AgentRequestDraft.Json); }
+            catch (JsonException) { return new() { ErrorCode = "invalid_agent_request" }; }
+            if (draft is not { Valid: true }) return new() { ErrorCode = "invalid_agent_request" };
+            draft = draft.Normalize();
+            var baseline = await store.OpenAsync(cancellationToken).ConfigureAwait(false);
+            if (baseline.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+            try
+            {
+                var json = await BackendAgentRequests.CreateAsync(BackendProjectAccess.Read(options), baseline, options, draft,
+                    async token => { await ObserveAsync(draft.ExpectedRevision, draft.Fingerprint, token).ConfigureAwait(false); },
+                    cancellationToken).ConfigureAwait(false);
+                return new() { Json = json };
+            }
+            catch (BackendCommandException error) { return new() { ErrorCode = error.Code }; }
+            catch (JsonException) { return new() { ErrorCode = "invalid_agent_request_record" }; }
+        }, cancellationToken, code => new() { ErrorCode = code });
+
     public async Task<BackendAgentRequestsReply> ReadAgentRequestsAsync(string sessionKey, string requestId, CancellationToken cancellationToken = default)
     {
         Authorize(sessionKey);
