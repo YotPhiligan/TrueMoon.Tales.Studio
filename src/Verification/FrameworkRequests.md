@@ -9,10 +9,10 @@ c78ab18 /1.2611.17.2-alpha (STUDIO-BACKEND3 закоммичен и отправ
 
 | Заявка | Framework | Studio |
 |---|---|---|
-| [Cobalt: bounded hint names](../../../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Decision.md) | COB6e completed | Принята 09.11; повторные emit/graph/lifecycle проверки на новом комплекте прошли |
-| [Cobalt: XML registration docs](../../../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Decision.md) | COB6e completed | Принята 09.11; strict XML Debug/Release снова прошли |
-| [Alloy: регулируемые панели](../../../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md) | UIA3e completed | SplitView уже подключён; повторные layout/routed/raster проверки прошли, физическая приёмка отдельно |
-| [Enerit: generated XML docs](../../../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Decision.md) | ENE6e completed | Matching runtime/generator обновлены; strict XML, initializer и настоящий IPC прошли |
+| [Cobalt: bounded hint names](../../../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09) | COB6e completed | Принята 09.11; повторные emit/graph/lifecycle проверки на новом комплекте прошли |
+| [Cobalt: XML registration docs](../../../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09) | COB6e completed | Принята 09.11; strict XML Debug/Release снова прошли |
+| [Alloy: регулируемые панели](../../../TrueMoon/src/docs/alloy/HISTORY.md#split-view-2026-11-09) | UIA3e completed | SplitView уже подключён; повторные layout/routed/raster проверки прошли, физическая приёмка отдельно |
+| [Enerit: generated XML docs](../../../TrueMoon/src/docs/enerit/HISTORY.md#ene6e-2026-11-17) | ENE6e completed | Matching runtime/generator обновлены; strict XML, initializer и настоящий IPC прошли |
 
 В Directory.Packages.props обновлена общая StudioTrueMoonVersion, все12 пакетов
 и bundled Cobalt generator согласованы. NoWarn не добавлен, protocol2, HTTPv1 и

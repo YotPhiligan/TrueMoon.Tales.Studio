@@ -68,7 +68,7 @@ recovery_required, invalid_project, project_not_found, access_denied и IO failu
 отдельная opt-in HTTP move. Процессные проверки повторены на publish: **7 passed**.
 Полные non-incremental D/R builds: 0 errors, по **20 warnings** только из Enerit
 generated-кода: 15 CS1591, 5 CS8669. Подавления не добавлены. XML docs направлены
-[владельцу Enerit](../../../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md);
+[плану Enerit](../../../TrueMoon/src/docs/enerit/PLAN.md#ene6e-generated-xml-docs);
 nullable-context уже находится в [quality backlog](../../../TrueMoon/src/docs/enerit/PLAN.md).
 
 Изолированная прежняя копия Клэр открыта реальным EXE через IPC: schema 1,

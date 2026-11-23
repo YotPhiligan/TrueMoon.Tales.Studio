@@ -695,7 +695,7 @@ main 3fb891a и рабочая 1.2611.16.3-alpha сверены до выбор�
 
 Запись, медиа-resolver/aliases и генерация не переносятся этим этапом.
 20 generated warnings Enerit сохранены без подавления: XML docs —
-[заявка владельцу](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md),
+[задача ENE6e](../TrueMoon/src/docs/enerit/PLAN.md#ene6e-generated-xml-docs),
 CS8669 — [существующий backlog](../TrueMoon/src/docs/enerit/PLAN.md).
 
 ## Назначение и основа
@@ -1141,7 +1141,7 @@ Edge подтвердил привязку к метке, предварител
 - [x] **Клавиатурный контекст — 07.11.2026.** Shift+F10 определяет дубль/клип/рабочую область по элементу в фокусе, использует команды правого щелчка и возвращает фокус тому же контролу. Проверены настоящий дубль B, Escape и отсутствие записи проекта. [Результат](src/TimelineDrag.md).
 - [x] **Drag/trim таймлайна — 07.11.2026.** Курсор и оба края выбранного клипа, захват указателя, кадровая сетка и учёт скорости, локальный черновик, отмена и одна запись с expected_revision при отпускании. Debug/Release: 23/23. На изолированной сцене проверены повторное открытие, история/SHA и соответствие короткому CPU MP4. [Проверки и границы](src/TimelineDrag.md).
 - [x] **Непрерывный просмотр и волна — 07.11.2026.** Выбранный CFR-клип, микс native/music/event, пауза/продолжение и последний кадр; ограниченная очередь видео и отмена медиа. Debug/Release: 67 passed, 1 опциональная интеграция прошла отдельно. Проверены настоящее окно, звуковое устройство, 0.5×/1×/2× для видео и соответствие микса при 1× короткому CPU MP4. Полная медиаприёмка остаётся открытой. [Результат и команды](src/Playback.md).
-- [x] **Общие разделители — готовность TrueMoon, 09.11.2026.** [Заявка Alloy](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Request.md) выполнена во framework/local-delivery scope: `SplitView` с горизонтальной/вертикальной осью, min/max, pointer capture/cancel и клавиатурой. [Decision и проверки владельца](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md), [API/ownership guide](../TrueMoon/src/docs/alloy/SPLIT_VIEW.md). Проверена локальная пакетная версия `0.2.5.2-splitview.20261109.1`; публикация обычной версии этим не подтверждается.
+- [x] **Общие разделители — готовность TrueMoon, 09.11.2026.** [Задача Alloy](../TrueMoon/src/docs/alloy/PLAN.md#uia3e-split-view) выполнена во framework/local-delivery scope: `SplitView` с горизонтальной/вертикальной осью, min/max, pointer capture/cancel и клавиатурой. [Проверки владельца](../TrueMoon/src/docs/alloy/HISTORY.md#split-view-2026-11-09), [API/ownership guide](../TrueMoon/src/docs/alloy/SPLIT_VIEW.md). Проверена локальная пакетная версия `0.2.5.2-splitview.20261109.1`; публикация обычной версии этим не подтверждается.
 - [x] **Подключение разделителей в Studio (headless, 09.11.2026).** Штатные SplitView заменяют временную адаптивную компоновку StudioLayout; controls/player, фокус, выделение и черновик сохраняются, размеры — UI state вне Studio.project.json. Повторная приёмка нового комплекта — [STUDIO-REQUESTS1](#framework-requests-acceptance).
   - **Выполнено 09.11.2026 (headless):** пакеты `0.2.5.2-alpha` приняты; `StudioLayout` переведён на цепочку из трёх `SplitView` (навигация/инспектор/монтаж) с ограничениями min/max, русскими AccessibleName и восстановлением размеров в «Восстановить панели»; скрытие панелей переподключает цепочку без пересоздания контролов. `SplitViewLayoutTests`: Debug/Release — всего 96 passed, 0 предупреждений. [Результат и границы](src/WindowMenus.md#разделители-панелей--09112026).
 - [ ] **Native-приёмка разделителей:** настоящий указатель/клавиатура и смена темы в реальном окне через QA-сессию, сверка скриншотов с Aether.
@@ -1740,22 +1740,22 @@ TrueMoon `1.2611.16.1-alpha`, SDK 11.0.100, `net11.0` и `runtime-async=on`.
 
 ### Заявки на возможности TrueMoon
 
-При подтверждённом ограничении пакета/фреймворка сверять API, исходники, план модуля
-и существующие заявки, затем добавлять отдельный запрос в
-[TrueMoon/docs/requests](../TrueMoon/src/docs/requests/README.md). Запрос содержит
-consumer, пример, критерии и временное решение. Принятие и реализация принадлежат
-владельцу модуля через Claim/Decision; активную очередь другого агента Studio
-не переписывает. Все четыре заявки Studio выполнены владельцами: панели Alloy,
+При подтверждённом ограничении сверять API, исходники, план модуля и его
+локальную очередь. Исходный запрос, пример, критерии и временное решение
+сохранять в `.local/requests/<module>/` основного checkout общей рабочей области.
+Владелец модуля фиксирует принятие через локальные Claim/Decision. Публичные
+планы содержат техническую задачу и результаты, пригодные для публикации.
+Все четыре заявки Studio выполнены владельцами: панели Alloy,
 две правки Cobalt и generated XML docs Enerit. Consumer-приёмка Cobalt и
 подключение SplitView выполнены ранее; ENE6e принят в [STUDIO-REQUESTS1](#framework-requests-acceptance).
-[Alloy Decision](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md) ·
-[Enerit Decision](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Decision.md).
+[Проверки Alloy](../TrueMoon/src/docs/alloy/HISTORY.md#split-view-2026-11-09) ·
+[Проверки Enerit](../TrueMoon/src/docs/enerit/HISTORY.md#ene6e-2026-11-17).
 CS8669 остаётся отдельным backlog; native-приёмка панелей — задачей Studio.
 
 <a id="cobalt-generator-requests"></a>
 **Статус двух заявок Cobalt — 09.11.2026.** В TrueMoon обе заявки имеют
-`completed` в COB6e: [hint names](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Decision.md),
-[XML docs](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Decision.md).
+`completed` в COB6e: [hint names](../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09),
+[XML docs](../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09).
 Реализация и независимый local package proof `0.2.5.2-alpha` завершены у владельца.
 **Приёмка Studio выполнена 09.11.2026** — текущий пакет Studio `0.2.5.2-alpha`.
 

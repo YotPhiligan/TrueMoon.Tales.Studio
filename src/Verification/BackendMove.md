@@ -104,7 +104,7 @@ skipped**. Новый Python interop case включён явным STUDIO_TEST_
 Non-incremental builds: **0 errors, 24 generated warnings Enerit** (19 CS1591,
 5 CS8669). На четыре новых RPC-метода приходится ещё четыре CS1591 прежнего
 генератора. Они не подавлены; XML docs покрыты существующей
-[заявкой](../../../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md).
+[задачей ENE6e](../../../TrueMoon/src/docs/enerit/PLAN.md#ene6e-generated-xml-docs).
 Новых предупреждений в handwritten-коде нет.
 
 ## Запуск

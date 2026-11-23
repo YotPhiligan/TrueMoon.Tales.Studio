@@ -440,6 +440,6 @@ Studio показывает доступный ID дубля.
 проверка этого окна не является сверкой preview/MP4 или аппаратной матрицей.
 
 Для ручной регулировки панелей оформлена
-[заявка в Alloy](../../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Request.md).
+[задача Alloy](../../TrueMoon/src/docs/alloy/PLAN.md#uia3e-split-view).
 Текущий `StudioLayout` задаёт только прикладную адаптивную компоновку.
 [Порядок новых заявок и владение между агентами](../../TrueMoon/src/docs/requests/README.md).

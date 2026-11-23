@@ -515,7 +515,7 @@ C# классы HTTP/Options/Process — `TrueMoon.Tales.Studio.Tests.Backend`, 
 Published Release consumer: **37 passed, 0 failed, 0 skipped**. Python для
 interop/UI/CLI задан явно через STUDIO_TEST_PYTHON; без него эти cases opt-in skipped.
 Builds:0 errors, прежние24 generated warnings Enerit (19CS1591/5CS8669), без новых
-handwritten warnings/подавлений. [Существующая заявка генератору](../../../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md).
+handwritten warnings/подавлений. [Задача ENE6e](../../../TrueMoon/src/docs/enerit/PLAN.md#ene6e-generated-xml-docs).
 
 Из `src` целевой прогон после restore (выбрать установленный Python):
 

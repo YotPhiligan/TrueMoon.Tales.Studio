@@ -245,8 +245,8 @@ dotnet test TrueMoon.Tales.Studio.slnx --no-restore --artifacts-path .local/stud
 Диагностический `EmitCompilerGeneratedFiles=true` отдельно выявил CS0016 на Windows:
 три имени generated-файлов имеют 265/275/372 символа, обычная сборка работает.
 Потребности опубликованы как новые заявки владельцу Cobalt:
-[ограниченные hint names](../../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Request.md)
-и [XML docs служебной регистрации](../../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Request.md).
+[ограниченные hint names](../../TrueMoon/src/docs/cobalt/PLAN.md#cob6e-generator-consumer-fixes)
+и [XML docs служебной регистрации](../../TrueMoon/src/docs/cobalt/PLAN.md#cob6e-generator-consumer-fixes).
 
 Обновление статуса 09.11.2026: обе заявки завершены владельцем Cobalt и проверены
 на независимом локальном потребителе `0.2.5.2-alpha`. Studio пока использует

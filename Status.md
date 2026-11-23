@@ -2836,7 +2836,7 @@ write grants пусты. Schema 1/2 читается без миграции и 
 - Новые backend checks: Passed 39, Failed 0, Skipped 0. Полные Debug/Release:
   каждый Passed 286, Failed 0, Skipped 5. Publish process/IPC: Passed 7, Failed 0.
 - Полные D/R builds: 0 errors, по 20 generated warnings Enerit (15 CS1591, 5 CS8669).
-  XML docs — [заявка владельцу](../TrueMoon/src/docs/requests/enerit/20261116-studio-generated-xml-docs-f2ad173c/Request.md);
+  XML docs — [задача ENE6e](../TrueMoon/src/docs/enerit/PLAN.md#ene6e-generated-xml-docs);
   nullable context уже в backlog модуля. Предупреждения не подавлены.
 - Реальные own-child startup/stop, failure cleanup, owner exit/crash, сохранность
   другого одноимённого процесса и reconnect с ревизией 11→12 прошли; deadline и отмена проверены.
@@ -3011,8 +3011,8 @@ Markdown-ссылки/якоря, терминология и форматиро
 ## Заявки Cobalt: исправления завершены во фреймворке — 09.11.2026
 
 Владелец Cobalt закрыл обе заявки как `completed` в задаче COB6e:
-[короткие hint names](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Decision.md) и
-[XML docs служебной регистрации](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Decision.md).
+[короткие hint names](../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09) и
+[XML docs служебной регистрации](../TrueMoon/src/docs/cobalt/HISTORY.md#cob6e-generator-2026-11-09).
 Hint names ограничены 128 символами и имеют стабильный SHA-256 полного ключа;
 публичные registration/Init получили XML summary. Runtime/lifetime контракты сохранены.
 
@@ -3042,8 +3042,8 @@ Studio не запускался; подключение `SplitView` в `StudioL
 
 Получен результат `STUDIO-20261107-5d593644` / `ui.resizable-panes`:
 `TrueMoon.Argentis.SplitView` реализован и проверен владельцем Alloy.
-[Decision](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Decision.md),
-[заметка передачи](../TrueMoon/src/docs/requests/alloy/20261107-studio-resizable-panes-5d593644/Notes/20261109T122600Z-alloy-splitview-completed-a6f84c1e.md),
+[результат поставки](../TrueMoon/src/docs/alloy/HISTORY.md#split-view-2026-11-09),
+[условия поставки](../TrueMoon/src/docs/alloy/HISTORY.md#split-view-2026-11-09),
 [API и ограничения](../TrueMoon/src/docs/alloy/SPLIT_VIEW.md).
 
 Framework/local-delivery scope завершён: horizontal/vertical panes, min/max,
@@ -3142,7 +3142,7 @@ Passed: 71, Failed: 0, Skipped: 1. Полная Release-сборка — 0 error
 Подтверждены ограничения generator: слишком длинные hint names при диагностическом
 emit на Windows и отсутствие XML docs у module initializer. Обычная сборка работает,
 предупреждения не подавляются. Опубликованы отдельные входящие заявки:
-[hint names](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-hint-names-87952664/Request.md) и [XML docs](../TrueMoon/src/docs/requests/cobalt/20261107-studio-generated-xml-docs-56375bd8/Request.md).
+[hint names](../TrueMoon/src/docs/cobalt/PLAN.md#cob6e-generator-consumer-fixes) и [XML docs](../TrueMoon/src/docs/cobalt/PLAN.md#cob6e-generator-consumer-fixes).
 Код движка, планы и текущая работа его владельцев не изменялись.
 
 Release-окно открыло изолированную сцену и показало FRAME 00. Alt+F4 завершил UI
