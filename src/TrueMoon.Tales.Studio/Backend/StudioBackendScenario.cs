@@ -103,9 +103,13 @@ internal sealed partial class StudioBackendService
         ProjectContract draft;
         try
         {
-            draft = command is MoveScenarioAction move
-                ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
-                : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
+            draft = command switch
+            {
+                MoveScenarioAction move => BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline)),
+                MontageTrackCommand track => await BackendTrackEdits.ApplyAsync(baseline.Project, track, ProbeTrackAsync,
+                    options, cancellationToken).ConfigureAwait(false),
+                _ => await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false)
+            };
         }
         catch (Exception error) when (command is (ImportVideo or PlaceClip) && error is (FileNotFoundException or DirectoryNotFoundException))
         { return ActionFailure("media_not_found"); }
@@ -118,7 +122,7 @@ internal sealed partial class StudioBackendService
         draft = ScenarioActionWrite.Record(draft, keyHash, receipt);
         if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
             return ActionFailure("project_too_large");
-        if (command is PlaceClip)
+        if (command is PlaceClip or MontageTrackCommand)
             await SaveMontageAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);
         else
             await store.SaveAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);

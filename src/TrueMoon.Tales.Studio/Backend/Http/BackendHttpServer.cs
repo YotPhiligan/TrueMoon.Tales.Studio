@@ -108,7 +108,7 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
             else if (agentRequests)
                 await HandleAgentRequestsAsync(context, path!, deadline.Token).ConfigureAwait(false);
             else if (path is ScenarioActionRoute or ScenarioSegmentRoute or ScenarioVideoRoute or ScenarioClipRoute or
-                ScenarioSourcePatchRoute or ScenarioSourceCreateRoute)
+                ScenarioSourcePatchRoute or ScenarioSourceCreateRoute or MontageClipAudioRoute)
                 await HandleScenarioActionAsync(context, deadline.Token).ConfigureAwait(false);
             else if (path == BriefRoute)
                 await HandleBriefAsync(context, deadline.Token).ConfigureAwait(false);

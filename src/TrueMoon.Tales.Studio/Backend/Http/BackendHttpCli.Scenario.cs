@@ -11,6 +11,7 @@ internal static partial class BackendHttpCli
     private const string ScenarioClipCommand = "backend-scenario-clip-place";
     private const string ScenarioSourcePatchCommand = "backend-scenario-source-patch";
     private const string ScenarioSourceCreateCommand = "backend-scenario-source-create";
+    private const string MontageClipAudioCommand = "backend-montage-clip-audio";
     private const string MoveScenarioActionCommand = "backend-scenario-action-move";
     private const string LinkScenarioSourceCommand = "backend-scenario-action-link-source";
 
@@ -43,6 +44,11 @@ internal static partial class BackendHttpCli
             }
             catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or NotSupportedException)
             { return false; }
+        }
+        else if (command == MontageClipAudioCommand)
+        {
+            if (!options.Remove("--enabled", out var enabled) || enabled is not ("true" or "false")) return false;
+            request = request with { ClipAudio = new(enabled == "true") };
         }
         else
         {

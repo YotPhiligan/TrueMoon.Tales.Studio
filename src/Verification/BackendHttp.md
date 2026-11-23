@@ -234,6 +234,22 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-clip-audio-cli"></a>
+## Звук клипов из C# CLI
+
+Получите ревизию и SHA текущего файла проекта перед записью.
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-montage-clip-audio --url $url --enabled true --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+`--enabled false` выключает звук исходных дублей во всём монтаже. Для
+новой правки получите свежий снимок проекта и новый ключ. При потере
+ответа повторите исходную команду с теми же параметрами.
+[Контракт](../../API.md#native-montage-clip-audio).
+
 <a id="studio-native-source-create-cli"></a>
 ## Черновой источник из C# CLI
 

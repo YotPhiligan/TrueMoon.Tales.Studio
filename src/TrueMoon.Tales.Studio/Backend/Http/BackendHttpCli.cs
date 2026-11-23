@@ -32,6 +32,7 @@ internal static partial class BackendHttpCli
           backend-scenario-clip-place --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-source-patch --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-source-create --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
+          backend-montage-clip-audio --url <url> --enabled <true|false> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-save --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-move --url <url> --segment <id> --action <id> [--before <id>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-link-source --url <url> --segment <id> --action <id> --source <id> [--purpose <text>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
@@ -64,7 +65,7 @@ internal static partial class BackendHttpCli
 
     internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
         command is BriefCommand or UpdateBriefCommand or ScenarioSegmentCommand or ScenarioVideoCommand or ScenarioClipCommand or
-            ScenarioSourcePatchCommand or ScenarioSourceCreateCommand ||
+            ScenarioSourcePatchCommand or ScenarioSourceCreateCommand or MontageClipAudioCommand ||
         IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
         IsExportCommand(command) || IsTransferCommand(command);
 
@@ -214,7 +215,8 @@ internal static partial class BackendHttpCli
             route = BackendHttpServer.BriefRoute;
             if (!TryBriefRequest(command, options, out content)) return false;
         }
-        else if (command is ScenarioSegmentCommand or ScenarioVideoCommand or ScenarioClipCommand or ScenarioSourcePatchCommand or ScenarioSourceCreateCommand ||
+        else if (command is ScenarioSegmentCommand or ScenarioVideoCommand or ScenarioClipCommand or ScenarioSourcePatchCommand or
+            ScenarioSourceCreateCommand or MontageClipAudioCommand ||
             IsScenarioActionCommand(command))
         {
             route = command switch
@@ -224,6 +226,7 @@ internal static partial class BackendHttpCli
                 ScenarioClipCommand => BackendHttpServer.ScenarioClipRoute,
                 ScenarioSourcePatchCommand => BackendHttpServer.ScenarioSourcePatchRoute,
                 ScenarioSourceCreateCommand => BackendHttpServer.ScenarioSourceCreateRoute,
+                MontageClipAudioCommand => BackendHttpServer.MontageClipAudioRoute,
                 _ => BackendHttpServer.ScenarioActionRoute
             };
             if (!TryScenarioActionRequest(command, options, out content)) return false;

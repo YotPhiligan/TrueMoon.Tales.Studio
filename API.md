@@ -433,6 +433,26 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-montage-clip-audio"></a>
+### Включение звука клипов schema2
+
+С **1.2611.23.8-alpha** `backend-montage-clip-audio` вызывает
+`POST /api/backend/v1/montage-clip-audio` с токеном сессии
+общего backend. Запрос содержит `expected_revision`, `fingerprint` (SHA-256
+файла проекта), `client_key`, необязательный `actor` и
+`clip_audio: { "enabled": true }`. Поле `enabled` принимает
+`true` или `false` и управляет звуком исходных дублей во всём монтаже.
+Отдельные дорожки музыки и речи сохраняют свои настройки.
+
+Ответ содержит `api_version`, `project_id`, `project_revision`,
+`submission_sha256`, `changed` и булево поле `clip_audio`. Установка
+текущего значения возвращает `changed: false` с прежней ревизией и без
+записи в историю. Записанную правку можно отменить в редакторе в общей
+сессии. Точный повтор записанной правки возвращает исходную квитанцию.
+Изменённый запрос с тем же ключом даёт `409 scenario_action_key_conflict`,
+устаревшая ревизия или SHA дают `409 revision_conflict`.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-clip-audio-cli).
+
 <a id="native-scenario-source-create"></a>
 ### Создание чернового источника schema2
 
