@@ -9,19 +9,22 @@ internal sealed partial class BackendHttpServer
     internal const string ScenarioSegmentRoute = "/api/backend/v1/scenario-segment";
     internal const string ScenarioVideoRoute = "/api/backend/v1/scenario-video";
     internal const string ScenarioClipRoute = "/api/backend/v1/scenario-clip";
+    internal const string ScenarioSourcePatchRoute = "/api/backend/v1/scenario-source";
 
     private async Task HandleScenarioActionAsync(HttpContext context, CancellationToken token)
     {
         if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
         if (!context.Request.HasJsonContentType()) { await Error(context, 415, "json_required"); return; }
-        if (context.Request.ContentLength > ScenarioActionWrite.MaxBodyBytes)
+        var maxBodyBytes = context.Request.Path == ScenarioSourcePatchRoute ? ScenarioSourcePatch.MaxBodyBytes : ScenarioActionWrite.MaxBodyBytes;
+        if (context.Request.ContentLength > maxBodyBytes)
         { await Error(context, 413, "invalid_request"); return; }
         if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
-            limit.MaxRequestBodySize = ScenarioActionWrite.MaxBodyBytes;
+            limit.MaxRequestBodySize = maxBodyBytes;
         var write = await context.Request.ReadFromJsonAsync<ScenarioActionWrite>(AgentRequestDraft.Json, token).ConfigureAwait(false);
         if (write is not { Valid: true }) { await Error(context, 422, "invalid_scenario_edit"); return; }
         var route = write switch
         {
+            { SourcePatch: not null } => ScenarioSourcePatchRoute,
             { Placement: not null } => ScenarioClipRoute,
             { Video: not null } => ScenarioVideoRoute,
             { Segment: not null } => ScenarioSegmentRoute,

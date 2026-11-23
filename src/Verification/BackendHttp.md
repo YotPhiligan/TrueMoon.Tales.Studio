@@ -234,6 +234,27 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-source-patch-cli"></a>
+## Частичная правка источника из C# CLI
+
+В текущей сессии `--serve-project` прочитайте проект или контекст источника.
+Сохраните `source.json` в UTF-8 с ID библиотечного источника и нужными
+полями. Например, чтобы изменить только заметки, используйте такую форму.
+
+```json
+{"source_id":"source-a","notes":"Сохранить направление взгляда на склейке."}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-scenario-source-patch --url $url --file .\source.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Чтобы очистить заметки или промпт, передайте пустую строку. При потере
+ответа повторите команду с теми же файлом, ключом, ревизией, SHA и автором.
+[Контракт и ошибки](../../API.md#native-scenario-source-patch).
+
 <a id="studio-native-scenario-clip-cli"></a>
 ## Размещение клипа из C# CLI
 

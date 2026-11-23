@@ -29,21 +29,24 @@ internal sealed record ScenarioActionWrite
     public ImportVideo? Video { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ScenarioClipDraft? Placement { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ScenarioSourcePatch? SourcePatch { get; init; }
 
     internal bool Valid => ExpectedRevision is >= 0 and < int.MaxValue && BackendConnection.IsHash(Fingerprint) &&
         AgentRequestDraft.ValidClientKey(ClientKey) && AgentRequestDraft.ValidActor(Actor) && Command is not null;
 
-    internal ScenarioCommand? Command => (Action, Move, Link, Segment, Video, Placement) switch
+    internal ScenarioCommand? Command => (Action, Move, Link, Segment, Video, Placement, SourcePatch) switch
     {
-        ({ Valid: true } action, null, null, null, null, null) => action.ToCommand(),
-        (null, { } move, null, null, null, null) when ValidId(move.SegmentId) && ValidId(move.ActionId) &&
+        ({ Valid: true } action, null, null, null, null, null, null) => action.ToCommand(),
+        (null, { } move, null, null, null, null, null) when ValidId(move.SegmentId) && ValidId(move.ActionId) &&
             BackendAgentContext.ValidSelector(move.BeforeActionId) => move,
-        (null, null, { } link, null, null, null) when ValidId(link.SegmentId) && ValidId(link.ActionId) && ValidId(link.SourceId) &&
+        (null, null, { } link, null, null, null, null) when ValidId(link.SegmentId) && ValidId(link.ActionId) && ValidId(link.SourceId) &&
             link.Purpose is null or { Length: <= 160 } => link,
-        (null, null, null, { Valid: true } segment, null, null) => segment.ToCommand(),
-        (null, null, null, null, { } video, null) when ValidVideo(video) => video,
-        (null, null, null, null, null, { } placement) when ValidId(placement.SegmentId) && ValidId(placement.ActionId) &&
+        (null, null, null, { Valid: true } segment, null, null, null) => segment.ToCommand(),
+        (null, null, null, null, { } video, null, null) when ValidVideo(video) => video,
+        (null, null, null, null, null, { } placement, null) when ValidId(placement.SegmentId) && ValidId(placement.ActionId) &&
             ValidId(placement.SourceId) && ValidId(placement.TakeId) => placement.ToCommand(),
+        (null, null, null, null, null, null, { Valid: true } sourcePatch) => sourcePatch,
         _ => null
     };
 
@@ -142,6 +145,8 @@ internal sealed record ScenarioActionReceipt(int ApiVersion, string ProjectId,
     {
         var revision = write.ExpectedRevision + (changed ? 1 : 0);
         var digest = write.Digest();
+        if (write.SourcePatch is { } sourcePatch)
+            return new(1, draft.Id, null, null, revision, digest, changed) { SourceId = sourcePatch.SourceId };
         if (write.Placement is { } placement)
         {
             var clip = draft.Montage.Clips[^1];
@@ -167,8 +172,12 @@ internal sealed record ScenarioActionReceipt(int ApiVersion, string ProjectId,
 
     internal bool Matches(ScenarioActionWrite request) => ApiVersion == 1 && !string.IsNullOrWhiteSpace(ProjectId) &&
         ProjectRevision == request.ExpectedRevision + (Changed ? 1 : 0) && SubmissionSha256 == request.Digest() &&
-        (request.Placement is { } placement ? MatchesPlacement(placement) :
+        (request.SourcePatch is { } sourcePatch ? MatchesSourcePatch(sourcePatch) :
+            request.Placement is { } placement ? MatchesPlacement(placement) :
             request.Video is { } video ? MatchesVideo(video) : MatchesScenario(request));
+
+    private bool MatchesSourcePatch(ScenarioSourcePatch sourcePatch) => SourceId == sourcePatch.SourceId &&
+        SegmentId is null && ActionId is null && ClipId is null && TakeId is null && AssetId is null;
 
     private bool MatchesScenario(ScenarioActionWrite request) => ClipId is null && SourceId is null && TakeId is null && AssetId is null &&
         !string.IsNullOrWhiteSpace(SegmentId) && BackendAgentContext.ValidSelector(SegmentId) &&

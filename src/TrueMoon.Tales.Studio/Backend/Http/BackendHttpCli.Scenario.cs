@@ -9,6 +9,7 @@ internal static partial class BackendHttpCli
     private const string ScenarioSegmentCommand = "backend-scenario-segment-save";
     private const string ScenarioVideoCommand = "backend-scenario-video-register";
     private const string ScenarioClipCommand = "backend-scenario-clip-place";
+    private const string ScenarioSourcePatchCommand = "backend-scenario-source-patch";
     private const string MoveScenarioActionCommand = "backend-scenario-action-move";
     private const string LinkScenarioSourceCommand = "backend-scenario-action-link-source";
 
@@ -21,17 +22,19 @@ internal static partial class BackendHttpCli
         if (!TryBaseline(options, out var revision, out var fingerprint) || !options.Remove("--client-key", out var key)) return false;
         options.Remove("--actor", out var actor);
         var request = new ScenarioActionWrite { ExpectedRevision = revision, Fingerprint = fingerprint, ClientKey = key, Actor = actor ?? "author" };
-        if (command is ScenarioActionCommand or ScenarioSegmentCommand or ScenarioVideoCommand or ScenarioClipCommand)
+        if (command is ScenarioActionCommand or ScenarioSegmentCommand or ScenarioVideoCommand or ScenarioClipCommand or ScenarioSourcePatchCommand)
         {
             if (!options.Remove("--file", out var path)) return false;
             try
             {
-                var form = ReadAgentInput(path, ScenarioActionWrite.MaxBodyBytes);
+                var limit = command == ScenarioSourcePatchCommand ? ScenarioSourcePatch.MaxBodyBytes : ScenarioActionWrite.MaxBodyBytes;
+                var form = ReadAgentInput(path, limit);
                 request = command switch
                 {
                     ScenarioSegmentCommand => request with { Segment = JsonSerializer.Deserialize<ScenarioSegmentDraft>(form, AgentRequestDraft.Json) },
                     ScenarioVideoCommand => request with { Video = JsonSerializer.Deserialize<ImportVideo>(form, AgentRequestDraft.Json) },
                     ScenarioClipCommand => request with { Placement = JsonSerializer.Deserialize<ScenarioClipDraft>(form, AgentRequestDraft.Json) },
+                    ScenarioSourcePatchCommand => request with { SourcePatch = JsonSerializer.Deserialize<ScenarioSourcePatch>(form, AgentRequestDraft.Json) },
                     _ => request with { Action = JsonSerializer.Deserialize<ScenarioActionDraft>(form, AgentRequestDraft.Json) }
                 };
             }

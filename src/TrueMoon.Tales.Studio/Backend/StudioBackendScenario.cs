@@ -83,9 +83,11 @@ internal sealed partial class StudioBackendService
         CancellationToken cancellationToken = default) => ExecuteAsync<BackendScenarioActionReply>(sessionKey, async () =>
     {
         RequireWriter();
-        if (formJson is null || Encoding.UTF8.GetByteCount(formJson) > ScenarioActionWrite.MaxBodyBytes)
+        var bodySize = formJson is null ? 0 : Encoding.UTF8.GetByteCount(formJson);
+        if (formJson is null || bodySize is 0 or > ScenarioSourcePatch.MaxBodyBytes)
             return ActionFailure("invalid_scenario_edit");
-        if (JsonSerializer.Deserialize<ScenarioActionWrite>(formJson, AgentRequestDraft.Json) is not { Valid: true } write)
+        if (JsonSerializer.Deserialize<ScenarioActionWrite>(formJson, AgentRequestDraft.Json) is not { Valid: true } write ||
+            write.SourcePatch is null && bodySize > ScenarioActionWrite.MaxBodyBytes)
             return ActionFailure("invalid_scenario_edit");
 
         var baseline = await store.OpenAsync(cancellationToken).ConfigureAwait(false);

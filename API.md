@@ -433,6 +433,34 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-source-patch"></a>
+### Частичная правка источника schema2
+
+С **1.2611.23.6-alpha** `backend-scenario-source-patch` вызывает
+`POST /api/backend/v1/scenario-source` с токеном сессии `--serve-project`.
+Тело содержит `expected_revision`, `fingerprint` (SHA-256 файла проекта),
+`client_key`, необязательный `actor` (по умолчанию `author`) и объект
+`source_patch`. Укажите `source_id` существующего библиотечного источника
+и хотя бы одно из полей `title`, `notes`, `prompt`. Остальные поля
+источника, дубли, действия, монтаж и снимки заданий сохраняются.
+
+`title` принимает непустую строку до 160 единиц UTF-16. Крайние пробелы удаляются.
+`notes` и `prompt` записываются с исходными пробелами и переносами строк.
+Пустая строка очищает поле. Допускается до 10 000 единиц UTF-16 в заметках
+и до 100 000 в промпте. Сохраняются действующие ограничения на размер
+запроса (384 КиБ) и снимка проекта. Неподдерживаемые поля и `null`
+отклоняются.
+
+Квитанция содержит `api_version`, `project_id`, `project_revision`,
+`submission_sha256`, `changed` и `source_id`. Общий writer сохраняет
+правку и квитанцию одной записью. Точный повтор сохранённой правки с исходными
+ключом и базой возвращает прежнюю квитанцию после перезапуска. Ключ общий
+с другими сценарными записями. Повтор ключа с другим содержимым даёт
+`409 scenario_action_key_conflict`, устаревшие ревизия или SHA —
+`409 revision_conflict`. Совпадающая правка возвращает `changed: false`
+без новой ревизии. Неизвестный источник даёт `422 invalid_scenario_edit`.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-source-patch-cli).
+
 <a id="native-scenario-clip"></a>
 ### Размещение клипа schema2
 

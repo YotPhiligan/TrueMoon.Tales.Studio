@@ -15,6 +15,7 @@ internal static class BackendScenarioEdit
         SaveSegment edit => Segment(project, edit),
         SaveAction edit => ApplyAction(project, edit),
         LinkSource edit => Link(project, edit),
+        ScenarioSourcePatch edit => edit.Apply(project),
         ImportVideo edit => await ImportAsync(project, edit, probe, token).ConfigureAwait(false),
         RelinkVideo edit => await RelinkAsync(project, edit, probe, token).ConfigureAwait(false),
         PlaceClip edit => await PlaceAsync(project, edit, probe, token).ConfigureAwait(false),
