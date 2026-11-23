@@ -234,6 +234,27 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-scenario-segment-cli"></a>
+## Создание и правка сегмента из C# CLI
+
+В сессии `--serve-project` выберите свободное окно на шкале. Для создания
+сохраните `segment.json` в UTF-8 с названием, описанием и границами окна.
+
+```json
+{"name":"Привал","description":"Переход от замера к отдыху","start_frame":240,"duration_frames":60}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$saved = .\TrueMoon.Tales.Studio.exe backend-scenario-segment-save --url $url --file .\segment.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint | ConvertFrom-Json
+```
+
+Для правки передайте `segment_id` из квитанции, название и описание. Возьмите
+свежую ревизию и SHA, задайте новый ключ. Границы окна передаются при создании.
+После потери ответа явно повторите исходную команду с тем же ключом и базой.
+[Контракт и ошибки](../../API.md#native-scenario-segment).
+
 <a id="studio-native-scenario-action-cli"></a>
 ## Создание и правка действия из C# CLI
 

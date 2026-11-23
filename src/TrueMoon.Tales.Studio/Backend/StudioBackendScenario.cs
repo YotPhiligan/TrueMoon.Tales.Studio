@@ -101,8 +101,10 @@ internal sealed partial class StudioBackendService
             ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
             : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
         var changed = !ReferenceEquals(draft, baseline.Project);
-        var actionId = write.ActionId ?? draft.Segments.Single(segment => segment.Id == write.SegmentId).Actions[^1].Id;
-        var receipt = new ScenarioActionReceipt(1, draft.Id, write.SegmentId, actionId,
+        var segmentId = write.SegmentId ?? draft.Segments[^1].Id;
+        var actionId = command is SaveSegment ? null :
+            write.ActionId ?? draft.Segments.Single(segment => segment.Id == segmentId).Actions[^1].Id;
+        var receipt = new ScenarioActionReceipt(1, draft.Id, segmentId, actionId,
             write.ExpectedRevision + (changed ? 1 : 0), write.Digest(), changed);
         if (!changed) return ActionReply(receipt);
 

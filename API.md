@@ -433,6 +433,29 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-segment"></a>
+### Создание и правка сегмента schema2
+
+С **1.2611.23.3-alpha** `backend-scenario-segment-save` отправляет
+`POST /api/backend/v1/scenario-segment` с токеном сессии `--serve-project`.
+Тело содержит `expected_revision`, `fingerprint`, `client_key`, необязательный
+`actor` и объект `segment`. Объект содержит `name` и необязательный
+`description`. При создании укажите `start_frame` и `duration_frames` в кадрах
+проекта. Сегмент и связанное монтажное окно сохраняются в одной ревизии.
+Новое окно может примыкать к соседним, а пересечение, пустое окно или выход
+за допустимый диапазон дают `422 scenario_window_conflict`.
+
+Для правки укажите существующий `segment_id`, название и описание. Пропуск
+описания равен пустой строке. Поля времени при правке отклоняются. Действия,
+клипы и границы существующего окна сохраняются.
+
+Квитанция содержит `api_version`, `project_id`, `segment_id`,
+`project_revision`, `submission_sha256` и `changed`. Ключи общие с операциями
+`scenario-action`. Точный повтор возвращает исходную квитанцию. Повтор ключа
+с другими параметрами даёт `409 scenario_action_key_conflict`, устаревшая
+база даёт `409 revision_conflict`. Совпадающая правка возвращает
+`changed: false` без новой ревизии. [Примеры CLI](src/Verification/BackendHttp.md#studio-native-scenario-segment-cli).
+
 <a id="native-scenario-action"></a>
 ### Создание и правка действия schema2
 

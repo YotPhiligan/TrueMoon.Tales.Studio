@@ -6,6 +6,7 @@ namespace TrueMoon.Tales.Studio.Backend.Http;
 internal sealed partial class BackendHttpServer
 {
     internal const string ScenarioActionRoute = "/api/backend/v1/scenario-action";
+    internal const string ScenarioSegmentRoute = "/api/backend/v1/scenario-segment";
 
     private async Task HandleScenarioActionAsync(HttpContext context, CancellationToken token)
     {
@@ -16,7 +17,8 @@ internal sealed partial class BackendHttpServer
         if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
             limit.MaxRequestBodySize = ScenarioActionWrite.MaxBodyBytes;
         var write = await context.Request.ReadFromJsonAsync<ScenarioActionWrite>(AgentRequestDraft.Json, token).ConfigureAwait(false);
-        if (write is not { Valid: true }) { await Error(context, 422, "invalid_scenario_edit"); return; }
+        if (write is not { Valid: true } || (context.Request.Path == ScenarioSegmentRoute) != (write.Segment is not null))
+        { await Error(context, 422, "invalid_scenario_edit"); return; }
         var receipt = await backend.SaveScenarioActionAsync(write, token).ConfigureAwait(false);
         await context.Response.WriteAsJsonAsync(receipt, Json, token).ConfigureAwait(false);
     }

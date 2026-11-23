@@ -23,21 +23,24 @@ internal sealed record ScenarioActionWrite
     public MoveScenarioAction? Move { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public LinkSource? Link { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ScenarioSegmentDraft? Segment { get; init; }
 
     internal bool Valid => ExpectedRevision is >= 0 and < int.MaxValue && BackendConnection.IsHash(Fingerprint) &&
         AgentRequestDraft.ValidClientKey(ClientKey) && AgentRequestDraft.ValidActor(Actor) && Command is not null;
 
-    internal ScenarioCommand? Command => (Action, Move, Link) switch
+    internal ScenarioCommand? Command => (Action, Move, Link, Segment) switch
     {
-        ({ Valid: true } action, null, null) => action.ToCommand(),
-        (null, { } move, null) when ValidId(move.SegmentId) && ValidId(move.ActionId) &&
+        ({ Valid: true } action, null, null, null) => action.ToCommand(),
+        (null, { } move, null, null) when ValidId(move.SegmentId) && ValidId(move.ActionId) &&
             BackendAgentContext.ValidSelector(move.BeforeActionId) => move,
-        (null, null, { } link) when ValidId(link.SegmentId) && ValidId(link.ActionId) && ValidId(link.SourceId) &&
+        (null, null, { } link, null) when ValidId(link.SegmentId) && ValidId(link.ActionId) && ValidId(link.SourceId) &&
             link.Purpose is null or { Length: <= 160 } => link,
+        (null, null, null, { Valid: true } segment) => segment.ToCommand(),
         _ => null
     };
 
-    internal string SegmentId => Action?.SegmentId ?? Move?.SegmentId ?? Link!.SegmentId;
+    internal string? SegmentId => Action?.SegmentId ?? Move?.SegmentId ?? Link?.SegmentId ?? Segment?.SegmentId;
     internal string? ActionId => Action?.ActionId ?? Move?.ActionId ?? Link?.ActionId;
 
     private static bool ValidId(string? id) => id is not null && BackendAgentContext.ValidSelector(id);
@@ -71,6 +74,21 @@ internal sealed record ScenarioActionWrite
     }
 }
 
+internal sealed record ScenarioSegmentDraft
+{
+    public string? SegmentId { get; init; }
+    public required string Name { get; init; }
+    public string Description { get; init; } = "";
+    public int? StartFrame { get; init; }
+    public int? DurationFrames { get; init; }
+
+    internal bool Valid => BackendAgentContext.ValidSelector(SegmentId) && Name is { Length: <= 160 } &&
+        !string.IsNullOrWhiteSpace(Name) && Description is { Length: <= 2000 } &&
+        (SegmentId is null ? StartFrame.HasValue && DurationFrames.HasValue : StartFrame is null && DurationFrames is null);
+
+    internal SaveSegment ToCommand() => new(SegmentId, Name, Description, StartFrame.GetValueOrDefault(), DurationFrames.GetValueOrDefault());
+}
+
 internal sealed record ScenarioActionDraft
 {
     public required string SegmentId { get; init; }
@@ -87,16 +105,22 @@ internal sealed record ScenarioActionDraft
     internal SaveAction ToCommand() => new(SegmentId, ActionId, Title, Description, PlannedDuration) { SoundNotes = SoundNotes };
 }
 
-internal sealed record ScenarioActionReceipt(int ApiVersion, string ProjectId, string SegmentId, string ActionId,
+internal sealed record ScenarioActionReceipt(int ApiVersion, string ProjectId, string SegmentId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ActionId,
     long ProjectRevision, string SubmissionSha256, bool Changed)
 {
     internal bool Matches(ScenarioActionWrite request) => ApiVersion == 1 && !string.IsNullOrWhiteSpace(ProjectId) &&
-        SegmentId == request.SegmentId && !string.IsNullOrWhiteSpace(ActionId) && BackendAgentContext.ValidSelector(ActionId) &&
-        (request.ActionId is { } target ? ActionId == target : Changed) &&
+        !string.IsNullOrWhiteSpace(SegmentId) && BackendAgentContext.ValidSelector(SegmentId) &&
+        (request.SegmentId is { } segment ? SegmentId == segment : Changed) &&
+        MatchesAction(request) &&
         ProjectRevision == request.ExpectedRevision + (Changed ? 1 : 0) && SubmissionSha256 == request.Digest();
+
+    private bool MatchesAction(ScenarioActionWrite request) => request.Segment is not null ? ActionId is null :
+        !string.IsNullOrWhiteSpace(ActionId) && BackendAgentContext.ValidSelector(ActionId) &&
+        (request.ActionId is { } action ? ActionId == action : Changed);
 }
 
-/// <summary>Receipt for a scenario action write, or its stable refusal code.</summary>
+/// <summary>Receipt for a scenario write, or its stable refusal code.</summary>
 public sealed class BackendScenarioActionReply
 {
     /// <summary>Empty on success.</summary>

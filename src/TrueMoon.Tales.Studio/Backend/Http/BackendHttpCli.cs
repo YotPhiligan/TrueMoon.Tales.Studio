@@ -27,6 +27,7 @@ internal static partial class BackendHttpCli
           backend-agent-request-cancel --url <url> --id <req-id> --revision <task-revision> [--actor <name>] [--result-file <TXT>]
           backend-agent-request-breakdown-preview --url <url> --id <req-id>
           backend-agent-request-breakdown-apply --url <url> --id <req-id> --revision <project-revision> --sha256 <fingerprint> [--actor <name>]
+          backend-scenario-segment-save --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-save --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-move --url <url> --segment <id> --action <id> [--before <id>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-link-source --url <url> --segment <id> --action <id> --source <id> [--purpose <text>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
@@ -58,7 +59,7 @@ internal static partial class BackendHttpCli
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
     internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
-        command is BriefCommand or UpdateBriefCommand || IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
+        command is BriefCommand or UpdateBriefCommand or ScenarioSegmentCommand || IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -110,7 +111,7 @@ internal static partial class BackendHttpCli
                 if (payload is ScenarioActionWrite actionWrite)
                 {
                     if (snapshot.Deserialize<ScenarioActionReceipt>(AgentRequestDraft.Json) is not { } receipt || !receipt.Matches(actionWrite))
-                        throw new JsonException("Invalid scenario action receipt.");
+                        throw new JsonException("Invalid scenario write receipt.");
                     Console.WriteLine(snapshot.GetRawText());
                     return 0;
                 }
@@ -207,9 +208,9 @@ internal static partial class BackendHttpCli
             route = BackendHttpServer.BriefRoute;
             if (!TryBriefRequest(command, options, out content)) return false;
         }
-        else if (IsScenarioActionCommand(command))
+        else if (command == ScenarioSegmentCommand || IsScenarioActionCommand(command))
         {
-            route = BackendHttpServer.ScenarioActionRoute;
+            route = command == ScenarioSegmentCommand ? BackendHttpServer.ScenarioSegmentRoute : BackendHttpServer.ScenarioActionRoute;
             if (!TryScenarioActionRequest(command, options, out content)) return false;
         }
         else if (IsExportCommand(command))
