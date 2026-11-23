@@ -124,6 +124,9 @@ public sealed class BackendConnectionTests
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendAgentRequestsReply> ReadAgentRequestsAsync(string key, string requestId,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendAgentRequestsReply> ReadBriefAsync(string key, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<BackendAgentRequestsReply> UpdateBriefAsync(string key, ReadOnlyMemory<byte> formJson,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendAgentRequestsReply> CreateAgentRequestAsync(string key, string formJson,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendAgentRequestsReply> UpdateAgentRequestAsync(string key, string id, ReadOnlyMemory<byte> formJson,

@@ -203,6 +203,12 @@ public interface IStudioBackend
     /// <summary>Reads agent context for the selected project and optionally an action or library source.</summary>
     Task<BackendAgentContextReply> ReadAgentContextAsync(string sessionKey, string block, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads the saved project brief and its project baseline.</summary>
+    Task<BackendAgentRequestsReply> ReadBriefAsync(string sessionKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Partially updates the project brief or returns its prior receipt.</summary>
+    Task<BackendAgentRequestsReply> UpdateBriefAsync(string sessionKey, ReadOnlyMemory<byte> formJson, CancellationToken cancellationToken = default);
+
     /// <summary>Lists saved agent requests or reads one by ID. An empty ID selects the list.</summary>
     Task<BackendAgentRequestsReply> ReadAgentRequestsAsync(string sessionKey, string requestId, CancellationToken cancellationToken = default);
 

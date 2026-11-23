@@ -4,6 +4,17 @@ namespace TrueMoon.Tales.Studio.Backend;
 
 internal sealed partial class BackendConnection
 {
+    internal Task<byte[]> ReadBriefAsync(CancellationToken token) =>
+        SendAgentRequestAsync(ct => service.ReadBriefAsync(options.SessionKey, ct), BriefSnapshot.Validate, token);
+
+    internal Task<byte[]> UpdateBriefAsync(BriefWrite write, CancellationToken token)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(write, AgentRequestDraft.Json);
+        if (json.Length > BackendBrief.MaxBodyBytes) throw new BackendCommandException("brief_input_too_large");
+        return SendAgentRequestAsync(ct => service.UpdateBriefAsync(options.SessionKey, json, ct),
+            response => BriefReceipt.Validate(response, write), token);
+    }
+
     internal Task<byte[]> ReadAgentRequestsAsync(string? id, CancellationToken token) =>
         SendAgentRequestAsync(ct => service.ReadAgentRequestsAsync(options.SessionKey, id ?? "", ct),
             response => BackendAgentRequests.ValidateResponse(response, id), token);

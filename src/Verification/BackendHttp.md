@@ -293,6 +293,23 @@ $linkKey = [guid]::NewGuid().ToString('N')
 явно повторите исходную команду с теми же параметрами и ключом.
 [Контракт и ошибки](../../API.md#native-scenario-order-source).
 
+<a id="studio-native-brief-cli"></a>
+## Карточка замысла проекта из C# CLI
+
+В `brief.patch.json` укажите изменяемые поля, например
+`{"visual_style":"Холодный свет","agent_notes":""}`. Используйте адрес и
+токен текущей сессии. Прочитайте карточку и используйте её ревизию и SHA для записи.
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-brief --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-brief-update --url $url --file .\brief.patch.json --client-key $key --revision $snapshot.project_revision --sha256 $snapshot.fingerprint
+```
+
+Пропущенные поля сохраняются. Если ответ потерян, явно повторите ту же
+команду с тем же ключом и исходной ревизией и SHA. Актуальную карточку
+можно прочитать через `backend-brief`. [Контракт](../../API.md#native-brief).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

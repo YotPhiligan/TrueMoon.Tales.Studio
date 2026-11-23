@@ -44,7 +44,8 @@ internal sealed partial class StudioBackendService
                 var target = _montageHistory.Target(baseline.Fingerprint, undo);
                 var restored = await store.RestoreSnapshotAsync(baseline, target, expectedRevision,
                     undo ? "studio:undo-montage" : "studio:redo-montage",
-                    [BackendAgentBreakdown.AppliedProperty, ScenarioActionWrite.ReceiptsProperty], cancellationToken).ConfigureAwait(false);
+                    [BackendAgentBreakdown.AppliedProperty, ScenarioActionWrite.ReceiptsProperty, BackendBrief.Property,
+                        BriefWrite.ReceiptsProperty], cancellationToken).ConfigureAwait(false);
                 _montageHistory.Complete(restored.Fingerprint, undo);
                 return Reply(restored);
             }

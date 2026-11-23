@@ -13,6 +13,8 @@ internal static partial class BackendHttpCli
     internal const string Usage = """
         CLI существующей сессии --serve-project:
           backend-project --url <url>
+          backend-brief --url <url>
+          backend-brief-update --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-agent-context --url <url> [--block <id-or-exact-name>]
           backend-agent-requests --url <url>
           backend-agent-request --url <url> --id <req-id>
@@ -56,7 +58,7 @@ internal static partial class BackendHttpCli
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
     internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
-        IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
+        command is BriefCommand or UpdateBriefCommand || IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -77,13 +79,13 @@ internal static partial class BackendHttpCli
             var transfer = payload is BackendHttpServer.TransferBody or BackendHttpServer.TransferRunBody;
             deadline.CancelAfter(transfer ? TimeSpan.FromSeconds(52) : RequestTimeout);
             var recover = args[0] == ExportRecoverCommand;
-            var write = recover || payload is AgentRequestDraft or AgentRequestUpdate or BackendHttpServer.ApplyBreakdownBody or ScenarioActionWrite or BackendHttpMove or BackendHttpTrim or
+            var write = recover || payload is AgentRequestDraft or AgentRequestUpdate or BriefWrite or BackendHttpServer.ApplyBreakdownBody or ScenarioActionWrite or BackendHttpMove or BackendHttpTrim or
                 BackendHttpServer.ExportStartBody or BackendHttpServer.ExportCancelBody
                 or BackendHttpServer.TransferPrepareBody or BackendHttpServer.TransferJobBody { RequestSha256: not null }
                 or BackendHttpServer.TransferRunBody { ExpectedRevision: not null };
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
             var hint = AgentRequestReconciliationHint(request, payload) ?? ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
-            if (payload is ScenarioActionWrite)
+            if (payload is ScenarioActionWrite or BriefWrite)
                 hint = " Для явного повтора используйте тот же client_key, исходную ревизию, SHA и параметры команды.";
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
             Console.CancelKeyPress += Cancel;
@@ -93,11 +95,18 @@ internal static partial class BackendHttpCli
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.OK)
                     return await HttpFailureAsync(response, write, token, hint).ConfigureAwait(false);
-                var limit = payload is ScenarioActionWrite ? 4096 : transfer && args[0] != TransferCollectCommand ? BackendHttpServer.MaxTransferReceiptBytes :
+                var limit = payload is ScenarioActionWrite or BriefWrite ? 4096 : transfer && args[0] != TransferCollectCommand ? BackendHttpServer.MaxTransferReceiptBytes :
                     agentRequests && payload is not BackendHttpServer.ApplyBreakdownBody ? BackendAgentRequests.MaxResponseBytes :
                     export ? MaxExportStatusBytes : MaxSnapshotBytes;
                 using var json = await ReadJsonAsync(response.Content, limit, token).ConfigureAwait(false);
                 var snapshot = json.RootElement;
+                if (args[0] == BriefCommand || payload is BriefWrite)
+                {
+                    if (payload is BriefWrite briefWrite) BriefReceipt.Validate(snapshot, briefWrite);
+                    else BriefSnapshot.Validate(snapshot);
+                    Console.WriteLine(JsonSerializer.Serialize(snapshot));
+                    return 0;
+                }
                 if (payload is ScenarioActionWrite actionWrite)
                 {
                     if (snapshot.Deserialize<ScenarioActionReceipt>(AgentRequestDraft.Json) is not { } receipt || !receipt.Matches(actionWrite))
@@ -193,6 +202,11 @@ internal static partial class BackendHttpCli
         {
             if (!TryAgentRequestCommand(command, options, out route, out content)) return false;
         }
+        else if (command is BriefCommand or UpdateBriefCommand)
+        {
+            route = BackendHttpServer.BriefRoute;
+            if (!TryBriefRequest(command, options, out content)) return false;
+        }
         else if (IsScenarioActionCommand(command))
         {
             route = BackendHttpServer.ScenarioActionRoute;
@@ -219,7 +233,8 @@ internal static partial class BackendHttpCli
         }
         else if (options.Count != 0) return false;
 
-        request = new HttpRequestMessage(content is null ? HttpMethod.Get : HttpMethod.Post, new Uri(address, route)) { Content = content };
+        var method = command == UpdateBriefCommand ? HttpMethod.Patch : content is null ? HttpMethod.Get : HttpMethod.Post;
+        request = new HttpRequestMessage(method, new Uri(address, route)) { Content = content };
         return true;
     }
 

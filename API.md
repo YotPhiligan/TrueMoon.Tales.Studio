@@ -231,6 +231,34 @@ writer, не меняет историю и не запускает генера
 обслуживать контекст schema1 и существующие задания агентам.
 [Примеры CLI](src/Verification/BackendHttp.md#studio-native-agent-context-cli).
 
+<a id="native-brief"></a>
+### Карточка замысла проекта schema2
+
+С **1.2611.23.2-alpha** `backend-brief` вызывает `GET /api/backend/v1/brief`
+с токеном текущей сессии. Ответ содержит `api_version`, `project_id`,
+`project_revision`, `fingerprint` и `brief`. Поля `synopsis`, `visual_style`,
+`continuity_rules`, `agent_notes` по умолчанию читаются как пустые строки.
+Чтение использует сохранённый `project.properties.brief`, включая данные
+явно мигрированного проекта. Оно не создаёт ревизию или запись в истории.
+
+`backend-brief-update` отправляет `PATCH` на тот же путь. Тело содержит
+`expected_revision`, `fingerprint`, `client_key`, необязательный `actor`
+и непустой объект `brief` с изменяемыми полями. Значение — строка
+до 12 000 символов Unicode. Пустая строка очищает поле, пропуск сохраняет его.
+Поля вне контракта, `null` и повторяющиеся ключи в JSON отклоняются.
+Ответ содержит `api_version`, `project_id`, `project_revision`,
+`submission_sha256` и `changed`. Совпадающая правка возвращает `changed: false`
+без новой записи. Точный повтор изменения возвращает первоначальную
+квитанцию. Порядок полей частичной правки при этом не важен. Устаревшая
+база даёт `409 revision_conflict`, повтор ключа с другими данными —
+`409 brief_key_conflict`. После потери ответа можно явно повторить команду
+с исходными параметрами и ключом.
+
+В контексте schema2 сохранённая карточка находится в `context.project.properties.brief`.
+Вновь созданное задание получает её из своей исходной ревизии, ранее
+сохранённые снимки и их SHA остаются прежними.
+[Примеры CLI](src/Verification/BackendHttp.md#studio-native-brief-cli).
+
 <a id="native-agent-requests"></a>
 ### Список и чтение заданий агента через общий backend
 
