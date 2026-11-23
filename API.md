@@ -433,6 +433,34 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-video"></a>
+### Регистрация готового видео schema2
+
+С **1.2611.23.4-alpha** `backend-scenario-video-register` вызывает
+`POST /api/backend/v1/scenario-video` с токеном сессии `--serve-project`.
+Тело содержит `expected_revision`, `fingerprint` (SHA-256 файла проекта),
+`client_key`, необязательный `actor` (по умолчанию `author`) и объект `video`.
+
+Для нового источника укажите `title`, `take_name` и `reference`. Чтобы добавить
+дубль в существующий источник, передайте `source_id`, `take_name` и
+`reference`. Имя источника при добавлении сохраняется. Операция редактора
+`import_video` проверяет ссылку по разрешённым путям и aliases, читает параметры
+видео через FFprobe и сохраняет исходную ссылку. Видео остаётся на месте.
+
+Квитанция содержит `api_version`, `project_id`, `project_revision`,
+`submission_sha256`, `changed`, `source_id`, `take_id` и `asset_id`. Writer
+сохраняет данные и квитанцию в одной ревизии. Точный повтор с тем же ключом и
+базой возвращает сохранённую квитанцию, в том числе после перезапуска.
+Ключи общие с остальными сценарными записями. Повтор ключа с изменённым
+запросом даёт `409 scenario_action_key_conflict`. Устаревшие ревизия или SHA
+дают `409 revision_conflict`.
+
+Неизвестный источник или ошибочная форма дают `422 invalid_scenario_edit`.
+Ответы для недоступного файла, запрещённого пути, неподдерживаемого видео и
+отсутствующего декодера — `404 media_not_found`, `403 access_denied`,
+`422 invalid_media` и `503 decoder_unavailable` соответственно.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-scenario-video-cli).
+
 <a id="native-scenario-segment"></a>
 ### Создание и правка сегмента schema2
 

@@ -8,7 +8,7 @@ namespace TrueMoon.Tales.Studio.Backend;
 internal sealed partial class StudioBackendService(BackendOptions options, ProjectStore store, UnitLaunchSettings launch,
     BackendMediaReader? media = null, BackendProxyStore? proxies = null) : IStudioBackend, IDisposable
 {
-    internal const int ProtocolVersion = 39;
+    internal const int ProtocolVersion = 40;
     internal const int MaxProjectBytes = 768 * 1024;
     internal static string ProductVersion => typeof(StudioBackendService).Assembly
         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];

@@ -9,7 +9,7 @@ namespace TrueMoon.Tales.Studio.Tests.Backend;
 
 internal sealed class BackendMediaFixture : IAsyncDisposable
 {
-    internal BackendHttpFixture Backend { get; } = new();
+    internal BackendHttpFixture Backend { get; }
     internal PersistenceFixture Files => Backend.Files.Files;
     internal string VideoPath { get; }
     internal string SecondVideoPath { get; }
@@ -20,8 +20,9 @@ internal sealed class BackendMediaFixture : IAsyncDisposable
     private Dictionary<string, byte[]>? _history;
     private readonly string _ffmpeg = Environment.GetEnvironmentVariable("STUDIO_TEST_FFMPEG")!;
 
-    internal BackendMediaFixture()
+    internal BackendMediaFixture(BackendWriteFixture? files = null)
     {
+        Backend = files is null ? new() : new(files);
         var media = Path.Combine(Files.Root, "media");
         Directory.CreateDirectory(Path.Combine(media, "new"));
         VideoPath = Path.Combine(media, "new", "Кадр с пробелом.mp4");

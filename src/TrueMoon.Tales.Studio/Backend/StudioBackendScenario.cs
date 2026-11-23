@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using TrueMoon.Tales.Studio.Contracts.Projects;
 using TrueMoon.Tales.Studio.Contracts.Serialization;
 using TrueMoon.Tales.Studio.Persistence;
 
@@ -97,15 +98,19 @@ internal sealed partial class StudioBackendService
             return ActionFailure("revision_conflict");
 
         var command = write.Command!;
-        var draft = command is MoveScenarioAction move
-            ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
-            : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
+        ProjectContract draft;
+        try
+        {
+            draft = command is MoveScenarioAction move
+                ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
+                : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (command is ImportVideo && error is (FileNotFoundException or DirectoryNotFoundException))
+        { return ActionFailure("media_not_found"); }
+        catch (Win32Exception) when (command is ImportVideo)
+        { return ActionFailure("decoder_unavailable"); }
         var changed = !ReferenceEquals(draft, baseline.Project);
-        var segmentId = write.SegmentId ?? draft.Segments[^1].Id;
-        var actionId = command is SaveSegment ? null :
-            write.ActionId ?? draft.Segments.Single(segment => segment.Id == segmentId).Actions[^1].Id;
-        var receipt = new ScenarioActionReceipt(1, draft.Id, segmentId, actionId,
-            write.ExpectedRevision + (changed ? 1 : 0), write.Digest(), changed);
+        var receipt = ScenarioActionReceipt.Create(write, draft, changed);
         if (!changed) return ActionReply(receipt);
 
         draft = ScenarioActionWrite.Record(draft, keyHash, receipt);

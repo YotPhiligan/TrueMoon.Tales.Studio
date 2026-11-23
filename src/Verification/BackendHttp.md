@@ -234,6 +234,29 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-scenario-video-cli"></a>
+## Регистрация готового видео из C# CLI
+
+Используйте адрес и токен текущей сессии `--serve-project`. Сохраните
+`video.json` в UTF-8 со ссылкой из разрешённого корня проекта.
+
+```json
+{"title":"План у костра","take_name":"Дубль 1","reference":"@project/video/Привал.mp4"}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$saved = .\TrueMoon.Tales.Studio.exe backend-scenario-video-register --url $url --file .\video.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint | ConvertFrom-Json
+$saved | Select-Object source_id,take_id,asset_id,project_revision
+```
+
+Для добавления дубля задайте в файле `source_id`, `take_name` и `reference`.
+Прочитайте новую базу и задайте новый ключ. По `asset_id` из квитанции
+можно получить метаданные и кадр. При потере ответа повторите исходную
+команду с тем же файлом, ключом, ревизией и SHA.
+[Контракт и ошибки](../../API.md#native-scenario-video).
+
 <a id="studio-native-scenario-segment-cli"></a>
 ## Создание и правка сегмента из C# CLI
 
