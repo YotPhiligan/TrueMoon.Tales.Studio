@@ -15,6 +15,7 @@ internal static class BackendScenarioEdit
         SaveSegment edit => Segment(project, edit),
         SaveAction edit => ApplyAction(project, edit),
         LinkSource edit => Link(project, edit),
+        ScenarioSourceDraft edit => CreateSource(project, edit),
         ScenarioSourcePatch edit => edit.Apply(project),
         ImportVideo edit => await ImportAsync(project, edit, probe, token).ConfigureAwait(false),
         RelinkVideo edit => await RelinkAsync(project, edit, probe, token).ConfigureAwait(false),
@@ -127,6 +128,11 @@ internal static class BackendScenarioEdit
         return ReplaceAction(project, segment, action with { Sources = old is null ? [.. action.Sources, link] :
             action.Sources.Select(row => row.SourceId == source.Id ? link : row).ToArray() });
     }
+
+    private static ProjectContract CreateSource(ProjectContract project, ScenarioSourceDraft edit) => project with
+    {
+        Sources = [.. project.Sources, new SourceContract { Id = Id("source"), Title = Text(edit.Title, 160, required: true) }]
+    };
 
     private static async Task<ProjectContract> ImportAsync(ProjectContract project, ImportVideo edit,
         Func<string, CancellationToken, Task<BackendVideoInfo>> probe, CancellationToken token)

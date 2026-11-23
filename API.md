@@ -433,6 +433,28 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-source-create"></a>
+### Создание чернового источника schema2
+
+С **1.2611.23.7-alpha** `backend-scenario-source-create` вызывает
+`POST /api/backend/v1/scenario-source-create` с токеном сессии
+`--serve-project`. Тело содержит `expected_revision`, `fingerprint`
+(SHA-256 файла проекта), `client_key`, необязательный `actor` (по умолчанию
+`author`) и объект `source_draft` с непустым `title` до 160 единиц UTF-16.
+Крайние пробелы удаляются.
+
+Backend выдаёт ID и добавляет в библиотеку источник с пустым списком
+дублей. Квитанция содержит `api_version`, `project_id`, `project_revision`,
+`submission_sha256`, `changed: true` и `source_id`. Источник и квитанция
+сохраняются за одну ревизию. Заметки и промпт можно записать отдельной
+правкой. Для привязки к действию используется `backend-scenario-action-link-source`.
+
+Точный повтор с прежними ключом и базой возвращает исходный ID, в том
+числе после перезапуска. Ключ общий с остальными сценарными записями.
+Изменённый запрос с тем же ключом даёт `409 scenario_action_key_conflict`,
+устаревшие ревизия или SHA дают `409 revision_conflict`.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-source-create-cli).
+
 <a id="native-scenario-source-patch"></a>
 ### Частичная правка источника schema2
 

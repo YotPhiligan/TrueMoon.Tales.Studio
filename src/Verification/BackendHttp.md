@@ -234,6 +234,30 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-source-create-cli"></a>
+## Черновой источник из C# CLI
+
+Создайте `source-draft.json` в UTF-8 с названием будущего источника.
+
+```json
+{"title":"Крупный план рук"}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$source = .\TrueMoon.Tales.Studio.exe backend-scenario-source-create --url $url --file .\source-draft.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint | ConvertFrom-Json
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$linkKey = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-scenario-action-link-source --url $url --segment $segmentId --action $actionId --source $source.source_id --client-key $linkKey --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Для `prepare_block` подставьте ID действия, созданного в рамках задания.
+В `finish` укажите это действие как `item_id` и используйте ревизию задания
+из квитанции после `claim`. По `source_id` можно сохранить промпт отдельной
+правкой и позже зарегистрировать готовый дубль.
+[Контракт](../../API.md#native-scenario-source-create).
+
 <a id="studio-native-source-patch-cli"></a>
 ## Частичная правка источника из C# CLI
 

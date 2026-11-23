@@ -10,6 +10,7 @@ internal sealed partial class BackendHttpServer
     internal const string ScenarioVideoRoute = "/api/backend/v1/scenario-video";
     internal const string ScenarioClipRoute = "/api/backend/v1/scenario-clip";
     internal const string ScenarioSourcePatchRoute = "/api/backend/v1/scenario-source";
+    internal const string ScenarioSourceCreateRoute = "/api/backend/v1/scenario-source-create";
 
     private async Task HandleScenarioActionAsync(HttpContext context, CancellationToken token)
     {
@@ -24,6 +25,7 @@ internal sealed partial class BackendHttpServer
         if (write is not { Valid: true }) { await Error(context, 422, "invalid_scenario_edit"); return; }
         var route = write switch
         {
+            { SourceDraft: not null } => ScenarioSourceCreateRoute,
             { SourcePatch: not null } => ScenarioSourcePatchRoute,
             { Placement: not null } => ScenarioClipRoute,
             { Video: not null } => ScenarioVideoRoute,
