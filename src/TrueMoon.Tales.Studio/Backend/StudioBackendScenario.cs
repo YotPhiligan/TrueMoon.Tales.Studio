@@ -95,10 +95,13 @@ internal sealed partial class StudioBackendService
             !string.Equals(baseline.Fingerprint, write.Fingerprint, StringComparison.OrdinalIgnoreCase))
             return ActionFailure("revision_conflict");
 
-        var draft = BackendScenarioEdit.ApplyAction(baseline.Project, write.Action.ToCommand());
+        var command = write.Command!;
+        var draft = command is MoveScenarioAction move
+            ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
+            : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
         var changed = !ReferenceEquals(draft, baseline.Project);
-        var actionId = write.Action.ActionId ?? draft.Segments.Single(segment => segment.Id == write.Action.SegmentId).Actions[^1].Id;
-        var receipt = new ScenarioActionReceipt(1, draft.Id, write.Action.SegmentId, actionId,
+        var actionId = write.ActionId ?? draft.Segments.Single(segment => segment.Id == write.SegmentId).Actions[^1].Id;
+        var receipt = new ScenarioActionReceipt(1, draft.Id, write.SegmentId, actionId,
             write.ExpectedRevision + (changed ? 1 : 0), write.Digest(), changed);
         if (!changed) return ActionReply(receipt);
 

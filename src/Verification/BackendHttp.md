@@ -271,6 +271,28 @@ $saved = .\TrueMoon.Tales.Studio.exe backend-scenario-action-save --url $url --f
 `$claim` — квитанция `claim` для задания `$id`, `result.txt` — описание
 сохранённого результата. [Поля формы и ошибки](../../API.md#native-scenario-action).
 
+<a id="studio-native-scenario-order-source-cli"></a>
+## Порядок действий и привязка источника из C# CLI
+
+Подставьте ID сегмента, действия, соседнего действия и источника из снимка
+проекта. Для каждой новой правки прочитайте актуальный снимок и задайте ключ.
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$moveKey = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-scenario-action-move --url $url --segment $segment --action $action --before $neighbor --client-key $moveKey --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$linkKey = [guid]::NewGuid().ToString('N')
+.\TrueMoon.Tales.Studio.exe backend-scenario-action-link-source --url $url --segment $segment --action $action --source $source --purpose 'реакция' --client-key $linkKey --revision $snapshot.project.revision --sha256 $snapshot.fingerprint
+```
+
+Без `--before` действие перемещается в конец сегмента. Если у действия
+уже есть связь с источником, `--purpose` меняет её назначение. Пропуск
+`--purpose` очищает назначение. Для восстановления потерянного ответа
+явно повторите исходную команду с теми же параметрами и ключом.
+[Контракт и ошибки](../../API.md#native-scenario-order-source).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

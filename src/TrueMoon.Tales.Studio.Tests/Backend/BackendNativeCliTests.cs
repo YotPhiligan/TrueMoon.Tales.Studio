@@ -21,7 +21,7 @@ using Xunit;
 
 namespace TrueMoon.Tales.Studio.Tests.Backend;
 
-public sealed class BackendNativeCliTests
+public sealed partial class BackendNativeCliTests
 {
     private static string Fingerprint => new('A', 64);
 

@@ -434,6 +434,26 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 параметрами, затем прочитать актуальный снимок `backend-project`.
 [Пример CLI](src/Verification/BackendHttp.md#studio-native-scenario-action-cli).
 
+<a id="native-scenario-order-source"></a>
+### Порядок действий и привязка источника schema2
+
+С **1.2611.23.1-alpha** `POST /api/backend/v1/scenario-action` принимает
+один из трёх объектов `action`, `move` или `link`. `expected_revision`,
+`fingerprint`, `client_key`, `actor` и поля квитанции совпадают с сохранением
+действия. Ключ общий для всех трёх операций. При повторе сохраняются квитанции
+запросов из предыдущей версии Studio.
+
+| Объект | Поля и результат |
+| --- | --- |
+| `move` | `segment_id`, `action_id`, необязательный `before_action_id`. Ставит действие перед указанным ID в том же сегменте. Без `before_action_id` ставит в конец |
+| `link` | `segment_id`, `action_id`, `source_id`, необязательный `purpose`. Добавляет связь с источником библиотеки или меняет назначение существующей связи. Пустой или пропущенный `purpose` очищает назначение |
+
+Перестановка, из-за которой ранее размещённый временный план теряет позицию,
+даёт `422 scenario_order_timing`. Несуществующий или чужой ID даёт
+`422 invalid_scenario_edit`. Запросы сохраняют позиции клипов и состав
+библиотеки. Операция без изменений возвращает `changed: false` без записи
+ревизии или ключа. [Команды CLI](src/Verification/BackendHttp.md#studio-native-scenario-order-source-cli).
+
 В 0.5 доступны GET/POST `/api/projects/{id}/scenario` и CLI scenario; [операции и правила времени](Scenario.md). Поле timeline.scenario хранит сценарные намерения, включая неизвестное время и конфликты; допустимая монтажная проекция обновляется атомарно. Пространственные правки активного сценария через прежний timeline API используют ту же последовательную укладку. `add_item`, `update_item` и `add_catalog_video` принимают необязательные сценарные заметки `sound_notes` и `continuity_notes` в `payload`. Пустая строка очищает заметку. Действие `set_animatic_frame` принимает `segment_id`, `id` сценарного использования и `asset_selection`. Выберите изображение по `asset_id` или по `file` из каталога, либо передайте `null` для снятия выбора. Выбранный `animatic_asset_id` хранится у сценарного использования и участвует в отмене.
 
 ## Read-only IPC backend

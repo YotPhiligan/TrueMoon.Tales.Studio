@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using TrueMoon.Tales.Studio.Contracts.Projects;
 
 namespace TrueMoon.Tales.Studio.Backend;
@@ -13,11 +14,33 @@ internal sealed record ScenarioActionWrite
     public required long ExpectedRevision { get; init; }
     public required string Fingerprint { get; init; }
     public required string ClientKey { get; init; }
-    public required ScenarioActionDraft Action { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ScenarioActionDraft? Action { get; init; }
     public string Actor { get; init; } = "author";
 
+    // Save-only requests must keep their original serialized digest for durable receipts.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MoveScenarioAction? Move { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public LinkSource? Link { get; init; }
+
     internal bool Valid => ExpectedRevision is >= 0 and < int.MaxValue && BackendConnection.IsHash(Fingerprint) &&
-        AgentRequestDraft.ValidClientKey(ClientKey) && AgentRequestDraft.ValidActor(Actor) && Action is { Valid: true };
+        AgentRequestDraft.ValidClientKey(ClientKey) && AgentRequestDraft.ValidActor(Actor) && Command is not null;
+
+    internal ScenarioCommand? Command => (Action, Move, Link) switch
+    {
+        ({ Valid: true } action, null, null) => action.ToCommand(),
+        (null, { } move, null) when ValidId(move.SegmentId) && ValidId(move.ActionId) &&
+            BackendAgentContext.ValidSelector(move.BeforeActionId) => move,
+        (null, null, { } link) when ValidId(link.SegmentId) && ValidId(link.ActionId) && ValidId(link.SourceId) &&
+            link.Purpose is null or { Length: <= 160 } => link,
+        _ => null
+    };
+
+    internal string SegmentId => Action?.SegmentId ?? Move?.SegmentId ?? Link!.SegmentId;
+    internal string? ActionId => Action?.ActionId ?? Move?.ActionId ?? Link?.ActionId;
+
+    private static bool ValidId(string? id) => id is not null && BackendAgentContext.ValidSelector(id);
 
     internal string KeyHash() => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(ClientKey)));
 
@@ -68,8 +91,8 @@ internal sealed record ScenarioActionReceipt(int ApiVersion, string ProjectId, s
     long ProjectRevision, string SubmissionSha256, bool Changed)
 {
     internal bool Matches(ScenarioActionWrite request) => ApiVersion == 1 && !string.IsNullOrWhiteSpace(ProjectId) &&
-        SegmentId == request.Action.SegmentId && !string.IsNullOrWhiteSpace(ActionId) && BackendAgentContext.ValidSelector(ActionId) &&
-        (request.Action.ActionId is { } target ? ActionId == target : Changed) &&
+        SegmentId == request.SegmentId && !string.IsNullOrWhiteSpace(ActionId) && BackendAgentContext.ValidSelector(ActionId) &&
+        (request.ActionId is { } target ? ActionId == target : Changed) &&
         ProjectRevision == request.ExpectedRevision + (Changed ? 1 : 0) && SubmissionSha256 == request.Digest();
 }
 

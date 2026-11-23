@@ -26,6 +26,8 @@ internal static partial class BackendHttpCli
           backend-agent-request-breakdown-preview --url <url> --id <req-id>
           backend-agent-request-breakdown-apply --url <url> --id <req-id> --revision <project-revision> --sha256 <fingerprint> [--actor <name>]
           backend-scenario-action-save --url <url> --file <JSON> --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
+          backend-scenario-action-move --url <url> --segment <id> --action <id> [--before <id>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
+          backend-scenario-action-link-source --url <url> --segment <id> --action <id> --source <id> [--purpose <text>] --client-key <key> --revision <n> --sha256 <fingerprint> [--actor <name>]
           backend-move --url <url> --clip <id> --start-frame <номер> --revision <номер> --sha256 <fingerprint>
           backend-trim --url <url> --clip <id> --start-frame <номер> --source-in <кадр> --source-out <кадр> --revision <номер> --sha256 <fingerprint>
           backend-media --url <url> --asset <id> --revision <номер> --sha256 <fingerprint>
@@ -54,7 +56,7 @@ internal static partial class BackendHttpCli
     private static readonly JsonDocumentOptions ResponseJson = new() { AllowDuplicateProperties = false };
 
     internal static bool Handles(string? command) => command is ProjectCommand or AgentContextCommand or MoveCommand or TrimCommand or MediaCommand or FrameCommand ||
-        command == ScenarioActionCommand || IsAgentRequestCommand(command) ||
+        IsScenarioActionCommand(command) || IsAgentRequestCommand(command) ||
         IsExportCommand(command) || IsTransferCommand(command);
 
     internal static async Task<int> RunAsync(string[] args)
@@ -82,7 +84,7 @@ internal static partial class BackendHttpCli
             var export = payload is BackendHttpServer.ExportStartBody or BackendHttpServer.ExportIdBody;
             var hint = AgentRequestReconciliationHint(request, payload) ?? ExportReconciliationHint(payload) ?? TransferReconciliationHint(payload);
             if (payload is ScenarioActionWrite)
-                hint = " Для явного повтора используйте тот же client_key, исходную ревизию, SHA и содержимое файла.";
+                hint = " Для явного повтора используйте тот же client_key, исходную ревизию, SHA и параметры команды.";
             void Cancel(object? _, ConsoleCancelEventArgs signal) { signal.Cancel = true; interrupt.Cancel(); }
             Console.CancelKeyPress += Cancel;
             try
@@ -191,10 +193,10 @@ internal static partial class BackendHttpCli
         {
             if (!TryAgentRequestCommand(command, options, out route, out content)) return false;
         }
-        else if (command == ScenarioActionCommand)
+        else if (IsScenarioActionCommand(command))
         {
             route = BackendHttpServer.ScenarioActionRoute;
-            if (!TryScenarioActionRequest(options, out content)) return false;
+            if (!TryScenarioActionRequest(command, options, out content)) return false;
         }
         else if (IsExportCommand(command))
         {

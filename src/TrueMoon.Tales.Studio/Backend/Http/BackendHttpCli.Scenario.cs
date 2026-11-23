@@ -6,27 +6,46 @@ namespace TrueMoon.Tales.Studio.Backend.Http;
 internal static partial class BackendHttpCli
 {
     private const string ScenarioActionCommand = "backend-scenario-action-save";
+    private const string MoveScenarioActionCommand = "backend-scenario-action-move";
+    private const string LinkScenarioSourceCommand = "backend-scenario-action-link-source";
 
-    private static bool TryScenarioActionRequest(Dictionary<string, string> options, out HttpContent? content)
+    private static bool IsScenarioActionCommand(string? command) =>
+        command is ScenarioActionCommand or MoveScenarioActionCommand or LinkScenarioSourceCommand;
+
+    private static bool TryScenarioActionRequest(string command, Dictionary<string, string> options, out HttpContent? content)
     {
         content = null;
-        if (!TryBaseline(options, out var revision, out var fingerprint) ||
-            !options.Remove("--file", out var path) || !options.Remove("--client-key", out var key)) return false;
+        if (!TryBaseline(options, out var revision, out var fingerprint) || !options.Remove("--client-key", out var key)) return false;
         options.Remove("--actor", out var actor);
-        if (options.Count != 0) return false;
-        try
+        var request = new ScenarioActionWrite { ExpectedRevision = revision, Fingerprint = fingerprint, ClientKey = key, Actor = actor ?? "author" };
+        if (command == ScenarioActionCommand)
         {
-            var action = JsonSerializer.Deserialize<ScenarioActionDraft>(ReadAgentInput(path, ScenarioActionWrite.MaxBodyBytes), AgentRequestDraft.Json);
-            if (action is null) return false;
-            var request = new ScenarioActionWrite
+            if (!options.Remove("--file", out var path)) return false;
+            try
             {
-                ExpectedRevision = revision, Fingerprint = fingerprint, ClientKey = key, Actor = actor ?? "author", Action = action
-            };
-            if (!request.Valid) return false;
-            content = JsonContent.Create(request, options: AgentRequestDraft.Json);
-            return true;
+                var action = JsonSerializer.Deserialize<ScenarioActionDraft>(ReadAgentInput(path, ScenarioActionWrite.MaxBodyBytes), AgentRequestDraft.Json);
+                request = request with { Action = action };
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or NotSupportedException)
+            { return false; }
         }
-        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or JsonException or NotSupportedException)
-        { return false; }
+        else
+        {
+            if (!options.Remove("--segment", out var segment) || !options.Remove("--action", out var action)) return false;
+            if (command == MoveScenarioActionCommand)
+            {
+                options.Remove("--before", out var before);
+                request = request with { Move = new(segment, action, before) };
+            }
+            else
+            {
+                if (!options.Remove("--source", out var source)) return false;
+                options.Remove("--purpose", out var purpose);
+                request = request with { Link = new(segment, action, source, purpose) };
+            }
+        }
+        if (options.Count != 0 || !request.Valid) return false;
+        content = JsonContent.Create(request, options: AgentRequestDraft.Json);
+        return true;
     }
 }

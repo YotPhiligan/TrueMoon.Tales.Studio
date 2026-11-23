@@ -175,7 +175,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
                     "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" or
                     "invalid_agent_request_id" or "invalid_agent_request_record" or "invalid_agent_request" or "invalid_agent_request_scope" or
-                    "invalid_agent_request_update" or "invalid_agent_breakdown" or "agent_breakdown_blocked" or "invalid_scenario_edit" => 422,
+                    "invalid_agent_request_update" or "invalid_agent_breakdown" or "agent_breakdown_blocked" or "invalid_scenario_edit" or
+                    "scenario_order_timing" => 422,
                 "access_denied" or "write_not_enabled" => 403,
                 "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" or
                     "agent_request_not_found" or "agent_request_scope_missing" => 404,
