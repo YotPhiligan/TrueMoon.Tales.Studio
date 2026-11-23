@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using SkiaSharp;
+using TrueMoon.Alloy.Rendering.Skia;
 using TrueMoon.Tales.Studio.Backend;
 using TrueMoon.Tales.Studio.Backend.Http;
 using TrueMoon.Tales.Studio.Persistence;
@@ -79,6 +80,7 @@ public sealed partial class BackendNativeCliTests
         var pngBytes = File.ReadAllBytes(fixture.PngPath);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(pngBytes)), frame.GetProperty("png_sha256").GetString());
         var referenceFrame = await fixture.ReferenceFrameAsync(fixture.SecondVideoPath, frameIndex);
+        SkiaNativeLibrary.Initialize();
         using var encoded = new MemoryStream(pngBytes, writable: false);
         using var png = SKBitmap.Decode(encoded, new SKImageInfo(480, 270, SKColorType.Bgra8888, SKAlphaType.Unpremul));
         Assert.NotNull(png);

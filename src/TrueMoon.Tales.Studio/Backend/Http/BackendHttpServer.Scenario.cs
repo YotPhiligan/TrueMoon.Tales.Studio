@@ -8,6 +8,7 @@ internal sealed partial class BackendHttpServer
     internal const string ScenarioActionRoute = "/api/backend/v1/scenario-action";
     internal const string ScenarioSegmentRoute = "/api/backend/v1/scenario-segment";
     internal const string ScenarioVideoRoute = "/api/backend/v1/scenario-video";
+    internal const string ScenarioClipRoute = "/api/backend/v1/scenario-clip";
 
     private async Task HandleScenarioActionAsync(HttpContext context, CancellationToken token)
     {
@@ -19,7 +20,13 @@ internal sealed partial class BackendHttpServer
             limit.MaxRequestBodySize = ScenarioActionWrite.MaxBodyBytes;
         var write = await context.Request.ReadFromJsonAsync<ScenarioActionWrite>(AgentRequestDraft.Json, token).ConfigureAwait(false);
         if (write is not { Valid: true }) { await Error(context, 422, "invalid_scenario_edit"); return; }
-        var route = write.Video is not null ? ScenarioVideoRoute : write.Segment is not null ? ScenarioSegmentRoute : ScenarioActionRoute;
+        var route = write switch
+        {
+            { Placement: not null } => ScenarioClipRoute,
+            { Video: not null } => ScenarioVideoRoute,
+            { Segment: not null } => ScenarioSegmentRoute,
+            _ => ScenarioActionRoute
+        };
         if (context.Request.Path != route)
         { await Error(context, 422, "invalid_scenario_edit"); return; }
         var receipt = await backend.SaveScenarioActionAsync(write, token).ConfigureAwait(false);

@@ -433,6 +433,42 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-clip"></a>
+### Размещение клипа schema2
+
+С **1.2611.23.5-alpha** `backend-scenario-clip-place` вызывает
+`POST /api/backend/v1/scenario-clip` с токеном сессии `--serve-project`.
+Тело содержит `expected_revision`, `fingerprint` (SHA-256 файла проекта),
+`client_key`, необязательный `actor` (по умолчанию `author`) и объект
+`placement`. Все его поля обязательны.
+
+| Поле | Значение |
+| --- | --- |
+| `segment_id`, `action_id` | Сегмент и действие в нём |
+| `source_id`, `take_id` | Источник, уже привязанный к действию, и его видеодубль |
+| `start_frame`, `duration_frames` | Абсолютный старт на шкале и длительность клипа в кадрах проекта |
+| `source_in_frame` | Вход в дубль от кадра 0 в единицах FPS проекта. Исходящий кадр исключается и равен входу плюс длительность |
+
+Операция `place_clip` проверяет связь действия с источником, принадлежность
+дубля, границы единственного окна сегмента, пересечения с клипами и доступный
+участок дубля по данным FFprobe. Квитанция содержит `api_version`,
+`project_id`, `project_revision`, `submission_sha256`, `changed`, `clip_id`,
+`segment_id`, `action_id`, `source_id` и `take_id`. Общий writer сохраняет
+клип и квитанцию одной записью и добавляет правку в историю Undo/Redo
+текущей сессии редактора.
+
+При точном повторе с исходными ключом и базой возвращается та же квитанция,
+в том числе после Undo или перезапуска backend. После Undo квитанция
+подтверждает исходное размещение. Для нового клипа нужен новый ключ.
+Повтор ключа с изменённой формой даёт `409 scenario_action_key_conflict`,
+устаревшие ревизия или SHA дают `409 revision_conflict`.
+
+Несуществующая связь или чужой дубль дают `422 invalid_scenario_edit`.
+Границы, пересечение и выход за длину дубля дают `422` с кодами
+`scenario_window_conflict`, `scenario_clip_overlap` и
+`scenario_source_range` соответственно.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-scenario-clip-cli).
+
 <a id="native-scenario-video"></a>
 ### Регистрация готового видео schema2
 

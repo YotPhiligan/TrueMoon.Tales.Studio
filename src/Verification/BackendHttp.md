@@ -234,6 +234,30 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-scenario-clip-cli"></a>
+## Размещение клипа из C# CLI
+
+В сессии `--serve-project` прочитайте проект. Подставьте в `placement.json`
+ID сегмента, действия, привязанного источника и его видеодубля. Старт задаётся
+на шкале проекта, вход в дубль и длина задаются в кадрах проекта.
+
+```json
+{"segment_id":"segment-main","action_id":"action-main","source_id":"source-a","take_id":"take-a","start_frame":36,"duration_frames":12,"source_in_frame":4}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$placed = .\TrueMoon.Tales.Studio.exe backend-scenario-clip-place --url $url --file .\placement.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint | ConvertFrom-Json
+$placed | Select-Object clip_id,segment_id,action_id,source_id,take_id,project_revision
+```
+
+После потери ответа повторите исходную команду с тем же файлом, ключом,
+ревизией и SHA. В редакторе перечитайте проект, чтобы увидеть клип и
+использовать Undo в текущей сессии. Точный повтор после Undo возвращает
+прежнюю квитанцию. Для повторного размещения получите текущую базу и
+возьмите новый ключ. [Контракт и ошибки](../../API.md#native-scenario-clip).
+
 <a id="studio-native-scenario-video-cli"></a>
 ## Регистрация готового видео из C# CLI
 

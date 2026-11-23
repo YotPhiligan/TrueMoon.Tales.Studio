@@ -124,7 +124,9 @@ public sealed class BackendMediaUiCliTests
         var metadata = Media(JsonNode.Parse(result.Output)!);
         Assert.Equal("video-b", metadata["asset_id"]!.GetValue<string>());
         Assert.Equal(Hash(expectedB), metadata["pixel_sha256"]!.GetValue<string>().ToUpperInvariant());
-        using var png = SKBitmap.Decode(fixture.PngPath, new SKImageInfo(480, 270, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+        SkiaNativeLibrary.Initialize();
+        using var encoded = new MemoryStream(File.ReadAllBytes(fixture.PngPath), writable: false);
+        using var png = SKBitmap.Decode(encoded, new SKImageInfo(480, 270, SKColorType.Bgra8888, SKAlphaType.Unpremul));
         Assert.NotNull(png); Assert.Equal(expectedB, png.GetPixelSpan().ToArray());
         fixture.AssertUnchanged();
     }

@@ -105,9 +105,9 @@ internal sealed partial class StudioBackendService
                 ? BackendScenarioEdit.MoveAction(baseline.Project, move, ScenarioActive(baseline))
                 : await BackendScenarioEdit.ApplyAsync(baseline.Project, command, ProbeAsync, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception error) when (command is ImportVideo && error is (FileNotFoundException or DirectoryNotFoundException))
+        catch (Exception error) when (command is (ImportVideo or PlaceClip) && error is (FileNotFoundException or DirectoryNotFoundException))
         { return ActionFailure("media_not_found"); }
-        catch (Win32Exception) when (command is ImportVideo)
+        catch (Win32Exception) when (command is ImportVideo or PlaceClip)
         { return ActionFailure("decoder_unavailable"); }
         var changed = !ReferenceEquals(draft, baseline.Project);
         var receipt = ScenarioActionReceipt.Create(write, draft, changed);
@@ -116,7 +116,10 @@ internal sealed partial class StudioBackendService
         draft = ScenarioActionWrite.Record(draft, keyHash, receipt);
         if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
             return ActionFailure("project_too_large");
-        await store.SaveAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);
+        if (command is PlaceClip)
+            await SaveMontageAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);
+        else
+            await store.SaveAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);
         return ActionReply(receipt);
 
         static BackendScenarioActionReply ActionReply(ScenarioActionReceipt receipt) => new() { ReceiptJson = JsonSerializer.Serialize(receipt, AgentRequestDraft.Json) };
