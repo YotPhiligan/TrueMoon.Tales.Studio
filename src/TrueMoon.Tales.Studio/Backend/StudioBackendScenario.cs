@@ -43,7 +43,8 @@ internal sealed partial class StudioBackendService
                 var undo = command is UndoMontage;
                 var target = _montageHistory.Target(baseline.Fingerprint, undo);
                 var restored = await store.RestoreSnapshotAsync(baseline, target, expectedRevision,
-                    undo ? "studio:undo-montage" : "studio:redo-montage", [BackendAgentBreakdown.AppliedProperty], cancellationToken).ConfigureAwait(false);
+                    undo ? "studio:undo-montage" : "studio:redo-montage",
+                    [BackendAgentBreakdown.AppliedProperty, ScenarioActionWrite.ReceiptsProperty], cancellationToken).ConfigureAwait(false);
                 _montageHistory.Complete(restored.Fingerprint, undo);
                 return Reply(restored);
             }
@@ -75,6 +76,42 @@ internal sealed partial class StudioBackendService
         catch (ScenarioEditException error) { return Failure(error.Code); }
         catch (Win32Exception) { return Failure("decoder_unavailable"); }
     }, cancellationToken);
+
+    public Task<BackendScenarioActionReply> SaveScenarioActionAsync(string sessionKey, string formJson,
+        CancellationToken cancellationToken = default) => ExecuteAsync<BackendScenarioActionReply>(sessionKey, async () =>
+    {
+        RequireWriter();
+        if (formJson is null || Encoding.UTF8.GetByteCount(formJson) > ScenarioActionWrite.MaxBodyBytes)
+            return ActionFailure("invalid_scenario_edit");
+        if (JsonSerializer.Deserialize<ScenarioActionWrite>(formJson, AgentRequestDraft.Json) is not { Valid: true } write)
+            return ActionFailure("invalid_scenario_edit");
+
+        var baseline = await store.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (baseline.SchemaVersion != 2) throw new ProjectMigrationRequiredException();
+        var keyHash = write.KeyHash();
+        if (ScenarioActionWrite.FindReceipt(baseline.Project, keyHash) is { } prior)
+            return prior.Matches(write) ? ActionReply(prior) : ActionFailure("scenario_action_key_conflict");
+        if (baseline.Project.Revision != write.ExpectedRevision ||
+            !string.Equals(baseline.Fingerprint, write.Fingerprint, StringComparison.OrdinalIgnoreCase))
+            return ActionFailure("revision_conflict");
+
+        var draft = BackendScenarioEdit.ApplyAction(baseline.Project, write.Action.ToCommand());
+        var changed = !ReferenceEquals(draft, baseline.Project);
+        var actionId = write.Action.ActionId ?? draft.Segments.Single(segment => segment.Id == write.Action.SegmentId).Actions[^1].Id;
+        var receipt = new ScenarioActionReceipt(1, draft.Id, write.Action.SegmentId, actionId,
+            write.ExpectedRevision + (changed ? 1 : 0), write.Digest(), changed);
+        if (!changed) return ActionReply(receipt);
+
+        draft = ScenarioActionWrite.Record(draft, keyHash, receipt);
+        if (Encoding.Unicode.GetByteCount(ProjectContractJson.Serialize(draft)) > MaxProjectBytes - 32)
+            return ActionFailure("project_too_large");
+        await store.SaveAsync(baseline, draft, write.ExpectedRevision, write.Actor.Trim(), cancellationToken).ConfigureAwait(false);
+        return ActionReply(receipt);
+
+        static BackendScenarioActionReply ActionReply(ScenarioActionReceipt receipt) => new() { ReceiptJson = JsonSerializer.Serialize(receipt, AgentRequestDraft.Json) };
+    }, cancellationToken, ActionFailure);
+
+    private static BackendScenarioActionReply ActionFailure(string code) => new() { ErrorCode = code };
 
     private async Task<BackendProjectReply> RemoveTakeAsync(ProjectFileDocument baseline, RemoveVideoTake command, CancellationToken token)
     {

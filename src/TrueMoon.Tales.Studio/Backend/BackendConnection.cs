@@ -31,6 +31,21 @@ internal sealed partial class BackendConnection(IStudioBackend service, BackendO
         CancellationToken token = default) => CommandAsync(ct => service.EditScenarioAsync(options.SessionKey,
             ScenarioCommand.Encode(command), baseline.Project.Revision, baseline.Fingerprint, ct), token);
 
+    internal async Task<ScenarioActionReceipt> SaveScenarioActionAsync(ScenarioActionWrite write, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var identity = await TransportAsync(() => service.HelloAsync(options.SessionKey, deadline.Token)).ConfigureAwait(false);
+        ValidateIdentity(identity, processes.Owned?.IsServing(identity.ProcessId) == true);
+        var json = JsonSerializer.Serialize(write, AgentRequestDraft.Json);
+        var reply = await TransportAsync(() => service.SaveScenarioActionAsync(options.SessionKey, json, deadline.Token)).ConfigureAwait(false);
+        if (reply is { ErrorCode.Length: > 0 }) throw new BackendCommandException(reply.ErrorCode);
+        if (reply?.ReceiptJson is not { Length: > 0 and <= 4096 } receiptJson ||
+            JsonSerializer.Deserialize<ScenarioActionReceipt>(receiptJson, AgentRequestDraft.Json) is not { } receipt || !receipt.Matches(write))
+            throw new InvalidDataException("Invalid scenario action receipt.");
+        return receipt;
+    }
+
     internal async Task<ChapterFragment> ReadAdaptationTextAsync(string reference, int first, int last, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

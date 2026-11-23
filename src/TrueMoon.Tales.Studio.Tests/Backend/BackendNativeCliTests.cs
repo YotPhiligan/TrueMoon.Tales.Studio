@@ -621,6 +621,183 @@ public sealed class BackendNativeCliTests
         Assert.Equal(2, files.Files.HistoryFiles.Length);
     }
 
+    [Fact]
+    public async Task NativeScenarioAction_CompletesClaimedRequestAndEditsSameAction()
+    {
+        const string owner = "agent:scenario";
+        using var files = new BackendWriteFixture(scenario: true);
+        await using var fixture = new BackendHttpFixture(files);
+        var goal = BackendAgentRequestCreationTests.Configure(files);
+        var scope = ScenarioInput(files, "scope.json", """{"intent":"prepare_block","segment_id":"segment-main","draft":{"title":"Реакция"}}""");
+        await fixture.StartAsync();
+        var baseline = await fixture.Connection.OpenAsync();
+        Assert.Throws<ProjectStoreBusyException>(() => ProjectWriterLease.Acquire(BackendProjectAccess.Read(files.Options)));
+        var id = await BackendAgentRequestUpdateTests.CreateAsync(fixture, goal, baseline, "--mode", "apply", "--scope-file", scope);
+        var claim = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, "backend-agent-request-claim",
+            "--id", id, "--revision", "1", "--actor", owner));
+        Assert.Equal("running", claim.GetProperty("state").GetString());
+        Assert.Equal(owner, claim.GetProperty("owner").GetString());
+        Assert.Equal(baseline.Fingerprint, (await fixture.Connection.OpenAsync()).Fingerprint);
+
+        var form = ScenarioInput(files, "action.json", """
+            {"segment_id":"segment-main","title":"Реакция","description":"Замечает часы.","planned_duration":12,"sound_notes":"Щелчок"}
+            """);
+        var created = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, "scenario-create-0001", baseline, owner)));
+        var actionId = created.GetProperty("action_id").GetString()!;
+        Assert.True(created.GetProperty("changed").GetBoolean());
+        var afterCreate = await fixture.Connection.OpenAsync();
+        Assert.Equal(baseline.Project.Revision + 1, afterCreate.Project.Revision);
+        Assert.Equal(afterCreate.Project.Revision, created.GetProperty("project_revision").GetInt64());
+        var action = Assert.Single(afterCreate.Project.Segments.Single(row => row.Id == "segment-main").Actions, row => row.Id == actionId);
+        Assert.Equal("Реакция", action.Title);
+        Assert.Equal("Щелчок", action.SoundNotes);
+        Assert.Equal(12, action.PlannedDurationFrames);
+        Assert.Equal(2, files.Files.HistoryFiles.Length);
+
+        var result = ScenarioInput(files, "result.txt", "Новое действие сохранено.");
+        var target = ScenarioInput(files, "target.json", JsonSerializer.Serialize(new { segment_id = "segment-main", item_id = actionId }));
+        var finished = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, "backend-agent-request-finish",
+            "--id", id, "--revision", "2", "--actor", owner, "--result-file", result, "--target-file", target));
+        Assert.Equal("completed", finished.GetProperty("state").GetString());
+        Assert.Equal(3, finished.GetProperty("revision").GetInt64());
+        Assert.Equal(afterCreate.Project.Revision, finished.GetProperty("completed_project_revision").GetInt64());
+        var saved = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, "backend-agent-request", "--id", id)).GetProperty("request");
+        Assert.Equal(actionId, saved.GetProperty("result_target").GetProperty("item_id").GetString());
+        Assert.Equal(baseline.Project.Revision, saved.GetProperty("context").GetProperty("project").GetProperty("revision").GetInt64());
+        Assert.Equal(afterCreate.Fingerprint, (await fixture.Connection.OpenAsync()).Fingerprint);
+
+        File.WriteAllText(form, JsonSerializer.Serialize(new
+        {
+            segment_id = "segment-main", action_id = actionId, title = "Реакция", description = "Смотрит на циферблат.", planned_duration = 16
+        }));
+        var editArgs = ScenarioArgs(form, "scenario-revise-0001", afterCreate, owner);
+        var edited = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, editArgs));
+        var afterEdit = await fixture.Connection.OpenAsync();
+        Assert.Equal(actionId, edited.GetProperty("action_id").GetString());
+        Assert.Equal(afterCreate.Project.Revision + 1, afterEdit.Project.Revision);
+        var revised = Assert.Single(afterEdit.Project.Segments.Single(row => row.Id == "segment-main").Actions, row => row.Id == actionId);
+        Assert.Equal("Смотрит на циферблат.", revised.Description);
+        Assert.Equal("Щелчок", revised.SoundNotes);
+        Assert.Equal(16, revised.PlannedDurationFrames);
+        Assert.Equal(action.Sources, revised.Sources);
+        Assert.Equal(afterCreate.Project.Montage.Clips, afterEdit.Project.Montage.Clips);
+        Assert.Equal(3, files.Files.HistoryFiles.Length);
+        Assert.True(JsonElement.DeepEquals(edited, ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, editArgs))));
+        var noChange = ScenarioSuccess(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, "scenario-noop-000001", afterEdit, owner)));
+        Assert.False(noChange.GetProperty("changed").GetBoolean());
+        Assert.Equal(afterEdit.Fingerprint, (await fixture.Connection.OpenAsync()).Fingerprint);
+        Assert.Equal(3, files.Files.HistoryFiles.Length);
+        Assert.False(Directory.Exists(Path.Combine(files.Files.ProjectDirectory, "Production", "Jobs")));
+    }
+
+    [Fact]
+    public async Task NativeScenarioAction_RecoversLostReplyWithOneCommitAcrossConcurrentRetriesAndRestart()
+    {
+        const string key = "scenario-replay-0001";
+        using var files = new BackendWriteFixture(scenario: true);
+        var form = ScenarioInput(files, "action.json", """{"segment_id":"segment-main","title":"Новый план"}""");
+        string[] args;
+        string actionId;
+        JsonElement receipt;
+        await using (var fixture = new BackendHttpFixture(files))
+        {
+            await fixture.StartAsync();
+            var baseline = await fixture.Connection.OpenAsync();
+            args = ScenarioArgs(form, key, baseline);
+            using var backendHttp = fixture.Client();
+            var requests = 0;
+            await WithStubAsync(async context =>
+            {
+                Assert.Equal(BackendHttpServer.ScenarioActionRoute, context.Request.Path.Value);
+                Assert.Equal(HttpMethods.Post, context.Request.Method);
+                Interlocked.Increment(ref requests);
+                using var body = await JsonDocument.ParseAsync(context.Request.Body);
+                using var request = new StringContent(body.RootElement.GetRawText(), Encoding.UTF8, "application/json");
+                using var committed = await backendHttp.PostAsync(BackendHttpServer.ScenarioActionRoute, request, context.RequestAborted);
+                committed.EnsureSuccessStatusCode();
+                context.Abort();
+            }, async address =>
+            {
+                AssertError(await RunAsync(address, Fingerprint, args), 1, "backend_unavailable", reconcile: true);
+                Assert.Equal(1, Volatile.Read(ref requests));
+            });
+            var saved = await fixture.Connection.OpenAsync();
+            Assert.Equal(baseline.Project.Revision + 1, saved.Project.Revision);
+            actionId = Assert.Single(saved.Project.Segments.Single(row => row.Id == "segment-main").Actions, row => row.Title == "Новый план").Id;
+            Assert.Equal(2, files.Files.HistoryFiles.Length);
+            var repeats = await Task.WhenAll(RunAsync(fixture.Http.Address, fixture.Http.Token, args), RunAsync(fixture.Http.Address, fixture.Http.Token, args));
+            receipt = ScenarioSuccess(repeats[0]);
+            Assert.True(JsonElement.DeepEquals(receipt, ScenarioSuccess(repeats[1])));
+            Assert.Equal(actionId, receipt.GetProperty("action_id").GetString());
+            Assert.Equal(saved.Fingerprint, (await fixture.Connection.OpenAsync()).Fingerprint);
+            Assert.Equal(2, files.Files.HistoryFiles.Length);
+
+            var changedInEditor = await fixture.Connection.EditScenarioAsync(new SaveAction("segment-main", actionId, "Уточнённый план", "", 12), saved);
+            Assert.Equal(saved.Project.Revision + 1, changedInEditor.Project.Revision);
+        }
+        await using var restarted = new BackendHttpFixture(files);
+        await restarted.StartAsync(migrate: false);
+        var current = await restarted.Connection.OpenAsync();
+        Assert.True(JsonElement.DeepEquals(receipt, ScenarioSuccess(await RunAsync(restarted.Http.Address, restarted.Http.Token, args))));
+        AssertError(await RunAsync(restarted.Http.Address, restarted.Http.Token, ScenarioArgs(form, key, current)),
+            3, "scenario_action_key_conflict", reconcile: true);
+        File.WriteAllText(form, """{"segment_id":"segment-main","title":"Другое действие"}""");
+        AssertError(await RunAsync(restarted.Http.Address, restarted.Http.Token, args), 3, "scenario_action_key_conflict", reconcile: true);
+        Assert.Equal(current.Fingerprint, (await restarted.Connection.OpenAsync()).Fingerprint);
+        Assert.Equal("Уточнённый план", current.Project.Segments.Single(row => row.Id == "segment-main").Actions.Single(row => row.Id == actionId).Title);
+        Assert.Equal(3, files.Files.HistoryFiles.Length);
+    }
+
+    [Fact]
+    public async Task NativeScenarioAction_RejectsStaleRevisionWrongShaAndInvalidTargetWithoutWriting()
+    {
+        using var files = new BackendWriteFixture(scenario: true);
+        await using var fixture = new BackendHttpFixture(files);
+        await fixture.StartAsync();
+        var head = await fixture.Connection.OpenAsync();
+        var original = File.ReadAllBytes(files.Files.ProjectPath);
+        var form = ScenarioInput(files, "action.json", """{"segment_id":"segment-main","title":"Реакция"}""");
+        const string key = "scenario-conflict-0001";
+        var stale = head with { Project = head.Project with { Revision = head.Project.Revision - 1 } };
+        AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, key, stale)), 3, "revision_conflict", reconcile: true);
+        AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, key, head with { Fingerprint = new string('0', 64) })),
+            3, "revision_conflict", reconcile: true);
+        File.WriteAllText(form, """{"segment_id":"segment-main","action_id":"action-does-not-exist","title":"Реакция"}""");
+        AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, key, head)), 1, "invalid_scenario_edit", reconcile: true);
+        File.WriteAllText(form, """{"segment_id":"segment-main","title":"Реакция","title":"Подмена"}""");
+        AssertError(await RunAsync(fixture.Http.Address, fixture.Http.Token, ScenarioArgs(form, key, head)), 2, "invalid_arguments", reconcile: false);
+        Assert.Equal(original, File.ReadAllBytes(files.Files.ProjectPath));
+        Assert.Single(files.Files.HistoryFiles);
+        File.WriteAllText(form, """{"segment_id":"segment-main","title":"Реакция"}""");
+        var args = ScenarioArgs(form, key, head);
+        var concurrent = await Task.WhenAll(RunAsync(fixture.Http.Address, fixture.Http.Token, args), RunAsync(fixture.Http.Address, fixture.Http.Token, args));
+        var created = ScenarioSuccess(concurrent[0]);
+        Assert.True(created.GetProperty("changed").GetBoolean());
+        Assert.True(JsonElement.DeepEquals(created, ScenarioSuccess(concurrent[1])));
+        Assert.Single((await fixture.Connection.OpenAsync()).Project.Segments.Single(row => row.Id == "segment-main").Actions,
+            action => action.Title == "Реакция");
+        Assert.Equal(2, files.Files.HistoryFiles.Length);
+    }
+
+    private static string ScenarioInput(BackendWriteFixture files, string name, string text)
+    {
+        var path = Path.Combine(files.Files.Root, name);
+        File.WriteAllText(path, text);
+        return path;
+    }
+
+    private static string[] ScenarioArgs(string form, string key, OpenedBackendProject baseline, string actor = "author") =>
+        ["backend-scenario-action-save", "--file", form, "--client-key", key, "--sha256", baseline.Fingerprint,
+            "--revision", baseline.Project.Revision.ToString(CultureInfo.InvariantCulture), "--actor", actor];
+
+    private static JsonElement ScenarioSuccess(CliResult result)
+    {
+        Assert.True(result.Code == 0, result.Error);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        return json.RootElement.Clone();
+    }
+
     private static async Task WithStubAsync(RequestDelegate handler, Func<Uri, Task> test)
     {
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });

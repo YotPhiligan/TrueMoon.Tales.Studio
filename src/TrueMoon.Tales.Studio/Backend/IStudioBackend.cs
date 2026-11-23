@@ -46,6 +46,9 @@ public interface IStudioBackend
     Task<BackendProjectReply> EditScenarioAsync(string sessionKey, string commandJson, long expectedRevision, string fingerprint,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Saves one scenario action or returns the receipt for the same submission.</summary>
+    Task<BackendScenarioActionReply> SaveScenarioActionAsync(string sessionKey, string formJson, CancellationToken cancellationToken = default);
+
     /// <summary>Checks saved export parameters without creating a job.</summary>
     /// <param name="sessionKey">Launch capability.</param><param name="profile">Encoding profile.</param>
     /// <param name="expectedRevision">Observed project revision.</param><param name="fingerprint">Observed project SHA256.</param>

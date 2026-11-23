@@ -13,7 +13,7 @@ internal static class BackendScenarioEdit
         Func<string, CancellationToken, Task<BackendVideoInfo>> probe, CancellationToken token) => command switch
     {
         SaveSegment edit => Segment(project, edit),
-        SaveAction edit => Action(project, edit),
+        SaveAction edit => ApplyAction(project, edit),
         LinkSource edit => Link(project, edit),
         ImportVideo edit => await ImportAsync(project, edit, probe, token).ConfigureAwait(false),
         RelinkVideo edit => await RelinkAsync(project, edit, probe, token).ConfigureAwait(false),
@@ -67,7 +67,7 @@ internal static class BackendScenarioEdit
         return MarkExplicit(draft, [created.Id]);
     }
 
-    private static ProjectContract Action(ProjectContract project, SaveAction edit)
+    internal static ProjectContract ApplyAction(ProjectContract project, SaveAction edit)
     {
         var segment = FindSegment(project, edit.SegmentId);
         var title = Text(edit.Title, 160, required: true);

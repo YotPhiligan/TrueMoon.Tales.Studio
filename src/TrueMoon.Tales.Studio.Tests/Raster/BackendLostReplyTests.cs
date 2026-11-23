@@ -68,6 +68,8 @@ public sealed class BackendLostReplyTests
         public Task<BackendExportReply> WorkingReviewAsync(string key, string operation, string id, long revision, string hash, int startFrame, int endFrame, CancellationToken cancellationToken = default) => inner.WorkingReviewAsync(key, operation, id, revision, hash, startFrame, endFrame, cancellationToken);
         public Task<BackendProjectReply> EditScenarioAsync(string key, string command, long revision, string hash, CancellationToken cancellationToken = default) =>
             inner.EditScenarioAsync(key, command, revision, hash, cancellationToken);
+        public Task<BackendScenarioActionReply> SaveScenarioActionAsync(string key, string formJson, CancellationToken cancellationToken = default) =>
+            inner.SaveScenarioActionAsync(key, formJson, cancellationToken);
         public Task<BackendExportReply> CheckExportAsync(string key, string profile, long revision, string hash, CancellationToken cancellationToken = default) => inner.CheckExportAsync(key, profile, revision, hash, cancellationToken);
         public Task<BackendExportReply> ExportInterchangeAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => inner.ExportInterchangeAsync(key, revision, hash, cancellationToken);
         public Task<BackendExportReply> FindExportAsync(string key, string clientKey, CancellationToken cancellationToken = default) => inner.FindExportAsync(key, clientKey, cancellationToken);

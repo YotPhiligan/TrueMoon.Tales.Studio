@@ -234,6 +234,43 @@ if ($plan.status -eq 'ready') {
 предпросмотр. Отметка `applied` сохраняется после перезапуска и после
 отмены действий в редакторе. [Поля и ошибки](../../API.md#native-agent-breakdown).
 
+<a id="studio-native-scenario-action-cli"></a>
+## Создание и правка действия из C# CLI
+
+В текущей сессии `--serve-project` прочитайте ревизию и SHA проекта.
+Сохраните `action.json` в UTF-8, подставив ID нужного сегмента. Пример
+формы для создания действия:
+
+```json
+{
+  "segment_id": "segment-main",
+  "title": "Реакция на звук",
+  "description": "Смотрит на циферблат.",
+  "planned_duration": 24,
+  "sound_notes": "Щелчок"
+}
+```
+
+```powershell
+$snapshot = .\TrueMoon.Tales.Studio.exe backend-project --url $url | ConvertFrom-Json
+$key = [guid]::NewGuid().ToString('N')
+$saved = .\TrueMoon.Tales.Studio.exe backend-scenario-action-save --url $url --file .\action.json --client-key $key --revision $snapshot.project.revision --sha256 $snapshot.fingerprint --actor 'agent:editor' | ConvertFrom-Json
+```
+
+Для правки добавьте `action_id` в форму, прочитайте свежий снимок и задайте
+новый ключ. Если ответ потерян, повторите исходную команду с теми же ключом,
+формой, ревизией, SHA и автором. Для завершения взятого в работу задания
+`prepare_block` используйте `action_id` из квитанции как `item_id`:
+
+```powershell
+@{ segment_id = $saved.segment_id; item_id = $saved.action_id } |
+    ConvertTo-Json | Set-Content -Encoding utf8 .\target.json
+.\TrueMoon.Tales.Studio.exe backend-agent-request-finish --url $url --id $id --revision $claim.revision --actor 'agent:editor' --result-file .\result.txt --target-file .\target.json
+```
+
+`$claim` — квитанция `claim` для задания `$id`, `result.txt` — описание
+сохранённого результата. [Поля формы и ошибки](../../API.md#native-scenario-action).
+
 <a id="native-transfer-cli"></a>
 ## Подготовка генерации из C# CLI
 

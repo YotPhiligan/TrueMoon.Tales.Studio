@@ -106,6 +106,8 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                 await HandleAgentContextAsync(context, deadline.Token).ConfigureAwait(false);
             else if (agentRequests)
                 await HandleAgentRequestsAsync(context, path!, deadline.Token).ConfigureAwait(false);
+            else if (path == ScenarioActionRoute)
+                await HandleScenarioActionAsync(context, deadline.Token).ConfigureAwait(false);
             else if (path == MoveRoute)
             {
                 if (!HttpMethods.IsPost(context.Request.Method)) { await Error(context, 405, "method_not_allowed"); return; }
@@ -168,11 +170,12 @@ internal sealed partial class BackendHttpServer(BackendConnection backend, int p
                     "transfer_stage_path_changed" or "transfer_already_launched" or "transfer_not_staged" or
                     "transfer_run_incomplete" or "transfer_take_removed" or "take_pair_changed" or "agent_context_block_ambiguous" or
                     "agent_request_key_conflict" or "agent_request_insertion_conflict" or "agent_request_revision_conflict" or
-                    "agent_request_owner_conflict" or "agent_request_state_conflict" or "agent_breakdown_not_ready" or "agent_breakdown_already_applied" => 409,
+                    "agent_request_owner_conflict" or "agent_request_state_conflict" or "agent_breakdown_not_ready" or "agent_breakdown_already_applied" or
+                    "scenario_action_key_conflict" => 409,
                 "invalid_move" or "invalid_trim" or "invalid_frame" or "invalid_media" or "invalid_export" or
                     "invalid_transfer" or "transfer_invalid_profile" or "transfer_timing" or "transfer_prompt_sound" or "invalid_agent_context" or
                     "invalid_agent_request_id" or "invalid_agent_request_record" or "invalid_agent_request" or "invalid_agent_request_scope" or
-                    "invalid_agent_request_update" or "invalid_agent_breakdown" or "agent_breakdown_blocked" => 422,
+                    "invalid_agent_request_update" or "invalid_agent_breakdown" or "agent_breakdown_blocked" or "invalid_scenario_edit" => 422,
                 "access_denied" or "write_not_enabled" => 403,
                 "project_not_found" or "media_not_found" or "export_not_found" or "transfer_missing" or "agent_context_block_missing" or
                     "agent_request_not_found" or "agent_request_scope_missing" => 404,

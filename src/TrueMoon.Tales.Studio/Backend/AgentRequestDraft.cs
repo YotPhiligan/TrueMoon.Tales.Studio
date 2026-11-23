@@ -24,8 +24,7 @@ internal sealed record AgentRequestDraft
     public AgentRequestScope? Scope { get; init; }
 
     internal bool Valid => ExpectedRevision >= 0 && BackendConnection.IsHash(Fingerprint) &&
-        ClientKey is { Length: >= 16 and <= 80 } &&
-        ClientKey.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_') &&
+        ValidClientKey(ClientKey) &&
         Goal is { Length: <= MaxText } && !string.IsNullOrWhiteSpace(Goal) &&
         Mode is "propose" or "apply" &&
         ValidActor(Actor) &&
@@ -39,6 +38,9 @@ internal sealed record AgentRequestDraft
 
     internal string Digest() =>
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(Normalize(), Json)));
+
+    internal static bool ValidClientKey(string? key) => key is { Length: >= 16 and <= 80 } &&
+        key.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
 
     internal static bool ValidActor(string? actor) =>
         actor is { Length: <= 80 } && !string.IsNullOrWhiteSpace(actor) && !actor.Any(char.IsControl);

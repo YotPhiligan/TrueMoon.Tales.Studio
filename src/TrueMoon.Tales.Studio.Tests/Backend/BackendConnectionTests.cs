@@ -86,6 +86,8 @@ public sealed class BackendConnectionTests
         public Task<BackendExportReply> WorkingReviewAsync(string key, string operation, string id, long revision, string hash, int startFrame, int endFrame, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendProjectReply> EditScenarioAsync(string key, string command, long revision, string hash, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+        public Task<BackendScenarioActionReply> SaveScenarioActionAsync(string key, string formJson, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
         public Task<BackendExportReply> CheckExportAsync(string key, string profile, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendExportReply> ExportInterchangeAsync(string key, long revision, string hash, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<BackendExportReply> FindExportAsync(string key, string clientKey, CancellationToken cancellationToken = default) => throw new NotSupportedException();

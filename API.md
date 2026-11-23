@@ -405,6 +405,35 @@ POST принимает `expected_revision` и `fingerprint` проекта из
 
 Задание `scope.intent=breakdown_segment` работает в режиме `propose`. Передайте `proposal` при `finish` вместе с текстом `result`. GET `/api/projects/{pid}/agent/requests/{rid}/breakdown` рассчитывает бюджет текущей ревизии и возвращает `items`, `status`, `issues`, `project_revision`, `fps` и поля бюджета в кадрах. POST на тот же путь принимает `expected_revision` проекта из предпросмотра и `actor`, повторно проверяет бюджет и применяет весь набор одной операцией. Описание полей предложения и CLI приведено в [ScenarioAgent.md](ScenarioAgent.md#разбивка-сегмента-с-агентом).
 
+<a id="native-scenario-action"></a>
+### Создание и правка действия schema2
+
+С **1.2611.22.9-alpha** команда `backend-scenario-action-save` вызывает
+`POST /api/backend/v1/scenario-action` с токеном сессии `--serve-project`.
+Тело содержит `expected_revision`, `fingerprint`, `client_key`, необязательный
+`actor` (по умолчанию `author`) и объект `action`. Объект содержит `segment_id`,
+`title` и необязательные `action_id`, `description`, `planned_duration` (кадры),
+`sound_notes`. Если `action_id` отсутствует или равен `null`, действие
+добавляется в конец сегмента. Для правки передайте ID действия этого сегмента.
+Пропуск `description` сохраняет пустое описание, пропуск `planned_duration` —
+неизвестную длительность. Пропуск `sound_notes` при правке сохраняет прежнюю
+заметку, пустая строка очищает её. Поля и история используют ту же логику
+сценария и writer, что и редактор. Сохранение действия не меняет клипы и не
+запускает генерацию.
+
+Ответ содержит `api_version`, `project_id`, `segment_id`, `action_id`,
+`project_revision`, `submission_sha256` и `changed`. Для изменения `client_key`
+(16–80 ASCII-букв, цифр, `-` или `_`) закрепляется той же ревизией, что и
+действие. При точном повторе сохраняются исходные ID и квитанция, в том числе
+после других правок или перезапуска backend. Повтор ключа с иными параметрами
+даёт `409 scenario_action_key_conflict`. Новый ключ с устаревшей ревизией или
+неверным SHA даёт `409 revision_conflict`. Неизвестный сегмент или действие
+даёт `422 invalid_scenario_edit`. Правка с теми же значениями возвращает
+`changed: false` и не создаёт ревизию или запись ключа. Клиент не повторяет POST
+автоматически. После потери ответа можно явно отправить ту же команду с теми же
+параметрами, затем прочитать актуальный снимок `backend-project`.
+[Пример CLI](src/Verification/BackendHttp.md#studio-native-scenario-action-cli).
+
 В 0.5 доступны GET/POST `/api/projects/{id}/scenario` и CLI scenario; [операции и правила времени](Scenario.md). Поле timeline.scenario хранит сценарные намерения, включая неизвестное время и конфликты; допустимая монтажная проекция обновляется атомарно. Пространственные правки активного сценария через прежний timeline API используют ту же последовательную укладку. `add_item`, `update_item` и `add_catalog_video` принимают необязательные сценарные заметки `sound_notes` и `continuity_notes` в `payload`. Пустая строка очищает заметку. Действие `set_animatic_frame` принимает `segment_id`, `id` сценарного использования и `asset_selection`. Выберите изображение по `asset_id` или по `file` из каталога, либо передайте `null` для снятия выбора. Выбранный `animatic_asset_id` хранится у сценарного использования и участвует в отмене.
 
 ## Read-only IPC backend
