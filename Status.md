@@ -7,6 +7,10 @@
 <a id="studio-current-slice"></a>
 ## Текущий срез · 23.11.2026
 
+- **Инструкции UI.** Добавлен скилл
+  [truemoon-studio-ui](.agents/skills/truemoon-studio-ui/SKILL.md) для настольного
+  редактора и адресных задач Python/Web. Проверены структура скилла и ссылки.
+
 - **Фреймворк.** Studio использует **TrueMoon 1.2611.22.7-alpha**.
   [Сборка и проверки](#studio-truemoon-20261122).
 - **Поставка.** Полный прогон Release для **1.2611.23.8-alpha** дал 980
